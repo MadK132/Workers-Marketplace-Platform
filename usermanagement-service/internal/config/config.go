@@ -20,7 +20,7 @@ type DBConfig struct {
 func Load() Config {
 	return Config{
 		DB: DBConfig{
-			DSN:         getEnv("DB_DSN", "postgres://user:pass@localhost:5432/app?sslmode=disable"),
+			DSN:         getEnv("DB_DSN", "postgres://user:pass@localhost:5433/app?sslmode=disable"),
 			MaxConns:    getEnvInt32("DB_MAX_CONNS", 10),
 			MinConns:    getEnvInt32("DB_MIN_CONNS", 2),
 			PingTimeout: getEnvDuration("DB_PING_TIMEOUT", "3s"),
