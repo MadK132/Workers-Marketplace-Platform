@@ -2,9 +2,18 @@ package main
 
 import (
 	"context"
+	"diploma/usermanagement-service/internal/auth"
 	"diploma/usermanagement-service/internal/config"
 	"diploma/usermanagement-service/internal/db"
+	"diploma/usermanagement-service/internal/repository"
+	"diploma/usermanagement-service/internal/service"
+	transporthttp "diploma/usermanagement-service/internal/transport/http"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -23,13 +32,34 @@ func main() {
 	}
 	defer pool.Close()
 
-	log.Println("DB connected successfully ✅")
+	log.Println("DB connected successfully")
 
-	var x int
-	err = pool.QueryRow(ctx, "SELECT 1").Scan(&x)
-	if err != nil {
-		log.Fatal(err)
+	userRepo := repository.NewUserRepository(pool)
+	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
+	authService := service.NewAuthService(userRepo, tokenManager)
+	handler := transporthttp.NewHandler(authService)
+
+	server := &http.Server{
+		Addr:              ":" + cfg.HTTP.Port,
+		Handler:           handler.Routes(),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	log.Println("DB test:", x)
+	go func() {
+		log.Printf("User management service listening on :%s", cfg.HTTP.Port)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server error: %v", err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Graceful shutdown failed: %v", err)
+	}
 }

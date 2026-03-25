@@ -7,7 +7,9 @@ import (
 )
 
 type Config struct {
-	DB DBConfig
+	DB   DBConfig
+	HTTP HTTPConfig
+	JWT  JWTConfig
 }
 
 type DBConfig struct {
@@ -17,6 +19,15 @@ type DBConfig struct {
 	PingTimeout time.Duration
 }
 
+type HTTPConfig struct {
+	Port string
+}
+
+type JWTConfig struct {
+	Secret string
+	TTL    time.Duration
+}
+
 func Load() Config {
 	return Config{
 		DB: DBConfig{
@@ -24,6 +35,13 @@ func Load() Config {
 			MaxConns:    getEnvInt32("DB_MAX_CONNS", 10),
 			MinConns:    getEnvInt32("DB_MIN_CONNS", 2),
 			PingTimeout: getEnvDuration("DB_PING_TIMEOUT", "3s"),
+		},
+		HTTP: HTTPConfig{
+			Port: getEnv("HTTP_PORT", "8081"),
+		},
+		JWT: JWTConfig{
+			Secret: getEnv("JWT_SECRET", "change-me"),
+			TTL:    getEnvDuration("JWT_TTL", "24h"),
 		},
 	}
 }
