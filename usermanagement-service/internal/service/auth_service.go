@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"net/mail"
 	"strings"
 	"time"
 
+	"diploma/usermanagement-service/internal/auth"
 	"diploma/usermanagement-service/internal/model"
 	"diploma/usermanagement-service/internal/repository"
 
@@ -15,17 +17,25 @@ import (
 
 type TokenGenerator interface {
 	GenerateAccessToken(user model.User) (string, time.Time, error)
+	GenerateRefreshToken(user model.User) (string, time.Time, error)
+	Parse(token string) (*auth.Claims, error)
 }
 
 type AuthService struct {
-	users  *repository.UserRepository
-	tokens TokenGenerator
+	users         *repository.UserRepository
+	tokens        TokenGenerator
+	verifications *repository.EmailVerificationRepository
 }
 
-func NewAuthService(users *repository.UserRepository, tokens TokenGenerator) *AuthService {
+func NewAuthService(
+	users *repository.UserRepository,
+	tokens TokenGenerator,
+	verifications *repository.EmailVerificationRepository,
+) *AuthService {
 	return &AuthService{
-		users:  users,
-		tokens: tokens,
+		users:         users,
+		tokens:        tokens,
+		verifications: verifications,
 	}
 }
 
@@ -38,9 +48,17 @@ type RegisterInput struct {
 }
 
 type RegisterResult struct {
-	User        model.User
-	AccessToken string
-	ExpiresAt   time.Time
+	User model.User
+}
+type LoginInput struct {
+	Email    string
+	Password string
+}
+
+type LoginResult struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    time.Time
 }
 
 type ValidationError struct {
@@ -96,24 +114,105 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 		Phone:        phone,
 		PasswordHash: string(passwordHash),
 		Role:         role,
+		Status:       model.StatusInactive,
 	})
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
-	accessToken, expiresAt, err := s.tokens.GenerateAccessToken(user)
+	verifyToken, err := auth.GenerateVerificationToken()
 	if err != nil {
 		return RegisterResult{}, err
 	}
 
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	err = s.verifications.Create(ctx, user.ID, verifyToken, expiresAt)
+	if err != nil {
+		return RegisterResult{}, err
+	}
+
+	log.Printf("VERIFY LINK: http://localhost:8080/auth/verify?token=%s", verifyToken)
+
 	return RegisterResult{
-		User:        user,
-		AccessToken: accessToken,
-		ExpiresAt:   expiresAt,
+		User: user,
 	}, nil
+}
+
+func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
+	userID, expiresAt, err := s.verifications.GetByToken(ctx, token)
+	if err != nil {
+		return err
+	}
+
+	if time.Now().After(expiresAt) {
+		return errors.New("token expired")
+	}
+
+	err = s.users.ActivateUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	return s.verifications.Delete(ctx, token)
 }
 
 func IsValidationError(err error) bool {
 	var validationErr *ValidationError
 	return errors.As(err, &validationErr)
+}
+func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	password := strings.TrimSpace(input.Password)
+
+	user, err := s.users.GetByEmail(ctx, email)
+	if err != nil {
+		return LoginResult{}, errors.New("invalid credentials")
+	}
+
+	if user.Status != model.StatusActive {
+		return LoginResult{}, errors.New("email not verified")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return LoginResult{}, errors.New("invalid credentials")
+	}
+
+	accessToken, expiresAt, err := s.tokens.GenerateAccessToken(user)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	refreshToken, _, err := s.tokens.GenerateRefreshToken(user)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	return LoginResult{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresAt:    expiresAt,
+	}, nil
+}
+func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (LoginResult, error) {
+	claims, err := s.tokens.Parse(refreshToken)
+	if err != nil {
+		return LoginResult{}, errors.New("invalid refresh token")
+	}
+
+	userID := claims.UserID
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	token, expiresAt, err := s.tokens.GenerateAccessToken(user)
+	if err != nil {
+		return LoginResult{}, err
+	}
+
+	return LoginResult{
+		AccessToken: token,
+		ExpiresAt:   expiresAt,
+	}, nil
 }

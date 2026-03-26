@@ -2,18 +2,20 @@ package main
 
 import (
 	"context"
-	"diploma/usermanagement-service/internal/auth"
-	"diploma/usermanagement-service/internal/config"
-	"diploma/usermanagement-service/internal/db"
-	"diploma/usermanagement-service/internal/repository"
-	"diploma/usermanagement-service/internal/service"
-	transporthttp "diploma/usermanagement-service/internal/transport/http"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
+
+	"diploma/usermanagement-service/internal/auth"
+	"diploma/usermanagement-service/internal/config"
+	"diploma/usermanagement-service/internal/db"
+	"diploma/usermanagement-service/internal/handler"
+	"diploma/usermanagement-service/internal/repository"
+	"diploma/usermanagement-service/internal/router"
+	"diploma/usermanagement-service/internal/service"
 )
 
 func main() {
@@ -35,13 +37,23 @@ func main() {
 	log.Println("DB connected successfully")
 
 	userRepo := repository.NewUserRepository(pool)
+	verificationRepo := repository.NewEmailVerificationRepository(pool)
+
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
-	authService := service.NewAuthService(userRepo, tokenManager)
-	handler := transporthttp.NewHandler(authService)
+
+	authService := service.NewAuthService(
+		userRepo,
+		tokenManager,
+		verificationRepo,
+	)
+
+	authHandler := handler.NewAuthHandler(authService)
+
+	r := router.SetupRouter(authHandler, tokenManager)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
-		Handler:           handler.Routes(),
+		Handler:           r,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -56,10 +68,14 @@ func main() {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
+	log.Println("Shutting down...")
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Graceful shutdown failed: %v", err)
 	}
+
+	log.Println("Server stopped")
 }

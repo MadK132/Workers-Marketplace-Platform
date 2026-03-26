@@ -41,7 +41,7 @@ func Load() Config {
 		},
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", "change-me"),
-			TTL:    getEnvDuration("JWT_TTL", "24h"),
+			TTL:    getEnvDuration("JWT_TTL", "15m"),
 		},
 	}
 }
