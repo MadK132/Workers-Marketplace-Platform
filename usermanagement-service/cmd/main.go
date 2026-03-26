@@ -6,16 +6,20 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"diploma/usermanagement-service/internal/auth"
 	"diploma/usermanagement-service/internal/config"
 	"diploma/usermanagement-service/internal/db"
+	"diploma/usermanagement-service/internal/email"
 	"diploma/usermanagement-service/internal/handler"
 	"diploma/usermanagement-service/internal/repository"
 	"diploma/usermanagement-service/internal/router"
 	"diploma/usermanagement-service/internal/service"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -35,16 +39,30 @@ func main() {
 	defer pool.Close()
 
 	log.Println("DB connected successfully")
+	godotenv.Load()
 
+	smtpHost := os.Getenv("SMTP_HOST")
+	smtpPortStr := os.Getenv("SMTP_PORT")
+	smtpUser := os.Getenv("SMTP_USER")
+	smtpPass := os.Getenv("SMTP_PASS")
+
+	smtpPort, _ := strconv.Atoi(smtpPortStr)
+
+	emailSender := email.NewSender(
+		smtpHost,
+		smtpPort,
+		smtpUser,
+		smtpPass,
+	)
 	userRepo := repository.NewUserRepository(pool)
 	verificationRepo := repository.NewEmailVerificationRepository(pool)
 
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
-
 	authService := service.NewAuthService(
 		userRepo,
 		tokenManager,
 		verificationRepo,
+		emailSender,
 	)
 
 	authHandler := handler.NewAuthHandler(authService)

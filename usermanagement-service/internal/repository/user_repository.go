@@ -149,3 +149,10 @@ func (r *UserRepository) GetByID(ctx context.Context, id int) (model.User, error
 
 	return user, nil
 }
+func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM users WHERE user_id=$1`,
+		userID,
+	)
+	return err
+}

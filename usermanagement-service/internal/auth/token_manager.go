@@ -112,7 +112,7 @@ func (m *TokenManager) Parse(token string) (*Claims, error) {
 
 	userID, _ := strconv.Atoi(raw["sub"].(string))
 
-	role, _ := raw["role"].(string) // безопасно
+	role, _ := raw["role"].(string)
 
 	return &Claims{
 		UserID: userID,

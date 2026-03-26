@@ -3,12 +3,12 @@ package service
 import (
 	"context"
 	"errors"
-	"log"
 	"net/mail"
 	"strings"
 	"time"
 
 	"diploma/usermanagement-service/internal/auth"
+	"diploma/usermanagement-service/internal/email"
 	"diploma/usermanagement-service/internal/model"
 	"diploma/usermanagement-service/internal/repository"
 
@@ -25,17 +25,20 @@ type AuthService struct {
 	users         *repository.UserRepository
 	tokens        TokenGenerator
 	verifications *repository.EmailVerificationRepository
+	emailSender   *email.Sender
 }
 
 func NewAuthService(
 	users *repository.UserRepository,
 	tokens TokenGenerator,
 	verifications *repository.EmailVerificationRepository,
+	emailSender *email.Sender,
 ) *AuthService {
 	return &AuthService{
 		users:         users,
 		tokens:        tokens,
 		verifications: verifications,
+		emailSender:   emailSender,
 	}
 }
 
@@ -127,13 +130,21 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 
 	expiresAt := time.Now().Add(24 * time.Hour)
 
+	// сохраняем токен в БД
 	err = s.verifications.Create(ctx, user.ID, verifyToken, expiresAt)
 	if err != nil {
+		_ = s.users.DeleteUser(ctx, user.ID)
 		return RegisterResult{}, err
 	}
 
-	log.Printf("VERIFY LINK: http://localhost:8080/auth/verify?token=%s", verifyToken)
+	// отправка email
+	err = s.emailSender.SendVerificationEmail(user.Email, verifyToken)
+	if err != nil {
+		// 🔥 rollback
+		_ = s.users.DeleteUser(ctx, user.ID)
 
+		return RegisterResult{}, err
+	}
 	return RegisterResult{
 		User: user,
 	}, nil
