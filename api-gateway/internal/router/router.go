@@ -16,6 +16,7 @@ import (
 func Setup(cfg config.Config, userProxy, bookingProxy *httputil.ReverseProxy) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.RequestID())
 	r.Use(gin.Logger())
 

@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strings"
+)
 
 type Config struct {
 	Port              string
@@ -8,6 +11,7 @@ type Config struct {
 	BookingServiceURL string
 	JWTSecret         string
 	GatewaySecret     string
+	AllowedOrigins    []string
 }
 
 func Load() Config {
@@ -17,6 +21,12 @@ func Load() Config {
 		BookingServiceURL: getEnv("BOOKING_SERVICE_URL", "http://localhost:8082"),
 		JWTSecret:         getEnv("JWT_SECRET", "change-me"),
 		GatewaySecret:     getEnv("GATEWAY_SHARED_SECRET", ""),
+		AllowedOrigins: parseOrigins(
+			getEnv(
+				"CORS_ALLOWED_ORIGINS",
+				"http://localhost:3000,http://localhost:5173",
+			),
+		),
 	}
 }
 
@@ -25,4 +35,17 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func parseOrigins(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		origin := strings.TrimSpace(part)
+		if origin == "" {
+			continue
+		}
+		out = append(out, origin)
+	}
+	return out
 }
