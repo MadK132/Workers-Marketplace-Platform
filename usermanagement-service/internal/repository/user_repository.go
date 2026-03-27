@@ -156,3 +156,11 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 	)
 	return err
 }
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID int, hash string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET password_hash=$1 WHERE user_id=$2`,
+		hash,
+		userID,
+	)
+	return err
+}

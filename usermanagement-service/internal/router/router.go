@@ -19,6 +19,9 @@ func SetupRouter(h *handler.AuthHandler, tokens *auth.TokenManager) *gin.Engine 
 		auth.GET("/verify", h.Verify)
 		auth.POST("/login", h.Login)
 		auth.POST("/refresh", h.Refresh)
+		auth.POST("/resend-verification", h.ResendVerification)
+		auth.POST("/forgot-password", h.ForgotPassword)
+		auth.POST("/reset-password", h.ResetPassword)
 	}
 
 	api := r.Group("/api")

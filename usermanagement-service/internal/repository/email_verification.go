@@ -43,3 +43,10 @@ func (r *EmailVerificationRepository) Delete(ctx context.Context, token string) 
 	)
 	return err
 }
+func (r *EmailVerificationRepository) DeleteByUserID(ctx context.Context, userID int) error {
+	_, err := r.db.Exec(ctx,
+		`DELETE FROM email_verifications WHERE user_id=$1`,
+		userID,
+	)
+	return err
+}

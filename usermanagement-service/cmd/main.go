@@ -56,6 +56,7 @@ func main() {
 	)
 	userRepo := repository.NewUserRepository(pool)
 	verificationRepo := repository.NewEmailVerificationRepository(pool)
+	passwordResetRepo := repository.NewPasswordResetRepository(pool)
 
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
 	authService := service.NewAuthService(
@@ -63,6 +64,7 @@ func main() {
 		tokenManager,
 		verificationRepo,
 		emailSender,
+		passwordResetRepo,
 	)
 
 	authHandler := handler.NewAuthHandler(authService)

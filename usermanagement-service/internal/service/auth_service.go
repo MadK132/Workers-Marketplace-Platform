@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"net/mail"
 	"strings"
 	"time"
@@ -22,10 +23,11 @@ type TokenGenerator interface {
 }
 
 type AuthService struct {
-	users         *repository.UserRepository
-	tokens        TokenGenerator
-	verifications *repository.EmailVerificationRepository
-	emailSender   *email.Sender
+	users          *repository.UserRepository
+	tokens         TokenGenerator
+	verifications  *repository.EmailVerificationRepository
+	emailSender    *email.Sender
+	passwordResets *repository.PasswordResetRepository
 }
 
 func NewAuthService(
@@ -33,12 +35,14 @@ func NewAuthService(
 	tokens TokenGenerator,
 	verifications *repository.EmailVerificationRepository,
 	emailSender *email.Sender,
+	passwordResets *repository.PasswordResetRepository,
 ) *AuthService {
 	return &AuthService{
-		users:         users,
-		tokens:        tokens,
-		verifications: verifications,
-		emailSender:   emailSender,
+		users:          users,
+		tokens:         tokens,
+		verifications:  verifications,
+		emailSender:    emailSender,
+		passwordResets: passwordResets,
 	}
 }
 
@@ -137,10 +141,8 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 		return RegisterResult{}, err
 	}
 
-	// отправка email
 	err = s.emailSender.SendVerificationEmail(user.Email, verifyToken)
 	if err != nil {
-		// 🔥 rollback
 		_ = s.users.DeleteUser(ctx, user.ID)
 
 		return RegisterResult{}, err
@@ -226,4 +228,72 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (LoginRe
 		AccessToken: token,
 		ExpiresAt:   expiresAt,
 	}, nil
+}
+func (s *AuthService) ResendVerification(ctx context.Context, email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+
+	user, err := s.users.GetByEmail(ctx, email)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	if user.Status == model.StatusActive {
+		return errors.New("user already verified")
+	}
+
+	_ = s.verifications.DeleteByUserID(ctx, user.ID)
+
+	verifyToken, err := auth.GenerateVerificationToken()
+	if err != nil {
+		return err
+	}
+
+	expiresAt := time.Now().Add(24 * time.Hour)
+
+	err = s.verifications.Create(ctx, user.ID, verifyToken, expiresAt)
+	if err != nil {
+		return err
+	}
+
+	return s.emailSender.SendVerificationEmail(user.Email, verifyToken)
+}
+func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
+	user, err := s.users.GetByEmail(ctx, email)
+	if err != nil {
+		return nil
+	}
+
+	token, _ := auth.GenerateVerificationToken()
+	expiresAt := time.Now().Add(1 * time.Hour)
+	log.Println("FORGOT PASSWORD CALLED:", email)
+	err = s.passwordResets.Create(ctx, user.ID, token, expiresAt)
+	if err != nil {
+		return err
+	}
+	log.Println("SENDING RESET EMAIL TO:", user.Email)
+	err = s.emailSender.SendResetEmail(user.Email, token)
+	if err != nil {
+		log.Println("EMAIL ERROR:", err)
+		return err
+	}
+	return nil
+}
+func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	userID, expiresAt, err := s.passwordResets.GetByToken(ctx, token)
+	if err != nil {
+		return err
+	}
+
+	if time.Now().After(expiresAt) {
+		return errors.New("token expired")
+	}
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+
+	err = s.users.UpdatePassword(ctx, userID, string(hash))
+	if err != nil {
+		return err
+	}
+
+	return s.passwordResets.Delete(ctx, token)
 }

@@ -18,6 +18,9 @@ type AuthService interface {
 	VerifyEmail(ctx context.Context, token string) error
 	Login(ctx context.Context, input service.LoginInput) (service.LoginResult, error)
 	Refresh(ctx context.Context, refreshToken string) (service.LoginResult, error)
+	ResendVerification(ctx context.Context, email string) error
+	ForgotPassword(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, token, newPassword string) error
 }
 
 type AuthHandler struct {
@@ -164,4 +167,54 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		"access_token": result.AccessToken,
 		"expires_at":   result.ExpiresAt,
 	})
+}
+func (h *AuthHandler) ResendVerification(c *gin.Context) {
+	var req struct {
+		Email string `json:"email"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	err := h.auth.ResendVerification(c.Request.Context(), req.Email)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"message": "verification email sent",
+	})
+}
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req struct {
+		Email string `json:"email"`
+	}
+
+	_ = c.ShouldBindJSON(&req)
+
+	_ = h.auth.ForgotPassword(c.Request.Context(), req.Email)
+
+	c.JSON(200, gin.H{"message": "if email exists, reset link sent"})
+}
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req struct {
+		Token       string `json:"token"`
+		NewPassword string `json:"new_password"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	err := h.auth.ResetPassword(c.Request.Context(), req.Token, req.NewPassword)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "password updated"})
 }
