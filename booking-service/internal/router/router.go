@@ -20,6 +20,8 @@ func SetupRouter(
 	{
 		api.POST("/requests", h.CreateRequest)
 		api.POST("/bookings", h.CreateBooking)
+		api.PATCH("/bookings/:booking_id/start", h.StartBooking)
+		api.PATCH("/bookings/:booking_id/complete", h.CompleteBooking)
 	}
 
 	return r
