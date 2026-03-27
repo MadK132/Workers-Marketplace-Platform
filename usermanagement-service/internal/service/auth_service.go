@@ -23,11 +23,14 @@ type TokenGenerator interface {
 }
 
 type AuthService struct {
-	users          *repository.UserRepository
-	tokens         TokenGenerator
-	verifications  *repository.EmailVerificationRepository
-	emailSender    *email.Sender
-	passwordResets *repository.PasswordResetRepository
+	users            *repository.UserRepository
+	tokens           TokenGenerator
+	verifications    *repository.EmailVerificationRepository
+	emailSender      *email.Sender
+	passwordResets   *repository.PasswordResetRepository
+	customerProfiles *repository.CustomerProfileRepository
+	workerProfiles   *repository.WorkerProfileRepository
+	workerSkills     *repository.WorkerSkillRepository
 }
 
 func NewAuthService(
@@ -36,13 +39,19 @@ func NewAuthService(
 	verifications *repository.EmailVerificationRepository,
 	emailSender *email.Sender,
 	passwordResets *repository.PasswordResetRepository,
+	customerProfiles *repository.CustomerProfileRepository,
+	workerProfiles *repository.WorkerProfileRepository,
+	workerSkills *repository.WorkerSkillRepository,
 ) *AuthService {
 	return &AuthService{
-		users:          users,
-		tokens:         tokens,
-		verifications:  verifications,
-		emailSender:    emailSender,
-		passwordResets: passwordResets,
+		users:            users,
+		tokens:           tokens,
+		verifications:    verifications,
+		emailSender:      emailSender,
+		passwordResets:   passwordResets,
+		customerProfiles: customerProfiles,
+		workerProfiles:   workerProfiles,
+		workerSkills:     workerSkills,
 	}
 }
 
@@ -134,7 +143,6 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 
 	expiresAt := time.Now().Add(24 * time.Hour)
 
-	// сохраняем токен в БД
 	err = s.verifications.Create(ctx, user.ID, verifyToken, expiresAt)
 	if err != nil {
 		_ = s.users.DeleteUser(ctx, user.ID)
@@ -296,4 +304,100 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword stri
 	}
 
 	return s.passwordResets.Delete(ctx, token)
+}
+func (s *AuthService) SelectRole(ctx context.Context, userID int, role model.Role) error {
+	if role != model.RoleCustomer && role != model.RoleWorker {
+		return errors.New("invalid role")
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if user.Role != "" {
+		return errors.New("role already selected")
+	}
+	return s.users.UpdateRole(ctx, userID, role)
+}
+func (s *AuthService) CreateCustomerProfile(ctx context.Context, userID int) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if user.Role != model.RoleCustomer {
+		return errors.New("not a customer")
+	}
+
+	return s.customerProfiles.Create(ctx, userID)
+}
+func (s *AuthService) CreateWorkerProfile(ctx context.Context, userID int) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if user.Role != model.RoleWorker {
+		return errors.New("not a worker")
+	}
+
+	return s.workerProfiles.Create(ctx, userID)
+}
+func (s *AuthService) AddWorkerSkill(
+	ctx context.Context,
+	userID int,
+	categoryID int,
+	experience string,
+	price int,
+) error {
+	if !isValidExperience(experience) {
+		return errors.New("invalid experience level")
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if user.Role != model.RoleWorker {
+		return errors.New("not a worker")
+	}
+
+	workerID, err := s.workerProfiles.GetByUserID(ctx, userID)
+	if err != nil {
+		return errors.New("worker profile not found")
+	}
+
+	return s.workerSkills.Create(ctx, workerID, categoryID, experience, price)
+}
+func (s *AuthService) VerifyWorkerSkill(ctx context.Context, skillID int) error {
+	return s.workerSkills.Verify(ctx, skillID)
+}
+func (s *AuthService) SetAvailability(ctx context.Context, userID int, available bool) error {
+	worker, err := s.workerProfiles.GetByUserIDFull(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if worker.VerificationStatus != "verified" {
+		return errors.New("worker not verified")
+	}
+
+	return s.workerProfiles.UpdateAvailability(ctx, worker.ID, available)
+}
+func isValidExperience(level string) bool {
+	switch level {
+	case "junior", "middle", "senior":
+		return true
+	default:
+		return false
+	}
+}
+func (s *AuthService) FindWorkers(
+	ctx context.Context,
+	categoryID int,
+) ([]repository.WorkerSearchResult, error) {
+	return s.workerSkills.FindWorkersByCategory(ctx, categoryID)
+}
+func (s *AuthService) VerifyWorker(ctx context.Context, workerID int) error {
+	return s.workerProfiles.Verify(ctx, workerID)
 }

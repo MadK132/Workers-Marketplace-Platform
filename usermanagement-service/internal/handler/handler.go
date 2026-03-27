@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,6 +22,14 @@ type AuthService interface {
 	ResendVerification(ctx context.Context, email string) error
 	ForgotPassword(ctx context.Context, email string) error
 	ResetPassword(ctx context.Context, token, newPassword string) error
+	SelectRole(ctx context.Context, userID int, role model.Role) error
+	CreateCustomerProfile(ctx context.Context, userID int) error
+	CreateWorkerProfile(ctx context.Context, userID int) error
+	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) error
+	VerifyWorkerSkill(ctx context.Context, skillID int) error
+	SetAvailability(ctx context.Context, userID int, available bool) error
+	FindWorkers(ctx context.Context, categoryID int) ([]repository.WorkerSearchResult, error)
+	VerifyWorker(ctx context.Context, workerID int) error
 }
 
 type AuthHandler struct {
@@ -217,4 +226,157 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"message": "password updated"})
+}
+func (h *AuthHandler) SelectRole(c *gin.Context) {
+	var req struct {
+		Role string `json:"role"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	userID := c.GetInt("user_id")
+
+	err := h.auth.SelectRole(
+		c.Request.Context(),
+		userID,
+		model.Role(req.Role),
+	)
+
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "role selected"})
+}
+func (h *AuthHandler) CreateCustomerProfile(c *gin.Context) {
+	userID := c.GetInt("user_id")
+
+	err := h.auth.CreateCustomerProfile(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "customer profile created"})
+}
+func (h *AuthHandler) CreateWorkerProfile(c *gin.Context) {
+	userID := c.GetInt("user_id")
+
+	err := h.auth.CreateWorkerProfile(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "worker profile created"})
+}
+func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
+	var req struct {
+		CategoryID int    `json:"category_id"`
+		Experience string `json:"experience_level"`
+		Price      int    `json:"price_base"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	userID := c.GetInt("user_id")
+
+	err := h.auth.AddWorkerSkill(
+		c.Request.Context(),
+		userID,
+		req.CategoryID,
+		req.Experience,
+		req.Price,
+	)
+
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "skill added"})
+}
+func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
+	var req struct {
+		SkillID int `json:"worker_skill_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	err := h.auth.VerifyWorkerSkill(c.Request.Context(), req.SkillID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "skill verified"})
+}
+func (h *AuthHandler) SetAvailability(c *gin.Context) {
+	var req struct {
+		IsAvailable bool `json:"is_available"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	userID := c.GetInt("user_id")
+
+	err := h.auth.SetAvailability(c.Request.Context(), userID, req.IsAvailable)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "availability updated"})
+}
+func (h *AuthHandler) FindWorkers(c *gin.Context) {
+	categoryIDStr := c.Query("category_id")
+	if categoryIDStr == "" {
+		c.JSON(400, gin.H{"error": "category_id is required"})
+		return
+	}
+
+	categoryID, err := strconv.Atoi(categoryIDStr)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid category_id"})
+		return
+	}
+
+	result, err := h.auth.FindWorkers(c.Request.Context(), categoryID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, result)
+}
+func (h *AuthHandler) VerifyWorker(c *gin.Context) {
+	var req struct {
+		WorkerID int `json:"worker_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	err := h.auth.VerifyWorker(c.Request.Context(), req.WorkerID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "worker verified"})
 }

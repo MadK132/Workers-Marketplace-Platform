@@ -164,3 +164,11 @@ func (r *UserRepository) UpdatePassword(ctx context.Context, userID int, hash st
 	)
 	return err
 }
+func (r *UserRepository) UpdateRole(ctx context.Context, userID int, role model.Role) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET role=$1 WHERE user_id=$2`,
+		role,
+		userID,
+	)
+	return err
+}

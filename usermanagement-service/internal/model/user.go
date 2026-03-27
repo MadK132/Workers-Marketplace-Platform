@@ -32,3 +32,16 @@ type User struct {
 	Status       Status
 	CreatedAt    time.Time
 }
+type WorkerProfile struct {
+	ID                 int
+	UserID             int
+	VerificationStatus string
+	IsAvailable        bool
+}
+type ExperienceLevel string
+
+const (
+	Junior ExperienceLevel = "junior"
+	Middle ExperienceLevel = "middle"
+	Senior ExperienceLevel = "senior"
+)
