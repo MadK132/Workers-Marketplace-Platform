@@ -401,3 +401,22 @@ func (s *AuthService) FindWorkers(
 func (s *AuthService) VerifyWorker(ctx context.Context, workerID int) error {
 	return s.workerProfiles.Verify(ctx, workerID)
 }
+func (s *AuthService) GetCustomerProfile(
+	ctx context.Context,
+	userID int,
+) (*model.CustomerProfile, error) {
+
+	return s.customerProfiles.GetByUserID(ctx, userID)
+}
+func (s *AuthService) GetWorkerProfile(
+	ctx context.Context,
+	userID int,
+) (*model.WorkerProfile, error) {
+
+	profile, err := s.workerProfiles.GetByUserIDFull(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &profile, nil
+}

@@ -126,7 +126,7 @@ func encode(data []byte) string {
 }
 func (m *TokenManager) GenerateRefreshToken(user model.User) (string, time.Time, error) {
 	now := time.Now().UTC()
-	expiresAt := now.Add(7 * 24 * time.Hour) // 7 дней
+	expiresAt := now.Add(7 * 24 * time.Hour)
 
 	claims := map[string]any{
 		"sub":  strconv.Itoa(user.ID),

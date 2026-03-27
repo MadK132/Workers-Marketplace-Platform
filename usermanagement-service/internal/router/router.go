@@ -36,6 +36,8 @@ func SetupRouter(h *handler.AuthHandler, tokens *auth.TokenManager) *gin.Engine 
 		api.PATCH("/worker/availability", h.SetAvailability)
 		api.GET("/workers", h.FindWorkers)
 		api.POST("/admin/verify-worker", h.VerifyWorker)
+		api.GET("/internal/customer-profile", h.GetCustomerProfile)
+		api.GET("/internal/worker-profile", h.GetWorkerProfile)
 	}
 
 	return r

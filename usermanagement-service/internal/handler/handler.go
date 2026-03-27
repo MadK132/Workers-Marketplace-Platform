@@ -30,6 +30,8 @@ type AuthService interface {
 	SetAvailability(ctx context.Context, userID int, available bool) error
 	FindWorkers(ctx context.Context, categoryID int) ([]repository.WorkerSearchResult, error)
 	VerifyWorker(ctx context.Context, workerID int) error
+	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
+	GetWorkerProfile(ctx context.Context, userID int) (*model.WorkerProfile, error)
 }
 
 type AuthHandler struct {
@@ -379,4 +381,42 @@ func (h *AuthHandler) VerifyWorker(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"message": "worker verified"})
+}
+func (h *AuthHandler) GetCustomerProfile(c *gin.Context) {
+	userIDStr := c.Query("user_id")
+
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid user_id"})
+		return
+	}
+
+	profile, err := h.auth.GetCustomerProfile(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "customer profile not found"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"customer_profile_id": profile.ID,
+	})
+}
+func (h *AuthHandler) GetWorkerProfile(c *gin.Context) {
+	userIDStr := c.Query("user_id")
+
+	userID, err := strconv.Atoi(userIDStr)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid user_id"})
+		return
+	}
+
+	profile, err := h.auth.GetWorkerProfile(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "worker profile not found"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"worker_profile_id": profile.ID,
+	})
 }

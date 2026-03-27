@@ -35,8 +35,17 @@ type User struct {
 type WorkerProfile struct {
 	ID                 int
 	UserID             int
+	Bio                string
+	Rating             float64
 	VerificationStatus string
 	IsAvailable        bool
+}
+type CustomerProfile struct {
+	ID        int
+	UserID    int
+	Address   string
+	Latitude  float64
+	Longitude float64
 }
 type ExperienceLevel string
 
