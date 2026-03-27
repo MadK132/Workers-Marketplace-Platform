@@ -39,7 +39,7 @@ func main() {
 	userClient := client.NewUserClient("http://localhost:8081")
 
 	h := handler.NewHandler(requestService, bookingService, userClient)
-	r := router.SetupRouter(h, tokenManager)
+	r := router.SetupRouter(h, tokenManager, cfg.Gateway.SharedSecret)
 
 	log.Println("Booking service running on :8082")
 	r.Run(":8082")

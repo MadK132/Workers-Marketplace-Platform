@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -9,8 +10,20 @@ import (
 	"diploma/booking-service/internal/auth"
 )
 
-func AuthMiddleware(tokens *auth.TokenManager) gin.HandlerFunc {
+func AuthMiddleware(tokens *auth.TokenManager, gatewaySharedSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if gatewaySharedSecret != "" &&
+			c.GetHeader("X-Gateway-Secret") == gatewaySharedSecret {
+			userIDStr := c.GetHeader("X-User-ID")
+			role := c.GetHeader("X-Role")
+			userID, err := strconv.Atoi(userIDStr)
+			if err == nil && userID > 0 && role != "" {
+				c.Set("user_id", userID)
+				c.Set("role", role)
+				c.Next()
+				return
+			}
+		}
 
 		authHeader := c.GetHeader("Authorization")
 

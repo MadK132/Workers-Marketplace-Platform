@@ -8,7 +8,11 @@ import (
 	"diploma/usermanagement-service/internal/middleware"
 )
 
-func SetupRouter(h *handler.AuthHandler, tokens *auth.TokenManager) *gin.Engine {
+func SetupRouter(
+	h *handler.AuthHandler,
+	tokens *auth.TokenManager,
+	gatewaySharedSecret string,
+) *gin.Engine {
 	r := gin.Default()
 
 	r.GET("/healthz", h.Health)
@@ -22,12 +26,12 @@ func SetupRouter(h *handler.AuthHandler, tokens *auth.TokenManager) *gin.Engine 
 		auth.POST("/resend-verification", h.ResendVerification)
 		auth.POST("/forgot-password", h.ForgotPassword)
 		auth.POST("/reset-password", h.ResetPassword)
-		auth.POST("/select-role", middleware.AuthMiddleware(tokens), h.SelectRole)
+		auth.POST("/select-role", middleware.AuthMiddleware(tokens, gatewaySharedSecret), h.SelectRole)
 
 	}
 
 	api := r.Group("/api")
-	api.Use(middleware.AuthMiddleware(tokens))
+	api.Use(middleware.AuthMiddleware(tokens, gatewaySharedSecret))
 	{
 		api.POST("/customer/profile", h.CreateCustomerProfile)
 		api.POST("/worker/profile", h.CreateWorkerProfile)

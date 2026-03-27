@@ -74,7 +74,7 @@ func main() {
 
 	authHandler := handler.NewAuthHandler(authService)
 
-	r := router.SetupRouter(authHandler, tokenManager)
+	r := router.SetupRouter(authHandler, tokenManager, cfg.Gateway.SharedSecret)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,

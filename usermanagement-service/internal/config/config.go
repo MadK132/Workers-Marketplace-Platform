@@ -7,9 +7,10 @@ import (
 )
 
 type Config struct {
-	DB   DBConfig
-	HTTP HTTPConfig
-	JWT  JWTConfig
+	DB      DBConfig
+	HTTP    HTTPConfig
+	JWT     JWTConfig
+	Gateway GatewayConfig
 }
 
 type DBConfig struct {
@@ -27,6 +28,9 @@ type JWTConfig struct {
 	Secret string
 	TTL    time.Duration
 }
+type GatewayConfig struct {
+	SharedSecret string
+}
 
 func Load() Config {
 	return Config{
@@ -42,6 +46,9 @@ func Load() Config {
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", "change-me"),
 			TTL:    getEnvDuration("JWT_TTL", "15m"),
+		},
+		Gateway: GatewayConfig{
+			SharedSecret: getEnv("GATEWAY_SHARED_SECRET", ""),
 		},
 	}
 }

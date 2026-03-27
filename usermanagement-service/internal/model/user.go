@@ -43,9 +43,9 @@ type WorkerProfile struct {
 type CustomerProfile struct {
 	ID        int
 	UserID    int
-	Address   string
-	Latitude  float64
-	Longitude float64
+	Address   *string
+	Latitude  *float64
+	Longitude *float64
 }
 type ExperienceLevel string
 

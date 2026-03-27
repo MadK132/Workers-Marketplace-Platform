@@ -3,9 +3,13 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"time"
 )
+
+var ErrCustomerProfileNotFound = errors.New("customer profile not found")
 
 type UserClient struct {
 	baseURL string
@@ -13,7 +17,12 @@ type UserClient struct {
 }
 
 func NewUserClient(baseURL string) *UserClient {
-	return &UserClient{baseURL: baseURL, client: &http.Client{}}
+	return &UserClient{
+		baseURL: baseURL,
+		client: &http.Client{
+			Timeout: 5 * time.Second,
+		},
+	}
 }
 
 type CustomerProfileResponse struct {
@@ -22,11 +31,10 @@ type CustomerProfileResponse struct {
 
 func (c *UserClient) GetCustomerProfile(
 	ctx context.Context,
-	userID int,
 	token string,
 ) (int, error) {
 
-	url := fmt.Sprintf("%s/api/internal/customer-profile?user_id=%d", c.baseURL, userID)
+	url := fmt.Sprintf("%s/api/internal/customer-profile", c.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -35,11 +43,15 @@ func (c *UserClient) GetCustomerProfile(
 
 	req.Header.Set("Authorization", token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return 0, err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return 0, ErrCustomerProfileNotFound
+	}
 
 	if resp.StatusCode != 200 {
 		return 0, fmt.Errorf("user-service error: %d", resp.StatusCode)
@@ -59,11 +71,10 @@ type WorkerProfileResponse struct {
 
 func (c *UserClient) GetWorkerProfile(
 	ctx context.Context,
-	userID int,
 	token string,
 ) (int, error) {
 
-	url := fmt.Sprintf("%s/api/internal/worker-profile?user_id=%d", c.baseURL, userID)
+	url := fmt.Sprintf("%s/api/internal/worker-profile", c.baseURL)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

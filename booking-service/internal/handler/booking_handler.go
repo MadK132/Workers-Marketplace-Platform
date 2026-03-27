@@ -22,12 +22,10 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt("user_id")
 	token := c.GetHeader("Authorization")
 
 	workerProfileID, err := h.userClient.GetWorkerProfile(
 		c.Request.Context(),
-		userID,
 		token,
 	)
 	if err != nil {

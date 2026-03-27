@@ -383,12 +383,20 @@ func (h *AuthHandler) VerifyWorker(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "worker verified"})
 }
 func (h *AuthHandler) GetCustomerProfile(c *gin.Context) {
-	userIDStr := c.Query("user_id")
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		userIDStr := c.Query("user_id")
+		if userIDStr == "" {
+			c.JSON(400, gin.H{"error": "missing user_id"})
+			return
+		}
 
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid user_id"})
-		return
+		var err error
+		userID, err = strconv.Atoi(userIDStr)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid user_id"})
+			return
+		}
 	}
 
 	profile, err := h.auth.GetCustomerProfile(c.Request.Context(), userID)
@@ -402,12 +410,20 @@ func (h *AuthHandler) GetCustomerProfile(c *gin.Context) {
 	})
 }
 func (h *AuthHandler) GetWorkerProfile(c *gin.Context) {
-	userIDStr := c.Query("user_id")
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		userIDStr := c.Query("user_id")
+		if userIDStr == "" {
+			c.JSON(400, gin.H{"error": "missing user_id"})
+			return
+		}
 
-	userID, err := strconv.Atoi(userIDStr)
-	if err != nil {
-		c.JSON(400, gin.H{"error": "invalid user_id"})
-		return
+		var err error
+		userID, err = strconv.Atoi(userIDStr)
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid user_id"})
+			return
+		}
 	}
 
 	profile, err := h.auth.GetWorkerProfile(c.Request.Context(), userID)

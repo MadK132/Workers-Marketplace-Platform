@@ -36,7 +36,7 @@ func (r *BookingRepository) Create(
 
 	_, err = tx.Exec(ctx, `
 		UPDATE service_requests
-		SET status = 'assigned'
+		SET status = 'accepted'
 		WHERE request_id = $1
 	`, requestID)
 	if err != nil {

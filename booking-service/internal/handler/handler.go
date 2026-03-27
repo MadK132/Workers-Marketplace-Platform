@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"diploma/booking-service/internal/client"
@@ -39,15 +40,24 @@ func (h *Handler) CreateRequest(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetInt("user_id")
+	role := c.GetString("role")
+	if role != "customer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only customers allowed"})
+		return
+	}
 	token := c.GetHeader("Authorization")
 
 	customerProfileID, err := h.userClient.GetCustomerProfile(
 		c.Request.Context(),
-		userID,
 		token,
 	)
 	if err != nil {
+		if errors.Is(err, client.ErrCustomerProfileNotFound) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "customer profile not found; create it via POST /api/customer/profile in user-service",
+			})
+			return
+		}
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}

@@ -2,38 +2,22 @@ package middleware
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
-	"github.com/gin-gonic/gin"
+	"diploma/api-gateway/internal/auth"
 
-	"diploma/usermanagement-service/internal/auth"
+	"github.com/gin-gonic/gin"
 )
 
-func AuthMiddleware(tokens *auth.TokenManager, gatewaySharedSecret string) gin.HandlerFunc {
+func Auth(jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if gatewaySharedSecret != "" &&
-			c.GetHeader("X-Gateway-Secret") == gatewaySharedSecret {
-			userIDStr := c.GetHeader("X-User-ID")
-			role := c.GetHeader("X-Role")
-			userID, err := strconv.Atoi(userIDStr)
-			if err == nil && userID > 0 && role != "" {
-				c.Set("user_id", userID)
-				c.Set("role", role)
-				c.Next()
-				return
-			}
-		}
-
 		authHeader := c.GetHeader("Authorization")
-
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": "missing Authorization header",
 			})
 			return
 		}
-
 		if !strings.HasPrefix(authHeader, "Bearer ") {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": "invalid Authorization format",
@@ -42,8 +26,7 @@ func AuthMiddleware(tokens *auth.TokenManager, gatewaySharedSecret string) gin.H
 		}
 
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-
-		claims, err := tokens.Parse(token)
+		claims, err := auth.ParseJWT(token, jwtSecret)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": err.Error(),
@@ -53,7 +36,6 @@ func AuthMiddleware(tokens *auth.TokenManager, gatewaySharedSecret string) gin.H
 
 		c.Set("user_id", claims.UserID)
 		c.Set("role", claims.Role)
-
 		c.Next()
 	}
 }

@@ -8,11 +8,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRouter(h *handler.Handler, tokenManager *auth.TokenManager) *gin.Engine {
+func SetupRouter(
+	h *handler.Handler,
+	tokenManager *auth.TokenManager,
+	gatewaySharedSecret string,
+) *gin.Engine {
 	r := gin.Default()
 
 	api := r.Group("/api")
-	api.Use(middleware.AuthMiddleware(tokenManager))
+	api.Use(middleware.AuthMiddleware(tokenManager, gatewaySharedSecret))
 	{
 		api.POST("/requests", h.CreateRequest)
 		api.POST("/bookings", h.CreateBooking)
