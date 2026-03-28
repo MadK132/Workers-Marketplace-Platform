@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/mail"
+	"os"
 	"strings"
 	"time"
 
@@ -157,9 +158,11 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 
 	err = s.emailSender.SendVerificationEmail(user.Email, verifyToken)
 	if err != nil {
-		_ = s.users.DeleteUser(ctx, user.ID)
-
-		return RegisterResult{}, err
+		log.Printf("warning: failed to send verification email to %s: %v", user.Email, err)
+		if isEmailRequired() {
+			_ = s.users.DeleteUser(ctx, user.ID)
+			return RegisterResult{}, err
+		}
 	}
 	return RegisterResult{
 		User: user,
@@ -187,6 +190,16 @@ func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
 func IsValidationError(err error) bool {
 	var validationErr *ValidationError
 	return errors.As(err, &validationErr)
+}
+
+func isEmailRequired() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("EMAIL_REQUIRED")))
+	switch v {
+	case "0", "false", "no":
+		return false
+	default:
+		return true
+	}
 }
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
