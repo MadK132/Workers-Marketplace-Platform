@@ -1,6 +1,11 @@
 package email
 
-import "gopkg.in/gomail.v2"
+import (
+	"os"
+	"strings"
+
+	"gopkg.in/gomail.v2"
+)
 
 type Sender struct {
 	host string
@@ -20,7 +25,7 @@ func (s *Sender) SendVerificationEmail(to, token string) error {
 	m.SetHeader("To", to)
 	m.SetHeader("Subject", "Verify your email")
 
-	link := "http://localhost:8081/auth/verify?token=" + token
+	link := buildAppURL("/auth/verify?token=" + token)
 
 	m.SetBody("text/html", `
 		<h2>Email Verification</h2>
@@ -39,7 +44,7 @@ func (s *Sender) SendResetEmail(to, token string) error {
 	m.SetHeader("To", to)
 	m.SetHeader("Subject", "Reset password")
 
-	link := "http://localhost:8081/auth/reset?token=" + token
+	link := buildAppURL("/auth/reset?token=" + token)
 
 	m.SetBody("text/html", `
 		<h2>Password Reset</h2>
@@ -50,4 +55,16 @@ func (s *Sender) SendResetEmail(to, token string) error {
 	d := gomail.NewDialer(s.host, s.port, s.user, s.pass)
 
 	return d.DialAndSend(m)
+}
+
+func buildAppURL(path string) string {
+	baseURL := os.Getenv("APP_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8081"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return baseURL + path
 }
