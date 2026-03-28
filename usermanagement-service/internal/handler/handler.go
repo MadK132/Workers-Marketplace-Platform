@@ -32,6 +32,8 @@ type AuthService interface {
 	VerifyWorker(ctx context.Context, workerID int) error
 	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
 	GetWorkerProfile(ctx context.Context, userID int) (*model.WorkerProfile, error)
+	GetCategories(ctx context.Context) ([]repository.ServiceCategory, error)
+	GetAdminOverview(ctx context.Context) (repository.AdminOverview, error)
 }
 
 type AuthHandler struct {
@@ -435,4 +437,30 @@ func (h *AuthHandler) GetWorkerProfile(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"worker_profile_id": profile.ID,
 	})
+}
+
+func (h *AuthHandler) GetCategories(c *gin.Context) {
+	result, err := h.auth.GetCategories(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+func (h *AuthHandler) AdminOverview(c *gin.Context) {
+	role := c.GetString("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+		return
+	}
+
+	result, err := h.auth.GetAdminOverview(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }

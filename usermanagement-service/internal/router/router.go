@@ -38,8 +38,10 @@ func SetupRouter(
 		api.POST("/worker/skills", h.AddWorkerSkill)
 		api.POST("/admin/verify-skill", h.VerifyWorkerSkill)
 		api.PATCH("/worker/availability", h.SetAvailability)
+		api.GET("/categories", h.GetCategories)
 		api.GET("/workers", h.FindWorkers)
 		api.POST("/admin/verify-worker", h.VerifyWorker)
+		api.GET("/admin/overview", h.AdminOverview)
 		api.GET("/internal/customer-profile", h.GetCustomerProfile)
 		api.GET("/internal/worker-profile", h.GetWorkerProfile)
 	}

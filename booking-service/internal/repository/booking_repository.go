@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -20,6 +21,23 @@ type BookingDetails struct {
 	RequestID       int
 	WorkerProfileID int
 	Status          string
+}
+
+type BookingListItem struct {
+	BookingID          int        `json:"booking_id"`
+	RequestID          int        `json:"request_id"`
+	WorkerProfileID    int        `json:"worker_profile_id"`
+	CustomerProfileID  int        `json:"customer_profile_id"`
+	CategoryID         int        `json:"category_id"`
+	CategoryName       string     `json:"category_name"`
+	RequestDescription string     `json:"request_description"`
+	Status             string     `json:"status"`
+	ScheduledTime      *time.Time `json:"scheduled_time,omitempty"`
+	StartTime          *time.Time `json:"start_time,omitempty"`
+	EndTime            *time.Time `json:"end_time,omitempty"`
+	FinalPrice         *string    `json:"final_price,omitempty"`
+	CounterpartyName   string     `json:"counterparty_name"`
+	CounterpartyRole   string     `json:"counterparty_role"`
 }
 
 type BookingRepository struct {
@@ -229,4 +247,132 @@ func (r *BookingRepository) IsRequestAvailable(ctx context.Context, requestID in
 	}
 
 	return status == "pending", nil
+}
+
+func (r *BookingRepository) ListByCustomerProfile(
+	ctx context.Context,
+	customerProfileID int,
+) ([]BookingListItem, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			b.booking_id,
+			b.request_id,
+			b.worker_profile_id,
+			sr.customer_profile_id,
+			sr.category_id,
+			COALESCE(sc.name, '') AS category_name,
+			COALESCE(sr.description, '') AS request_description,
+			b.status,
+			b.scheduled_time,
+			b.start_time,
+			b.end_time,
+			b.final_price::text AS final_price,
+			COALESCE(wu.full_name, '') AS counterparty_name,
+			'worker' AS counterparty_role
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		LEFT JOIN service_categories sc ON sc.category_id = sr.category_id
+		LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+		LEFT JOIN users wu ON wu.user_id = wp.user_id
+		WHERE sr.customer_profile_id = $1
+		ORDER BY COALESCE(b.scheduled_time, sr.created_at) DESC, b.booking_id DESC
+	`, customerProfileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]BookingListItem, 0)
+	for rows.Next() {
+		var item BookingListItem
+		if err := rows.Scan(
+			&item.BookingID,
+			&item.RequestID,
+			&item.WorkerProfileID,
+			&item.CustomerProfileID,
+			&item.CategoryID,
+			&item.CategoryName,
+			&item.RequestDescription,
+			&item.Status,
+			&item.ScheduledTime,
+			&item.StartTime,
+			&item.EndTime,
+			&item.FinalPrice,
+			&item.CounterpartyName,
+			&item.CounterpartyRole,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
+func (r *BookingRepository) ListByWorkerProfile(
+	ctx context.Context,
+	workerProfileID int,
+) ([]BookingListItem, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			b.booking_id,
+			b.request_id,
+			b.worker_profile_id,
+			sr.customer_profile_id,
+			sr.category_id,
+			COALESCE(sc.name, '') AS category_name,
+			COALESCE(sr.description, '') AS request_description,
+			b.status,
+			b.scheduled_time,
+			b.start_time,
+			b.end_time,
+			b.final_price::text AS final_price,
+			COALESCE(cu.full_name, '') AS counterparty_name,
+			'customer' AS counterparty_role
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		LEFT JOIN service_categories sc ON sc.category_id = sr.category_id
+		LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+		LEFT JOIN users cu ON cu.user_id = cp.user_id
+		WHERE b.worker_profile_id = $1
+		ORDER BY COALESCE(b.scheduled_time, sr.created_at) DESC, b.booking_id DESC
+	`, workerProfileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]BookingListItem, 0)
+	for rows.Next() {
+		var item BookingListItem
+		if err := rows.Scan(
+			&item.BookingID,
+			&item.RequestID,
+			&item.WorkerProfileID,
+			&item.CustomerProfileID,
+			&item.CategoryID,
+			&item.CategoryName,
+			&item.RequestDescription,
+			&item.Status,
+			&item.ScheduledTime,
+			&item.StartTime,
+			&item.EndTime,
+			&item.FinalPrice,
+			&item.CounterpartyName,
+			&item.CounterpartyRole,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
 }

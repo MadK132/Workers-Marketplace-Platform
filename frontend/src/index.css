@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at -20% -20%, rgba(51, 142, 255, 0.22), transparent 60%),
+    radial-gradient(1000px 500px at 120% 0%, rgba(16, 185, 129, 0.15), transparent 50%),
+    #f8fafc;
+  color: #0f172a;
+  font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}

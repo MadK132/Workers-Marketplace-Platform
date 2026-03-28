@@ -10,11 +10,11 @@ type WorkerSkillRepository struct {
 	db *pgxpool.Pool
 }
 type WorkerSearchResult struct {
-	WorkerID        int
-	FullName        string
-	Price           int
-	ExperienceLevel string
-	CategoryName    string
+	WorkerID        int    `json:"worker_id"`
+	FullName        string `json:"full_name"`
+	Price           int    `json:"price"`
+	ExperienceLevel string `json:"experience_level"`
+	CategoryName    string `json:"category_name"`
 }
 
 func NewWorkerSkillRepository(db *pgxpool.Pool) *WorkerSkillRepository {

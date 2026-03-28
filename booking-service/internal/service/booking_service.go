@@ -105,3 +105,17 @@ func (s *BookingService) CompleteBooking(
 
 	return s.repo.MarkCompleted(ctx, bookingID, b.RequestID, b.WorkerProfileID)
 }
+
+func (s *BookingService) ListCustomerBookings(
+	ctx context.Context,
+	customerProfileID int,
+) ([]repository.BookingListItem, error) {
+	return s.repo.ListByCustomerProfile(ctx, customerProfileID)
+}
+
+func (s *BookingService) ListWorkerBookings(
+	ctx context.Context,
+	workerProfileID int,
+) ([]repository.BookingListItem, error) {
+	return s.repo.ListByWorkerProfile(ctx, workerProfileID)
+}

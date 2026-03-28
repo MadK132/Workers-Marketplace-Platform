@@ -21,3 +21,10 @@ func (s *RequestService) CreateRequest(
 ) error {
 	return s.repo.Create(ctx, customerProfileID, categoryID, description)
 }
+
+func (s *RequestService) ListCustomerRequests(
+	ctx context.Context,
+	customerProfileID int,
+) ([]repository.RequestListItem, error) {
+	return s.repo.ListByCustomerProfile(ctx, customerProfileID)
+}

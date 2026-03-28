@@ -31,6 +31,8 @@ type AuthService struct {
 	customerProfiles *repository.CustomerProfileRepository
 	workerProfiles   *repository.WorkerProfileRepository
 	workerSkills     *repository.WorkerSkillRepository
+	categories       *repository.CategoryRepository
+	admin            *repository.AdminRepository
 }
 
 func NewAuthService(
@@ -42,6 +44,8 @@ func NewAuthService(
 	customerProfiles *repository.CustomerProfileRepository,
 	workerProfiles *repository.WorkerProfileRepository,
 	workerSkills *repository.WorkerSkillRepository,
+	categories *repository.CategoryRepository,
+	admin *repository.AdminRepository,
 ) *AuthService {
 	return &AuthService{
 		users:            users,
@@ -52,6 +56,8 @@ func NewAuthService(
 		customerProfiles: customerProfiles,
 		workerProfiles:   workerProfiles,
 		workerSkills:     workerSkills,
+		categories:       categories,
+		admin:            admin,
 	}
 }
 
@@ -419,4 +425,12 @@ func (s *AuthService) GetWorkerProfile(
 	}
 
 	return &profile, nil
+}
+
+func (s *AuthService) GetCategories(ctx context.Context) ([]repository.ServiceCategory, error) {
+	return s.categories.List(ctx)
+}
+
+func (s *AuthService) GetAdminOverview(ctx context.Context) (repository.AdminOverview, error) {
+	return s.admin.GetOverview(ctx)
 }

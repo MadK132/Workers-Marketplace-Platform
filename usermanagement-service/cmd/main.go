@@ -60,6 +60,13 @@ func main() {
 	customerProfileRepo := repository.NewCustomerProfileRepository(pool)
 	workerProfileRepo := repository.NewWorkerProfileRepository(pool)
 	workerSkillRepo := repository.NewWorkerSkillRepository(pool)
+	categoryRepo := repository.NewCategoryRepository(pool)
+	adminRepo := repository.NewAdminRepository(pool)
+
+	if err := categoryRepo.EnsureDefaults(ctx); err != nil {
+		log.Printf("Category bootstrap skipped: %v", err)
+	}
+
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
 	authService := service.NewAuthService(
 		userRepo,
@@ -70,6 +77,8 @@ func main() {
 		customerProfileRepo,
 		workerProfileRepo,
 		workerSkillRepo,
+		categoryRepo,
+		adminRepo,
 	)
 
 	authHandler := handler.NewAuthHandler(authService)
