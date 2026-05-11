@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,16 +11,19 @@ import (
 	"syscall"
 	"time"
 
+	usermanagementpb "diploma/api/usermanagement-service-proto"
 	"diploma/usermanagement-service/internal/auth"
 	"diploma/usermanagement-service/internal/config"
 	"diploma/usermanagement-service/internal/db"
 	"diploma/usermanagement-service/internal/email"
+	"diploma/usermanagement-service/internal/grpcserver"
 	"diploma/usermanagement-service/internal/handler"
 	"diploma/usermanagement-service/internal/repository"
 	"diploma/usermanagement-service/internal/router"
 	"diploma/usermanagement-service/internal/service"
 
 	"github.com/joho/godotenv"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -87,6 +91,15 @@ func main() {
 	authHandler := handler.NewAuthHandler(authService)
 
 	r := router.SetupRouter(authHandler, tokenManager, cfg.Gateway.SharedSecret)
+	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPC.Port)
+	if err != nil {
+		log.Fatalf("gRPC listen error: %v", err)
+	}
+	grpcServer := grpc.NewServer()
+	usermanagementpb.RegisterUserManagementServiceServer(
+		grpcServer,
+		grpcserver.New(authService),
+	)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTP.Port,
@@ -98,6 +111,13 @@ func main() {
 		log.Printf("User management service listening on :%s", cfg.HTTP.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server error: %v", err)
+		}
+	}()
+
+	go func() {
+		log.Printf("User management gRPC server listening on :%s", cfg.GRPC.Port)
+		if err := grpcServer.Serve(grpcListener); err != nil {
+			log.Fatalf("gRPC server error: %v", err)
 		}
 	}()
 
@@ -113,6 +133,7 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Graceful shutdown failed: %v", err)
 	}
+	grpcServer.GracefulStop()
 
 	log.Println("Server stopped")
 }

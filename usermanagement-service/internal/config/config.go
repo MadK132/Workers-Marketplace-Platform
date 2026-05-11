@@ -9,6 +9,7 @@ import (
 type Config struct {
 	DB      DBConfig
 	HTTP    HTTPConfig
+	GRPC    GRPCConfig
 	JWT     JWTConfig
 	Gateway GatewayConfig
 }
@@ -21,6 +22,10 @@ type DBConfig struct {
 }
 
 type HTTPConfig struct {
+	Port string
+}
+
+type GRPCConfig struct {
 	Port string
 }
 
@@ -42,6 +47,9 @@ func Load() Config {
 		},
 		HTTP: HTTPConfig{
 			Port: getEnv("HTTP_PORT", "8081"),
+		},
+		GRPC: GRPCConfig{
+			Port: getEnv("USER_GRPC_PORT", "9091"),
 		},
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", ""),

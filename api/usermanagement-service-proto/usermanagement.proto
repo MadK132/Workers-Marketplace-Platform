@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package usermanagement.v1;
+
+option go_package = "diploma/api/usermanagement-service-proto;usermanagementpb";
+
+service UserManagementService {
+  rpc GetCustomerProfile(GetProfileRequest) returns (CustomerProfileResponse);
+  rpc GetWorkerProfile(GetProfileRequest) returns (WorkerProfileResponse);
+}
+
+message GetProfileRequest {
+  int64 user_id = 1;
+}
+
+message CustomerProfileResponse {
+  int64 customer_profile_id = 1;
+}
+
+message WorkerProfileResponse {
+  int64 worker_profile_id = 1;
+}
