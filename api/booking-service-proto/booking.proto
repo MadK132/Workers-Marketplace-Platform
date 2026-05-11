@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+package booking.v1;
+
+option go_package = "diploma/api/booking-service-proto;bookingpb";
+
+import "google/protobuf/timestamp.proto";
+
+service BookingService {
+  rpc CreateRequest(CreateRequestRequest) returns (CreateRequestResponse);
+  rpc ListCustomerRequests(ListCustomerRequestsRequest) returns (ListCustomerRequestsResponse);
+
+  rpc CreateBooking(CreateBookingRequest) returns (CreateBookingResponse);
+  rpc ListCustomerBookings(ListCustomerBookingsRequest) returns (ListBookingsResponse);
+  rpc ListWorkerBookings(ListWorkerBookingsRequest) returns (ListBookingsResponse);
+
+  rpc StartBooking(UpdateBookingStatusRequest) returns (UpdateBookingStatusResponse);
+  rpc CompleteBooking(UpdateBookingStatusRequest) returns (UpdateBookingStatusResponse);
+}
+
+message CreateRequestRequest {
+  int64 customer_profile_id = 1;
+  int64 category_id = 2;
+  string description = 3;
+}
+
+message CreateRequestResponse {
+  string message = 1;
+}
+
+message ListCustomerRequestsRequest {
+  int64 customer_profile_id = 1;
+}
+
+message ListCustomerRequestsResponse {
+  repeated ServiceRequest requests = 1;
+}
+
+message ServiceRequest {
+  int64 request_id = 1;
+  int64 category_id = 2;
+  string category_name = 3;
+  string description = 4;
+  RequestStatus status = 5;
+  google.protobuf.Timestamp created_at = 6;
+}
+
+message CreateBookingRequest {
+  int64 request_id = 1;
+  int64 worker_profile_id = 2;
+  int64 customer_profile_id = 3;
+}
+
+message CreateBookingResponse {
+  string message = 1;
+}
+
+message ListCustomerBookingsRequest {
+  int64 customer_profile_id = 1;
+}
+
+message ListWorkerBookingsRequest {
+  int64 worker_profile_id = 1;
+}
+
+message ListBookingsResponse {
+  repeated Booking bookings = 1;
+}
+
+message Booking {
+  int64 booking_id = 1;
+  int64 request_id = 2;
+  int64 worker_profile_id = 3;
+  int64 customer_profile_id = 4;
+  int64 category_id = 5;
+  string category_name = 6;
+  string request_description = 7;
+  BookingStatus status = 8;
+  google.protobuf.Timestamp scheduled_time = 9;
+  google.protobuf.Timestamp start_time = 10;
+  google.protobuf.Timestamp end_time = 11;
+  optional string final_price = 12;
+  string counterparty_name = 13;
+  string counterparty_role = 14;
+}
+
+message UpdateBookingStatusRequest {
+  int64 booking_id = 1;
+  int64 worker_profile_id = 2;
+}
+
+message UpdateBookingStatusResponse {
+  string message = 1;
+}
+
+enum RequestStatus {
+  REQUEST_STATUS_UNSPECIFIED = 0;
+  REQUEST_STATUS_PENDING = 1;
+  REQUEST_STATUS_ACCEPTED = 2;
+  REQUEST_STATUS_IN_PROGRESS = 3;
+  REQUEST_STATUS_COMPLETED = 4;
+}
+
+enum BookingStatus {
+  BOOKING_STATUS_UNSPECIFIED = 0;
+  BOOKING_STATUS_SCHEDULED = 1;
+  BOOKING_STATUS_IN_PROGRESS = 2;
+  BOOKING_STATUS_COMPLETED = 3;
+}

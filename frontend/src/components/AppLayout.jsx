@@ -32,7 +32,7 @@ export default function AppLayout() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-wide text-slate-500">Workers Marketplace</p>
-            
+          
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-brand-100 px-3 py-1 text-xs font-semibold uppercase text-brand-800">
