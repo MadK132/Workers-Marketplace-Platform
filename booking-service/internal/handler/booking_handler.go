@@ -108,7 +108,6 @@ func (h *Handler) StartBooking(c *gin.Context) {
 		}
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "booking started"})
 }
 
