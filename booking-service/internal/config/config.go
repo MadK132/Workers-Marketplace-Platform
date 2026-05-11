@@ -8,9 +8,15 @@ import (
 
 type Config struct {
 	DB      DBConfig
+	GRPC    GRPCConfig
 	JWT     JWTConfig
 	Gateway GatewayConfig
 }
+
+type GRPCConfig struct {
+	Port string
+}
+
 type JWTConfig struct {
 	Secret string
 }
@@ -32,6 +38,9 @@ func Load() Config {
 			MaxConns:    getEnvInt32("DB_MAX_CONNS", 10),
 			MinConns:    getEnvInt32("DB_MIN_CONNS", 2),
 			PingTimeout: getEnvDuration("DB_PING_TIMEOUT", "3s"),
+		},
+		GRPC: GRPCConfig{
+			Port: getEnv("BOOKING_GRPC_PORT", "9094"),
 		},
 		JWT: JWTConfig{
 			Secret: getEnv("JWT_SECRET", ""),
