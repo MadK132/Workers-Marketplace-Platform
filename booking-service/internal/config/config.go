@@ -34,7 +34,7 @@ func Load() Config {
 			PingTimeout: getEnvDuration("DB_PING_TIMEOUT", "3s"),
 		},
 		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", "change-me"),
+			Secret: getEnv("JWT_SECRET", ""),
 		},
 		Gateway: GatewayConfig{
 			SharedSecret: getEnv("GATEWAY_SHARED_SECRET", ""),

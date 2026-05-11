@@ -308,6 +308,12 @@ func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "skill added"})
 }
 func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
+	role := c.GetString("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+		return
+	}
+
 	var req struct {
 		SkillID int `json:"worker_skill_id"`
 	}
@@ -367,6 +373,12 @@ func (h *AuthHandler) FindWorkers(c *gin.Context) {
 	c.JSON(200, result)
 }
 func (h *AuthHandler) VerifyWorker(c *gin.Context) {
+	role := c.GetString("role")
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+		return
+	}
+
 	var req struct {
 		WorkerID int `json:"worker_id"`
 	}

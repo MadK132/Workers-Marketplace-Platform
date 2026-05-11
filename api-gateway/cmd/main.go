@@ -7,10 +7,16 @@ import (
 	"diploma/api-gateway/internal/config"
 	"diploma/api-gateway/internal/proxy"
 	"diploma/api-gateway/internal/router"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	_ = godotenv.Load()
 	cfg := config.Load()
+	if cfg.JWTSecret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
 
 	userURL, err := url.Parse(cfg.UserServiceURL)
 	if err != nil {

@@ -12,12 +12,18 @@ import (
 	"diploma/booking-service/internal/repository"
 	"diploma/booking-service/internal/router"
 	"diploma/booking-service/internal/service"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
 	ctx := context.Background()
 
+	_ = godotenv.Load()
 	cfg := config.Load()
+	if cfg.JWT.Secret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
 
 	pool, err := db.NewPool(ctx, db.Config{
 		DSN:         cfg.DB.DSN,

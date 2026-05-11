@@ -21,6 +21,7 @@ type TokenGenerator interface {
 	GenerateAccessToken(user model.User) (string, time.Time, error)
 	GenerateRefreshToken(user model.User) (string, time.Time, error)
 	Parse(token string) (*auth.Claims, error)
+	ParseRefreshToken(token string) (*auth.Claims, error)
 }
 
 type AuthService struct {
@@ -235,7 +236,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult,
 	}, nil
 }
 func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (LoginResult, error) {
-	claims, err := s.tokens.Parse(refreshToken)
+	claims, err := s.tokens.ParseRefreshToken(refreshToken)
 	if err != nil {
 		return LoginResult{}, errors.New("invalid refresh token")
 	}

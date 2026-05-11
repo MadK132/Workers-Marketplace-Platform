@@ -17,6 +17,7 @@ type Claims struct {
 	UserID int
 	Role   string
 	Exp    int64
+	Type   string
 }
 
 type TokenManager struct {
@@ -59,22 +60,33 @@ func (m *TokenManager) Parse(token string) (*Claims, error) {
 		return nil, err
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+	var payload struct {
+		Sub  string `json:"sub"`
+		Role string `json:"role"`
+		Exp  int64  `json:"exp"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		return nil, err
 	}
 
-	exp := int64(raw["exp"].(float64))
-	if time.Now().Unix() > exp {
+	if payload.Sub == "" || payload.Role == "" || payload.Exp == 0 {
+		return nil, errors.New("missing required token claims")
+	}
+
+	if time.Now().Unix() > payload.Exp {
 		return nil, errors.New("token expired")
 	}
 
-	userID, _ := strconv.Atoi(raw["sub"].(string))
-	role, _ := raw["role"].(string)
+	userID, err := strconv.Atoi(payload.Sub)
+	if err != nil || userID <= 0 {
+		return nil, errors.New("invalid token subject")
+	}
 
 	return &Claims{
 		UserID: userID,
-		Role:   role,
-		Exp:    exp,
+		Role:   payload.Role,
+		Exp:    payload.Exp,
+		Type:   payload.Type,
 	}, nil
 }

@@ -44,7 +44,7 @@ func Load() Config {
 			Port: getEnv("HTTP_PORT", "8081"),
 		},
 		JWT: JWTConfig{
-			Secret: getEnv("JWT_SECRET", "change-me"),
+			Secret: getEnv("JWT_SECRET", ""),
 			TTL:    getEnvDuration("JWT_TTL", "15m"),
 		},
 		Gateway: GatewayConfig{

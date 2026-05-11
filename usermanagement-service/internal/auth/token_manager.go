@@ -19,6 +19,7 @@ type Claims struct {
 	UserID int
 	Role   string
 	Exp    int64
+	Type   string
 }
 
 type TokenManager struct {
@@ -71,6 +72,31 @@ func (m *TokenManager) GenerateAccessToken(user model.User) (string, time.Time, 
 }
 
 func (m *TokenManager) Parse(token string) (*Claims, error) {
+	claims, err := m.parse(token)
+	if err != nil {
+		return nil, err
+	}
+	if claims.Role == "" {
+		return nil, errors.New("missing required token claims")
+	}
+	if claims.Type == "refresh" {
+		return nil, errors.New("invalid token type")
+	}
+	return claims, nil
+}
+
+func (m *TokenManager) ParseRefreshToken(token string) (*Claims, error) {
+	claims, err := m.parse(token)
+	if err != nil {
+		return nil, err
+	}
+	if claims.Type != "refresh" {
+		return nil, errors.New("invalid token type")
+	}
+	return claims, nil
+}
+
+func (m *TokenManager) parse(token string) (*Claims, error) {
 	if len(m.secret) == 0 {
 		return nil, ErrMissingJWTSecret
 	}
@@ -100,24 +126,34 @@ func (m *TokenManager) Parse(token string) (*Claims, error) {
 		return nil, err
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(payloadBytes, &raw); err != nil {
+	var payload struct {
+		Sub  string `json:"sub"`
+		Role string `json:"role"`
+		Exp  int64  `json:"exp"`
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
 		return nil, err
 	}
 
-	exp := int64(raw["exp"].(float64))
-	if time.Now().Unix() > exp {
+	if payload.Sub == "" || payload.Exp == 0 {
+		return nil, errors.New("missing required token claims")
+	}
+
+	if time.Now().Unix() > payload.Exp {
 		return nil, errors.New("token expired")
 	}
 
-	userID, _ := strconv.Atoi(raw["sub"].(string))
-
-	role, _ := raw["role"].(string)
+	userID, err := strconv.Atoi(payload.Sub)
+	if err != nil || userID <= 0 {
+		return nil, errors.New("invalid token subject")
+	}
 
 	return &Claims{
 		UserID: userID,
-		Role:   role,
-		Exp:    exp,
+		Role:   payload.Role,
+		Exp:    payload.Exp,
+		Type:   payload.Type,
 	}, nil
 }
 
@@ -125,6 +161,10 @@ func encode(data []byte) string {
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 func (m *TokenManager) GenerateRefreshToken(user model.User) (string, time.Time, error) {
+	if len(m.secret) == 0 {
+		return "", time.Time{}, ErrMissingJWTSecret
+	}
+
 	now := time.Now().UTC()
 	expiresAt := now.Add(7 * 24 * time.Hour)
 

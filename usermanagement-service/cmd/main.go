@@ -25,7 +25,11 @@ import (
 func main() {
 	ctx := context.Background()
 
+	_ = godotenv.Load()
 	cfg := config.Load()
+	if cfg.JWT.Secret == "" {
+		log.Fatal("JWT_SECRET is required")
+	}
 
 	pool, err := db.NewPool(ctx, db.Config{
 		DSN:         cfg.DB.DSN,
@@ -39,7 +43,6 @@ func main() {
 	defer pool.Close()
 
 	log.Println("DB connected successfully")
-	godotenv.Load()
 
 	smtpHost := os.Getenv("SMTP_HOST")
 	smtpPortStr := os.Getenv("SMTP_PORT")
