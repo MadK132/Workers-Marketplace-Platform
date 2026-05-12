@@ -9,6 +9,7 @@ type Config struct {
 	Port              string
 	UserServiceURL    string
 	BookingServiceURL string
+	ChatServiceURL    string
 	JWTSecret         string
 	GatewaySecret     string
 	AllowedOrigins    []string
@@ -19,6 +20,7 @@ func Load() Config {
 		Port:              getEnv("GATEWAY_PORT", "8080"),
 		UserServiceURL:    getEnv("USER_SERVICE_URL", "http://localhost:8081"),
 		BookingServiceURL: getEnv("BOOKING_SERVICE_URL", "http://localhost:8082"),
+		ChatServiceURL:    getEnv("CHAT_SERVICE_URL", "http://localhost:8083"),
 		JWTSecret:         getEnv("JWT_SECRET", ""),
 		GatewaySecret:     getEnv("GATEWAY_SHARED_SECRET", ""),
 		AllowedOrigins: parseOrigins(

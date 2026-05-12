@@ -1,4 +1,4 @@
-.PHONY: help full infra-up infra-down db-import run-gateway run-user run-booking proto proto-user proto-booking test
+.PHONY: help full infra-up infra-down db-import run-gateway run-user run-booking run-chat proto proto-user proto-booking test
 
 POWERSHELL := powershell -NoProfile -ExecutionPolicy Bypass -Command
 
@@ -10,6 +10,7 @@ help:
 	@echo "  make db-import    - import dump.sql into postgres"
 	@echo "  make run-user     - run usermanagement-service"
 	@echo "  make run-booking  - run booking-service"
+	@echo "  make run-chat     - run chat-service"
 	@echo "  make run-gateway  - run api-gateway"
 	@echo "  make proto        - regenerate all protobuf Go files"
 	@echo "  make test         - run go test ./..."
@@ -17,6 +18,7 @@ help:
 full: infra-up
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./usermanagement-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./booking-service/cmd'"
+	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./chat-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./api-gateway/cmd'"
 
 infra-up:
@@ -33,6 +35,9 @@ run-user:
 
 run-booking:
 	go run ./booking-service/cmd
+
+run-chat:
+	go run ./chat-service/cmd
 
 run-gateway:
 	go run ./api-gateway/cmd

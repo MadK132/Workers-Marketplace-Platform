@@ -26,10 +26,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid BOOKING_SERVICE_URL: %v", err)
 	}
+	chatURL, err := url.Parse(cfg.ChatServiceURL)
+	if err != nil {
+		log.Fatalf("invalid CHAT_SERVICE_URL: %v", err)
+	}
 
 	userProxy := proxy.New(userURL)
 	bookingProxy := proxy.New(bookingURL)
-	r := router.Setup(cfg, userProxy, bookingProxy)
+	chatProxy := proxy.New(chatURL)
+	r := router.Setup(cfg, userProxy, bookingProxy, chatProxy)
 
 	log.Printf("API gateway listening on :%s", cfg.Port)
 	if err := r.Run(":" + cfg.Port); err != nil {

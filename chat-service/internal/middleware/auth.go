@@ -2,15 +2,29 @@ package middleware
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
-	"diploma/api-gateway/internal/auth"
+	"diploma/chat-service/internal/auth"
 
 	"github.com/gin-gonic/gin"
 )
 
-func Auth(jwtSecret string) gin.HandlerFunc {
+func AuthMiddleware(tokens *auth.TokenManager, gatewaySharedSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if gatewaySharedSecret != "" &&
+			c.GetHeader("X-Gateway-Secret") == gatewaySharedSecret {
+			userIDStr := c.GetHeader("X-User-ID")
+			role := c.GetHeader("X-Role")
+			userID, err := strconv.Atoi(userIDStr)
+			if err == nil && userID > 0 && role != "" {
+				c.Set("user_id", userID)
+				c.Set("role", role)
+				c.Next()
+				return
+			}
+		}
+
 		token := bearerToken(c)
 		if token == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -19,7 +33,7 @@ func Auth(jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		claims, err := auth.ParseJWT(token, jwtSecret)
+		claims, err := tokens.Parse(token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": err.Error(),
