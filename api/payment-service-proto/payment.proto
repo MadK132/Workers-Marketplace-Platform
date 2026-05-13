@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package payment.v1;
+
+option go_package = "diploma/api/payment-service-proto;paymentpb";
+
+service PaymentService {
+  rpc CreatePayment(CreatePaymentRequest) returns (PaymentResponse);
+  rpc GetPayment(GetPaymentRequest) returns (PaymentResponse);
+  rpc MarkPaymentCompleted(UpdatePaymentStatusRequest) returns (PaymentResponse);
+  rpc MarkPaymentFailed(UpdatePaymentStatusRequest) returns (PaymentResponse);
+}
+
+message CreatePaymentRequest {
+  int64 booking_id = 1;
+  double amount = 2;
+  string currency = 3;
+  string provider = 4;
+}
+
+message GetPaymentRequest {
+  int64 payment_id = 1;
+}
+
+message UpdatePaymentStatusRequest {
+  int64 payment_id = 1;
+  string transaction_reference = 2;
+}
+
+message PaymentResponse {
+  int64 payment_id = 1;
+  int64 booking_id = 2;
+  double amount = 3;
+  string currency = 4;
+  PaymentStatus status = 5;
+  string provider = 6;
+  string transaction_reference = 7;
+  string payment_url = 8;
+}
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_PENDING = 1;
+  PAYMENT_STATUS_COMPLETED = 2;
+  PAYMENT_STATUS_FAILED = 3;
+  PAYMENT_STATUS_REFUNDED = 4;
+}
