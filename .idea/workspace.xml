@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="ALL" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="082c3d82-d6c2-46e2-aba6-b9f5203432a1" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.env" beforeDir="false" afterPath="$PROJECT_DIR$/.env" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Makefile" beforeDir="false" afterPath="$PROJECT_DIR$/Makefile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/api-gateway/cmd/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/api-gateway/cmd/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/api-gateway/internal/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/api-gateway/internal/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/api-gateway/internal/router/router.go" beforeDir="false" afterPath="$PROJECT_DIR$/api-gateway/internal/router/router.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/booking-service/cmd/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/booking-service/cmd/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/booking-service/internal/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/booking-service/internal/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/booking-service/internal/handler/booking_handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/booking-service/internal/handler/booking_handler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/booking-service/internal/handler/handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/booking-service/internal/handler/handler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/booking-service/internal/repository/booking_repository.go" beforeDir="false" afterPath="$PROJECT_DIR$/booking-service/internal/repository/booking_repository.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/booking-service/internal/service/booking_service.go" beforeDir="false" afterPath="$PROJECT_DIR$/booking-service/internal/service/booking_service.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/chat-service/cmd/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/chat-service/cmd/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/chat-service/internal/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/chat-service/internal/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/chat-service/internal/handler/handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/chat-service/internal/handler/handler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/geolocation-service/cmd/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/geolocation-service/cmd/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/geolocation-service/internal/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/geolocation-service/internal/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/geolocation-service/internal/handler/handler.go" beforeDir="false" afterPath="$PROJECT_DIR$/geolocation-service/internal/handler/handler.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/geolocation-service/internal/middleware/gateway.go" beforeDir="false" afterPath="$PROJECT_DIR$/geolocation-service/internal/middleware/gateway.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/payment-service/cmd/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/payment-service/cmd/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/payment-service/internal/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/payment-service/internal/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/payment-service/internal/repository/payment_repository.go" beforeDir="false" afterPath="$PROJECT_DIR$/payment-service/internal/repository/payment_repository.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/payment-service/internal/service/payment_service.go" beforeDir="false" afterPath="$PROJECT_DIR$/payment-service/internal/service/payment_service.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/usermanagement-service/cmd/main.go" beforeDir="false" afterPath="$PROJECT_DIR$/usermanagement-service/cmd/main.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/usermanagement-service/internal/config/config.go" beforeDir="false" afterPath="$PROJECT_DIR$/usermanagement-service/internal/config/config.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/usermanagement-service/internal/service/auth_service.go" beforeDir="false" afterPath="$PROJECT_DIR$/usermanagement-service/internal/service/auth_service.go" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="GOROOT" url="file://$PROJECT_DIR$/../../Go/pkg/mod/golang.org/toolchain@v0.0.1-go1.25.6.windows-amd64" />
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;meaningfullname&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/MadK132/Workers-Marketplace-Platform&quot;,
+    &quot;accountId&quot;: &quot;a13eec8e-5cb2-40af-b21a-e580c50e395a&quot;
+  }
+}</component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/.gomodcache/golang.org/toolchain@v0.0.1-go1.25.6.windows-386/src/cmd/distpack/pack.go" root0="SKIP_INSPECTION" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 5
+}</component>
+  <component name="ProjectId" id="3BRBR6twn9B0TrvGjz7YejmxA48" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Go Build.go build diploma/usermanagement-service/cmd.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;Notify&quot;,
+    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/user/Desktop/Diplom/Workers-Marketplace-Platform&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.stylelint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.stylelint&quot;: &quot;&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;editor.preferences.fonts.default&quot;
+  },
+  &quot;keyToStringList&quot;: {
+    &quot;com.intellij.ide.scratch.ScratchImplUtil$2/New Scratch File&quot;: [
+      &quot;GitIgnore&quot;
+    ]
+  }
+}</component>
+  <component name="RunManager">
+    <configuration name="go build diploma/usermanagement-service/cmd" type="GoApplicationRunConfiguration" factoryName="Go Application" temporary="true" nameIsGenerated="true">
+      <module name="Workers-Marketplace-Platform" />
+      <working_directory value="$PROJECT_DIR$" />
+      <kind value="PACKAGE" />
+      <package value="diploma/usermanagement-service/cmd" />
+      <directory value="$PROJECT_DIR$" />
+      <filePath value="$PROJECT_DIR$/usermanagement-service/cmd/main.go" />
+      <method v="2" />
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Go Build.go build diploma/usermanagement-service/cmd" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-gosdk-d297c17c1fbd-d82d926f19eb-org.jetbrains.plugins.go.sharedIndexes.bundled-GO-243.22562.186" />
+        <option value="bundled-js-predefined-d6986cc7102b-deb605915726-JavaScript-GO-243.22562.186" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="VgoProject">
+    <settings-migrated>true</settings-migrated>
+  </component>
+</project>

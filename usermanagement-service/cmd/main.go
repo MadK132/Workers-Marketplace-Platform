@@ -12,6 +12,7 @@ import (
 	"time"
 
 	usermanagementpb "diploma/api/usermanagement-service-proto"
+	"diploma/internal/notifications"
 	"diploma/usermanagement-service/internal/auth"
 	"diploma/usermanagement-service/internal/config"
 	"diploma/usermanagement-service/internal/db"
@@ -23,6 +24,7 @@ import (
 	"diploma/usermanagement-service/internal/service"
 
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 )
 
@@ -74,6 +76,25 @@ func main() {
 		log.Printf("Category bootstrap skipped: %v", err)
 	}
 
+	notifier := notifications.Publisher(notifications.NoopPublisher{})
+	var redisClient *redis.Client
+	if cfg.Redis.Enabled {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.Redis.Addr,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Printf("Redis disabled for user notifications: %v", err)
+		} else {
+			notifier = notifications.NewRedisPublisher(redisClient, cfg.Redis.Channel)
+			log.Printf("User notification publisher enabled on %s channel %s", cfg.Redis.Addr, cfg.Redis.Channel)
+		}
+	}
+	if redisClient != nil {
+		defer redisClient.Close()
+	}
+
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
 	authService := service.NewAuthService(
 		userRepo,
@@ -86,6 +107,7 @@ func main() {
 		workerSkillRepo,
 		categoryRepo,
 		adminRepo,
+		notifier,
 	)
 
 	authHandler := handler.NewAuthHandler(authService)

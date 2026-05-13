@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	HTTP    HTTPConfig
-	DB      DBConfig
-	JWT     JWTConfig
-	Gateway GatewayConfig
-	Redis   RedisConfig
+	HTTP          HTTPConfig
+	DB            DBConfig
+	JWT           JWTConfig
+	Gateway       GatewayConfig
+	Redis         RedisConfig
+	Notifications NotificationConfig
 }
 
 type HTTPConfig struct {
@@ -41,6 +42,10 @@ type RedisConfig struct {
 	Channel  string
 }
 
+type NotificationConfig struct {
+	Channel string
+}
+
 func Load() Config {
 	return Config{
 		HTTP: HTTPConfig{
@@ -64,6 +69,9 @@ func Load() Config {
 			Password: getEnv("REDIS_PASSWORD", ""),
 			DB:       getEnvInt("REDIS_DB", 0),
 			Channel:  getEnv("CHAT_REDIS_CHANNEL", "chat.events"),
+		},
+		Notifications: NotificationConfig{
+			Channel: getEnv("NOTIFICATION_REDIS_CHANNEL", "notification.events"),
 		},
 	}
 }

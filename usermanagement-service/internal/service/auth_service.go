@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"diploma/internal/notifications"
 	"diploma/usermanagement-service/internal/auth"
 	"diploma/usermanagement-service/internal/email"
 	"diploma/usermanagement-service/internal/model"
@@ -35,6 +36,7 @@ type AuthService struct {
 	workerSkills     *repository.WorkerSkillRepository
 	categories       *repository.CategoryRepository
 	admin            *repository.AdminRepository
+	notifier         notifications.Publisher
 }
 
 func NewAuthService(
@@ -48,6 +50,7 @@ func NewAuthService(
 	workerSkills *repository.WorkerSkillRepository,
 	categories *repository.CategoryRepository,
 	admin *repository.AdminRepository,
+	notifier notifications.Publisher,
 ) *AuthService {
 	return &AuthService{
 		users:            users,
@@ -60,6 +63,7 @@ func NewAuthService(
 		workerSkills:     workerSkills,
 		categories:       categories,
 		admin:            admin,
+		notifier:         notifier,
 	}
 }
 
@@ -165,6 +169,16 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 			return RegisterResult{}, err
 		}
 	}
+	s.publishNotification(ctx, notifications.Event{
+		SourceService:   "usermanagement-service",
+		Type:            "user.registered",
+		RecipientUserID: int64(user.ID),
+		Title:           "Welcome to the marketplace",
+		Body:            "Your account has been created. Please verify your email to activate it.",
+		Data: map[string]any{
+			"role": user.Role,
+		},
+	})
 	return RegisterResult{
 		User: user,
 	}, nil
@@ -185,7 +199,19 @@ func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
 		return err
 	}
 
-	return s.verifications.Delete(ctx, token)
+	if err := s.verifications.Delete(ctx, token); err != nil {
+		return err
+	}
+
+	s.publishNotification(ctx, notifications.Event{
+		SourceService:   "usermanagement-service",
+		Type:            "user.email_verified",
+		RecipientUserID: int64(userID),
+		Title:           "Email verified",
+		Body:            "Your account is now active.",
+	})
+
+	return nil
 }
 
 func IsValidationError(err error) bool {
@@ -200,6 +226,15 @@ func isEmailRequired() bool {
 		return false
 	default:
 		return true
+	}
+}
+
+func (s *AuthService) publishNotification(ctx context.Context, event notifications.Event) {
+	if s.notifier == nil {
+		return
+	}
+	if err := s.notifier.Publish(ctx, event); err != nil {
+		log.Printf("notification publish skipped: %v", err)
 	}
 }
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {

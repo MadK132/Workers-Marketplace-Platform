@@ -23,6 +23,16 @@ type BookingDetails struct {
 	Status          string
 }
 
+type BookingParticipants struct {
+	BookingID          int
+	RequestID          int
+	CustomerProfileID  int
+	CustomerUserID     int
+	WorkerProfileID    int
+	WorkerUserID       int
+	RequestDescription string
+}
+
 type BookingListItem struct {
 	BookingID          int        `json:"booking_id"`
 	RequestID          int        `json:"request_id"`
@@ -158,6 +168,80 @@ func (r *BookingRepository) GetBookingDetails(
 		return BookingDetails{}, err
 	}
 	return b, nil
+}
+
+func (r *BookingRepository) GetParticipantsByRequestID(
+	ctx context.Context,
+	requestID int,
+) (BookingParticipants, error) {
+	var p BookingParticipants
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			b.booking_id,
+			b.request_id,
+			sr.customer_profile_id,
+			cp.user_id,
+			b.worker_profile_id,
+			wp.user_id,
+			COALESCE(sr.description, '')
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+		JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+		WHERE b.request_id = $1
+	`, requestID).Scan(
+		&p.BookingID,
+		&p.RequestID,
+		&p.CustomerProfileID,
+		&p.CustomerUserID,
+		&p.WorkerProfileID,
+		&p.WorkerUserID,
+		&p.RequestDescription,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BookingParticipants{}, ErrBookingNotFound
+		}
+		return BookingParticipants{}, err
+	}
+	return p, nil
+}
+
+func (r *BookingRepository) GetParticipantsByBookingID(
+	ctx context.Context,
+	bookingID int,
+) (BookingParticipants, error) {
+	var p BookingParticipants
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			b.booking_id,
+			b.request_id,
+			sr.customer_profile_id,
+			cp.user_id,
+			b.worker_profile_id,
+			wp.user_id,
+			COALESCE(sr.description, '')
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+		JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+		WHERE b.booking_id = $1
+	`, bookingID).Scan(
+		&p.BookingID,
+		&p.RequestID,
+		&p.CustomerProfileID,
+		&p.CustomerUserID,
+		&p.WorkerProfileID,
+		&p.WorkerUserID,
+		&p.RequestDescription,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BookingParticipants{}, ErrBookingNotFound
+		}
+		return BookingParticipants{}, err
+	}
+	return p, nil
 }
 
 func (r *BookingRepository) MarkInProgress(

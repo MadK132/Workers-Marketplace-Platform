@@ -34,12 +34,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("invalid GEOLOCATION_SERVICE_URL: %v", err)
 	}
+	notificationURL, err := url.Parse(cfg.NotificationURL)
+	if err != nil {
+		log.Fatalf("invalid NOTIFICATION_SERVICE_URL: %v", err)
+	}
 
 	userProxy := proxy.New(userURL)
 	bookingProxy := proxy.New(bookingURL)
 	chatProxy := proxy.New(chatURL)
 	geoProxy := proxy.New(geoURL)
-	r := router.Setup(cfg, userProxy, bookingProxy, chatProxy, geoProxy)
+	notificationProxy := proxy.New(notificationURL)
+	r := router.Setup(cfg, userProxy, bookingProxy, chatProxy, geoProxy, notificationProxy)
 
 	log.Printf("API gateway listening on :%s", cfg.Port)
 	if err := r.Run(":" + cfg.Port); err != nil {

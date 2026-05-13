@@ -16,8 +16,10 @@ import (
 	"diploma/booking-service/internal/repository"
 	"diploma/booking-service/internal/router"
 	"diploma/booking-service/internal/service"
+	"diploma/internal/notifications"
 
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 )
 
@@ -48,8 +50,26 @@ func main() {
 	bookingService := service.NewBookingService(bookingRepo)
 
 	userClient := client.NewUserClient("http://localhost:8081")
+	notifier := notifications.Publisher(notifications.NoopPublisher{})
+	var redisClient *redis.Client
+	if cfg.Redis.Enabled {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.Redis.Addr,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Printf("Redis disabled for booking notifications: %v", err)
+		} else {
+			notifier = notifications.NewRedisPublisher(redisClient, cfg.Redis.Channel)
+			log.Printf("Booking notification publisher enabled on %s channel %s", cfg.Redis.Addr, cfg.Redis.Channel)
+		}
+	}
+	if redisClient != nil {
+		defer redisClient.Close()
+	}
 
-	h := handler.NewHandler(requestService, bookingService, userClient)
+	h := handler.NewHandler(requestService, bookingService, userClient, notifier)
 	r := router.SetupRouter(h, tokenManager, cfg.Gateway.SharedSecret)
 
 	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPC.Port)

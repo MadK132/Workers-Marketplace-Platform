@@ -18,8 +18,10 @@ import (
 	"diploma/geolocation-service/internal/repository"
 	"diploma/geolocation-service/internal/router"
 	"diploma/geolocation-service/internal/service"
+	"diploma/internal/notifications"
 
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 )
 
@@ -42,7 +44,26 @@ func main() {
 
 	geoRepo := repository.NewGeolocationRepository(pool)
 	geoService := service.NewGeolocationService(geoRepo)
-	geoHandler := handler.New(geoService)
+	notifier := notifications.Publisher(notifications.NoopPublisher{})
+	var redisClient *redis.Client
+	if cfg.Redis.Enabled {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.Redis.Addr,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Printf("Redis disabled for geolocation notifications: %v", err)
+		} else {
+			notifier = notifications.NewRedisPublisher(redisClient, cfg.Redis.Channel)
+			log.Printf("Geolocation notification publisher enabled on %s channel %s", cfg.Redis.Addr, cfg.Redis.Channel)
+		}
+	}
+	if redisClient != nil {
+		defer redisClient.Close()
+	}
+
+	geoHandler := handler.New(geoService, notifier)
 
 	r := router.Setup(geoHandler, cfg)
 

@@ -160,3 +160,21 @@ func (r *PaymentRepository) UpdateStatus(
 
 	return payment, nil
 }
+
+func (r *PaymentRepository) GetCustomerUserIDByBookingID(
+	ctx context.Context,
+	bookingID int,
+) (int, error) {
+	var userID int
+	err := r.db.QueryRow(ctx, `
+		SELECT cp.user_id
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+		WHERE b.booking_id = $1
+	`, bookingID).Scan(&userID)
+	if err != nil {
+		return 0, err
+	}
+	return userID, nil
+}

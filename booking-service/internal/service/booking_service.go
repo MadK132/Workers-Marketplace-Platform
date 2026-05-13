@@ -119,3 +119,37 @@ func (s *BookingService) ListWorkerBookings(
 ) ([]repository.BookingListItem, error) {
 	return s.repo.ListByWorkerProfile(ctx, workerProfileID)
 }
+
+func (s *BookingService) GetParticipantsByRequestID(
+	ctx context.Context,
+	requestID int,
+) (repository.BookingParticipants, error) {
+	if requestID <= 0 {
+		return repository.BookingParticipants{}, ErrBookingNotFound
+	}
+	p, err := s.repo.GetParticipantsByRequestID(ctx, requestID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return repository.BookingParticipants{}, ErrBookingNotFound
+		}
+		return repository.BookingParticipants{}, err
+	}
+	return p, nil
+}
+
+func (s *BookingService) GetParticipantsByBookingID(
+	ctx context.Context,
+	bookingID int,
+) (repository.BookingParticipants, error) {
+	if bookingID <= 0 {
+		return repository.BookingParticipants{}, ErrBookingNotFound
+	}
+	p, err := s.repo.GetParticipantsByBookingID(ctx, bookingID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return repository.BookingParticipants{}, ErrBookingNotFound
+		}
+		return repository.BookingParticipants{}, err
+	}
+	return p, nil
+}

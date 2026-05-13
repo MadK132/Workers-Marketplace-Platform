@@ -11,6 +11,7 @@ type Config struct {
 	GRPC    GRPCConfig
 	JWT     JWTConfig
 	Gateway GatewayConfig
+	Redis   RedisConfig
 }
 
 type GRPCConfig struct {
@@ -22,6 +23,14 @@ type JWTConfig struct {
 }
 type GatewayConfig struct {
 	SharedSecret string
+}
+
+type RedisConfig struct {
+	Enabled  bool
+	Addr     string
+	Password string
+	DB       int
+	Channel  string
 }
 
 type DBConfig struct {
@@ -48,6 +57,13 @@ func Load() Config {
 		Gateway: GatewayConfig{
 			SharedSecret: getEnv("GATEWAY_SHARED_SECRET", ""),
 		},
+		Redis: RedisConfig{
+			Enabled:  getEnvBool("NOTIFICATION_REDIS_ENABLED", true),
+			Addr:     getEnv("REDIS_ADDR", "localhost:6379"),
+			Password: getEnv("REDIS_PASSWORD", ""),
+			DB:       getEnvInt("REDIS_DB", 0),
+			Channel:  getEnv("NOTIFICATION_REDIS_CHANNEL", "notification.events"),
+		},
 	}
 }
 
@@ -59,9 +75,22 @@ func getEnv(key, fallback string) string {
 }
 
 func getEnvInt32(key string, fallback int32) int32 {
+	return int32(getEnvInt(key, int(fallback)))
+}
+
+func getEnvInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
-			return int32(i)
+			return i
+		}
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v := os.Getenv(key); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
 		}
 	}
 	return fallback

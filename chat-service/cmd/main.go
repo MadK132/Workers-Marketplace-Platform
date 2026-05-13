@@ -18,6 +18,7 @@ import (
 	"diploma/chat-service/internal/repository"
 	"diploma/chat-service/internal/router"
 	chatservice "diploma/chat-service/internal/service"
+	"diploma/internal/notifications"
 
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
@@ -51,6 +52,7 @@ func main() {
 
 	hub := realtime.NewHub()
 	publisher := realtime.Publisher(realtime.NoopPublisher{})
+	notifier := notifications.Publisher(notifications.NoopPublisher{})
 	var redisClient *redis.Client
 
 	if cfg.Redis.Enabled {
@@ -66,6 +68,7 @@ func main() {
 			nodeID := fmt.Sprintf("%s-%d", hostname(), os.Getpid())
 			bus := realtime.NewRedisBus(redisClient, cfg.Redis.Channel, nodeID)
 			publisher = bus
+			notifier = notifications.NewRedisPublisher(redisClient, cfg.Notifications.Channel)
 			go bus.Run(ctx, hub)
 			log.Printf("Chat Redis pub/sub enabled on %s channel %s", cfg.Redis.Addr, cfg.Redis.Channel)
 		}
@@ -76,7 +79,7 @@ func main() {
 
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret)
 	chatService := chatservice.NewChatService(chatRepo)
-	chatHandler := handler.NewHandler(chatService, hub, publisher)
+	chatHandler := handler.NewHandler(chatService, hub, publisher, notifier)
 	r := router.SetupRouter(chatHandler, tokenManager, cfg.Gateway.SharedSecret)
 
 	server := &http.Server{

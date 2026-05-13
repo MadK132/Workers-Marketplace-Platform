@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"diploma/booking-service/internal/client"
 	"diploma/booking-service/internal/service"
+	"diploma/internal/notifications"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,18 +16,21 @@ type Handler struct {
 	requestService *service.RequestService
 	bookingService *service.BookingService
 	userClient     *client.UserClient
+	notifier       notifications.Publisher
 }
 
 func NewHandler(
 	requestService *service.RequestService,
 	bookingService *service.BookingService,
 	userClient *client.UserClient,
+	notifier notifications.Publisher,
 
 ) *Handler {
 	return &Handler{
 		requestService: requestService,
 		bookingService: bookingService,
 		userClient:     userClient,
+		notifier:       notifier,
 	}
 }
 
@@ -72,6 +77,18 @@ func (h *Handler) CreateRequest(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.publishNotification(c.Request.Context(), notifications.Event{
+		SourceService:   "booking-service",
+		Type:            "request.created",
+		RecipientUserID: int64(c.GetInt("user_id")),
+		Title:           "Service request created",
+		Body:            "Your request has been created and is ready for matching.",
+		Data: map[string]any{
+			"customer_profile_id": customerProfileID,
+			"category_id":         req.CategoryID,
+		},
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "request created",
@@ -152,5 +169,15 @@ func (h *Handler) ListMyBookings(c *gin.Context) {
 
 	default:
 		c.JSON(http.StatusForbidden, gin.H{"error": "only customers and workers allowed"})
+	}
+}
+
+func (h *Handler) publishNotification(ctx context.Context, event notifications.Event) {
+	if h.notifier == nil {
+		return
+	}
+	if err := h.notifier.Publish(ctx, event); err != nil {
+		// Notifications are asynchronous and should not block booking workflows.
+		return
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	paymentpb "diploma/api/payment-service-proto"
+	"diploma/internal/notifications"
 	"diploma/payment-service/internal/config"
 	"diploma/payment-service/internal/db"
 	"diploma/payment-service/internal/grpcserver"
@@ -17,6 +18,7 @@ import (
 	"diploma/payment-service/internal/service"
 
 	"github.com/joho/godotenv"
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 )
 
@@ -38,6 +40,25 @@ func main() {
 	defer pool.Close()
 
 	paymentRepo := repository.NewPaymentRepository(pool)
+	notifier := notifications.Publisher(notifications.NoopPublisher{})
+	var redisClient *redis.Client
+	if cfg.Redis.Enabled {
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     cfg.Redis.Addr,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		if err := redisClient.Ping(ctx).Err(); err != nil {
+			log.Printf("Redis disabled for payment notifications: %v", err)
+		} else {
+			notifier = notifications.NewRedisPublisher(redisClient, cfg.Redis.Channel)
+			log.Printf("Payment notification publisher enabled on %s channel %s", cfg.Redis.Addr, cfg.Redis.Channel)
+		}
+	}
+	if redisClient != nil {
+		defer redisClient.Close()
+	}
+
 	paymentProvider := provider.New(provider.Config{
 		DefaultProvider:          cfg.Provider.DefaultProvider,
 		CloudPaymentsPublicID:    cfg.Provider.CloudPaymentsPublicID,
@@ -45,7 +66,7 @@ func main() {
 		KaspiMerchantID:          cfg.Provider.KaspiMerchantID,
 		KaspiPaymentBaseURL:      cfg.Provider.KaspiPaymentBaseURL,
 	})
-	paymentService := service.NewPaymentService(paymentRepo, paymentProvider)
+	paymentService := service.NewPaymentService(paymentRepo, paymentProvider, notifier)
 
 	listener, err := net.Listen("tcp", ":"+cfg.GRPC.Port)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"diploma/chat-service/internal/realtime"
 	"diploma/chat-service/internal/repository"
 	chatservice "diploma/chat-service/internal/service"
+	"diploma/internal/notifications"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -22,6 +23,7 @@ type Handler struct {
 	service   *chatservice.ChatService
 	hub       *realtime.Hub
 	publisher realtime.Publisher
+	notifier  notifications.Publisher
 	upgrader  websocket.Upgrader
 }
 
@@ -29,11 +31,13 @@ func NewHandler(
 	service *chatservice.ChatService,
 	hub *realtime.Hub,
 	publisher realtime.Publisher,
+	notifier notifications.Publisher,
 ) *Handler {
 	return &Handler{
 		service:   service,
 		hub:       hub,
 		publisher: publisher,
+		notifier:  notifier,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -252,6 +256,41 @@ func (h *Handler) publishMessage(ctx context.Context, chatID int64, msg model.Me
 	h.hub.Broadcast(chatID, event)
 	if err := h.publisher.Publish(ctx, event); err != nil {
 		log.Printf("chat redis publish error: %v", err)
+	}
+	h.publishNotification(ctx, msg)
+}
+
+func (h *Handler) publishNotification(ctx context.Context, msg model.Message) {
+	if h.notifier == nil {
+		return
+	}
+
+	chat, err := h.service.GetChat(ctx, msg.ChatID, msg.SenderUserID)
+	if err != nil {
+		return
+	}
+
+	recipientUserID := chat.CustomerUserID
+	if msg.SenderUserID == chat.CustomerUserID {
+		recipientUserID = chat.WorkerUserID
+	}
+	if recipientUserID <= 0 || recipientUserID == msg.SenderUserID {
+		return
+	}
+
+	if err := h.notifier.Publish(ctx, notifications.Event{
+		SourceService:   "chat-service",
+		Type:            "chat.message.created",
+		RecipientUserID: recipientUserID,
+		Title:           "New chat message",
+		Body:            "You received a new message in chat.",
+		Data: map[string]any{
+			"chat_id":    msg.ChatID,
+			"message_id": msg.MessageID,
+			"sender_id":  msg.SenderUserID,
+		},
+	}); err != nil {
+		log.Printf("chat notification publish error: %v", err)
 	}
 }
 

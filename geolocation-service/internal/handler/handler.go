@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"diploma/geolocation-service/internal/repository"
+	"diploma/internal/notifications"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,11 +17,12 @@ type GeolocationService interface {
 }
 
 type Handler struct {
-	geo GeolocationService
+	geo      GeolocationService
+	notifier notifications.Publisher
 }
 
-func New(geo GeolocationService) *Handler {
-	return &Handler{geo: geo}
+func New(geo GeolocationService, notifier notifications.Publisher) *Handler {
+	return &Handler{geo: geo, notifier: notifier}
 }
 
 func (h *Handler) Health(c *gin.Context) {
@@ -59,6 +61,21 @@ func (h *Handler) FindNearbyWorkers(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if len(workers) == 0 && c.GetInt("user_id") > 0 {
+		_ = h.notifier.Publish(c.Request.Context(), notifications.Event{
+			SourceService:   "geolocation-service",
+			Type:            "geolocation.no_workers_found",
+			RecipientUserID: int64(c.GetInt("user_id")),
+			Title:           "No nearby workers found",
+			Body:            "No available workers were found for your selected category and radius.",
+			Data: map[string]any{
+				"category_id":   categoryID,
+				"latitude":      latitude,
+				"longitude":     longitude,
+				"radius_meters": radiusMeters,
+			},
+		})
 	}
 
 	c.JSON(http.StatusOK, workers)

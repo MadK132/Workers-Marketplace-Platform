@@ -7,6 +7,7 @@ import (
 
 	"diploma/booking-service/internal/client"
 	"diploma/booking-service/internal/service"
+	"diploma/internal/notifications"
 
 	"github.com/gin-gonic/gin"
 )
@@ -69,6 +70,33 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		return
 	}
 
+	if participants, err := h.bookingService.GetParticipantsByRequestID(c.Request.Context(), req.RequestID); err == nil {
+		h.publishNotification(c.Request.Context(), notifications.Event{
+			SourceService:   "booking-service",
+			Type:            "booking.created",
+			RecipientUserID: int64(participants.WorkerUserID),
+			Title:           "New booking assigned",
+			Body:            "A customer selected you for a service booking.",
+			Data: map[string]any{
+				"booking_id":        participants.BookingID,
+				"request_id":        participants.RequestID,
+				"worker_profile_id": participants.WorkerProfileID,
+			},
+		})
+		h.publishNotification(c.Request.Context(), notifications.Event{
+			SourceService:   "booking-service",
+			Type:            "booking.created",
+			RecipientUserID: int64(participants.CustomerUserID),
+			Title:           "Booking created",
+			Body:            "Your booking has been created successfully.",
+			Data: map[string]any{
+				"booking_id":          participants.BookingID,
+				"request_id":          participants.RequestID,
+				"customer_profile_id": participants.CustomerProfileID,
+			},
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "booking created",
 	})
@@ -108,6 +136,19 @@ func (h *Handler) StartBooking(c *gin.Context) {
 		}
 		return
 	}
+	if participants, err := h.bookingService.GetParticipantsByBookingID(c.Request.Context(), bookingID); err == nil {
+		h.publishNotification(c.Request.Context(), notifications.Event{
+			SourceService:   "booking-service",
+			Type:            "booking.started",
+			RecipientUserID: int64(participants.CustomerUserID),
+			Title:           "Work started",
+			Body:            "The worker has started your service.",
+			Data: map[string]any{
+				"booking_id": bookingID,
+				"request_id": participants.RequestID,
+			},
+		})
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "booking started"})
 }
 
@@ -144,6 +185,20 @@ func (h *Handler) CompleteBooking(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		}
 		return
+	}
+
+	if participants, err := h.bookingService.GetParticipantsByBookingID(c.Request.Context(), bookingID); err == nil {
+		h.publishNotification(c.Request.Context(), notifications.Event{
+			SourceService:   "booking-service",
+			Type:            "booking.completed",
+			RecipientUserID: int64(participants.CustomerUserID),
+			Title:           "Work completed",
+			Body:            "The worker marked your service as completed.",
+			Data: map[string]any{
+				"booking_id": bookingID,
+				"request_id": participants.RequestID,
+			},
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "booking completed"})

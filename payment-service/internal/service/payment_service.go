@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"diploma/internal/notifications"
 	"diploma/payment-service/internal/provider"
 	"diploma/payment-service/internal/repository"
 )
@@ -19,6 +20,7 @@ type PaymentRepository interface {
 	Create(ctx context.Context, bookingID int, amount float64, currency string, provider string, transactionReference string) (repository.Payment, error)
 	GetByID(ctx context.Context, paymentID int) (repository.Payment, error)
 	UpdateStatus(ctx context.Context, paymentID int, status string, transactionReference string) (repository.Payment, error)
+	GetCustomerUserIDByBookingID(ctx context.Context, bookingID int) (int, error)
 }
 
 type PaymentProvider interface {
@@ -33,12 +35,18 @@ type PaymentResult struct {
 type PaymentService struct {
 	repo     PaymentRepository
 	provider PaymentProvider
+	notifier notifications.Publisher
 }
 
-func NewPaymentService(repo PaymentRepository, provider PaymentProvider) *PaymentService {
+func NewPaymentService(
+	repo PaymentRepository,
+	provider PaymentProvider,
+	notifier notifications.Publisher,
+) *PaymentService {
 	return &PaymentService{
 		repo:     repo,
 		provider: provider,
+		notifier: notifier,
 	}
 }
 
@@ -86,6 +94,8 @@ func (s *PaymentService) CreatePayment(
 	if err != nil {
 		return PaymentResult{}, err
 	}
+
+	s.publishPaymentNotification(ctx, payment, "payment.created")
 
 	return PaymentResult{
 		Payment:    payment,
@@ -149,5 +159,52 @@ func (s *PaymentService) updateStatus(
 		return PaymentResult{}, err
 	}
 
+	s.publishPaymentNotification(ctx, payment, "payment."+status)
+
 	return PaymentResult{Payment: payment}, nil
+}
+
+func (s *PaymentService) publishPaymentNotification(
+	ctx context.Context,
+	payment repository.Payment,
+	eventType string,
+) {
+	if s.notifier == nil {
+		return
+	}
+
+	userID, err := s.repo.GetCustomerUserIDByBookingID(ctx, payment.BookingID)
+	if err != nil || userID <= 0 {
+		return
+	}
+
+	title := "Payment update"
+	body := fmt.Sprintf("Payment #%d status: %s", payment.ID, payment.Status)
+	switch payment.Status {
+	case "pending":
+		title = "Payment created"
+		body = "Your payment is ready to be completed."
+	case "completed":
+		title = "Payment completed"
+		body = "Your payment was completed successfully."
+	case "failed":
+		title = "Payment failed"
+		body = "Your payment failed. Please try again or contact support."
+	}
+
+	_ = s.notifier.Publish(ctx, notifications.Event{
+		SourceService:   "payment-service",
+		Type:            eventType,
+		RecipientUserID: int64(userID),
+		Title:           title,
+		Body:            body,
+		Data: map[string]any{
+			"payment_id": payment.ID,
+			"booking_id": payment.BookingID,
+			"amount":     payment.Amount,
+			"currency":   payment.Currency,
+			"status":     payment.Status,
+			"provider":   payment.Provider,
+		},
+	})
 }
