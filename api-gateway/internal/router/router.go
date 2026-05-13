@@ -13,6 +13,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func Setup(
+	cfg config.Config,
+	userProxy,
+	bookingProxy,
+	chatProxy *httputil.ReverseProxy,
+) *gin.Engine {
 func Setup(cfg config.Config, userProxy, bookingProxy, geoProxy *httputil.ReverseProxy) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -53,6 +59,8 @@ func Setup(cfg config.Config, userProxy, bookingProxy, geoProxy *httputil.Revers
 			bookingProxy.ServeHTTP(c.Writer, c.Request)
 			return
 		}
+		if isChatPath(path) {
+			chatProxy.ServeHTTP(c.Writer, c.Request)
 		if isGeoPath(path) {
 			geoProxy.ServeHTTP(c.Writer, c.Request)
 			return
@@ -67,6 +75,8 @@ func isBookingPath(path string) bool {
 	return strings.HasPrefix(path, "/requests") || strings.HasPrefix(path, "/bookings")
 }
 
+func isChatPath(path string) bool {
+	return strings.HasPrefix(path, "/chats")
 func isGeoPath(path string) bool {
 	return strings.HasPrefix(path, "/geo/")
 }

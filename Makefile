@@ -1,3 +1,4 @@
+.PHONY: help full infra-up infra-down db-import run-gateway run-user run-booking run-chat proto proto-user proto-booking test
 .PHONY: help full infra-up infra-down db-import db-geo run-gateway run-user run-booking run-geo run-payment proto proto-user proto-booking proto-geo proto-payment test
 
 POWERSHELL := powershell -NoProfile -ExecutionPolicy Bypass -Command
@@ -11,6 +12,7 @@ help:
 	@echo "  make db-geo       - apply PostGIS geolocation schema changes"
 	@echo "  make run-user     - run usermanagement-service"
 	@echo "  make run-booking  - run booking-service"
+	@echo "  make run-chat     - run chat-service"
 	@echo "  make run-geo      - run geolocation-service"
 	@echo "  make run-payment  - run payment-service"
 	@echo "  make run-gateway  - run api-gateway"
@@ -20,6 +22,7 @@ help:
 full: infra-up
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./usermanagement-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./booking-service/cmd'"
+	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./chat-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./geolocation-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./payment-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./api-gateway/cmd'"
@@ -42,6 +45,8 @@ run-user:
 run-booking:
 	go run ./booking-service/cmd
 
+run-chat:
+	go run ./chat-service/cmd
 run-geo:
 	go run ./geolocation-service/cmd
 
