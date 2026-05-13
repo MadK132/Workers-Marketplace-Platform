@@ -13,6 +13,7 @@ import (
 	geolocationpb "diploma/api/geolocation-service-proto"
 	"diploma/geolocation-service/internal/config"
 	"diploma/geolocation-service/internal/db"
+	"diploma/geolocation-service/internal/grpcmiddleware"
 	"diploma/geolocation-service/internal/grpcserver"
 	"diploma/geolocation-service/internal/handler"
 	"diploma/geolocation-service/internal/repository"
@@ -50,7 +51,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("gRPC listen error: %v", err)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(
+		grpcmiddleware.Auth(cfg.Gateway.SharedSecret),
+	))
 	geolocationpb.RegisterGeolocationServiceServer(
 		grpcServer,
 		grpcserver.New(geoService),

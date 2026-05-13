@@ -307,6 +307,11 @@ func (s *AuthService) ForgotPassword(ctx context.Context, email string) error {
 	return nil
 }
 func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	newPassword = strings.TrimSpace(newPassword)
+	if len(newPassword) < 8 {
+		return &ValidationError{Field: "new_password", Message: "must be at least 8 characters"}
+	}
+
 	userID, expiresAt, err := s.passwordResets.GetByToken(ctx, token)
 	if err != nil {
 		return err
@@ -316,7 +321,10 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword stri
 		return errors.New("token expired")
 	}
 
-	hash, _ := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
 
 	err = s.users.UpdatePassword(ctx, userID, string(hash))
 	if err != nil {

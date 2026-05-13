@@ -16,6 +16,7 @@ import (
 	"diploma/usermanagement-service/internal/config"
 	"diploma/usermanagement-service/internal/db"
 	"diploma/usermanagement-service/internal/email"
+	"diploma/usermanagement-service/internal/grpcmiddleware"
 	"diploma/usermanagement-service/internal/grpcserver"
 	"diploma/usermanagement-service/internal/handler"
 	"diploma/usermanagement-service/internal/repository"
@@ -95,7 +96,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("gRPC listen error: %v", err)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(
+		grpcmiddleware.Auth(cfg.Gateway.SharedSecret),
+	))
 	usermanagementpb.RegisterUserManagementServiceServer(
 		grpcServer,
 		grpcserver.New(authService),

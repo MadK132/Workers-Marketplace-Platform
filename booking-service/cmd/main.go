@@ -11,6 +11,7 @@ import (
 	"diploma/booking-service/internal/client"
 	"diploma/booking-service/internal/config"
 	"diploma/booking-service/internal/db"
+	"diploma/booking-service/internal/grpcmiddleware"
 	"diploma/booking-service/internal/grpcserver"
 	"diploma/booking-service/internal/handler"
 	"diploma/booking-service/internal/repository"
@@ -47,7 +48,7 @@ func main() {
 	bookingRepo := repository.NewBookingRepository(pool)
 	bookingService := service.NewBookingService(bookingRepo)
 
-	userClient := client.NewUserClient("http://localhost:8081")
+	userClient := client.NewUserClient(cfg.User.URL)
 
 	h := handler.NewHandler(requestService, bookingService, userClient)
 	r := router.SetupRouter(h, tokenManager, cfg.Gateway.SharedSecret)
@@ -56,7 +57,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("gRPC listen error: %v", err)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(
+		grpcmiddleware.Auth(cfg.Gateway.SharedSecret),
+	))
 	bookingpb.RegisterBookingServiceServer(
 		grpcServer,
 		grpcserver.New(requestService, bookingService),
@@ -69,8 +72,8 @@ func main() {
 		}
 	}()
 
-	log.Println("Booking service running on :8082")
-	if err := r.Run(":8082"); err != nil && err != http.ErrServerClosed {
+	log.Printf("Booking service running on :%s", cfg.HTTP.Port)
+	if err := r.Run(":" + cfg.HTTP.Port); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

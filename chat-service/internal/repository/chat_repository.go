@@ -10,7 +10,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var ErrChatNotFound = errors.New("chat not found")
+var (
+	ErrChatNotFound    = errors.New("chat not found")
+	ErrBookingNotFound = errors.New("booking not found")
+)
+
+type BookingParticipants struct {
+	CustomerUserID int64
+	WorkerUserID   int64
+}
 
 type ChatRepository struct {
 	db *pgxpool.Pool
@@ -56,6 +64,32 @@ func (r *ChatRepository) EnsureSchema(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *ChatRepository) GetBookingParticipants(
+	ctx context.Context,
+	bookingID int64,
+) (BookingParticipants, error) {
+	var participants BookingParticipants
+	err := r.db.QueryRow(ctx, `
+		SELECT cp.user_id, wp.user_id
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+		JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+		WHERE b.booking_id = $1
+	`, bookingID).Scan(
+		&participants.CustomerUserID,
+		&participants.WorkerUserID,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return BookingParticipants{}, ErrBookingNotFound
+	}
+	if err != nil {
+		return BookingParticipants{}, err
+	}
+
+	return participants, nil
 }
 
 func (r *ChatRepository) UpsertChat(

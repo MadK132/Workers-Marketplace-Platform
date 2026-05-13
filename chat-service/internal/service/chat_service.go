@@ -31,25 +31,41 @@ func (s *ChatService) CreateChat(
 	customerUserID int64,
 	workerUserID int64,
 ) (model.Chat, error) {
-	if bookingID <= 0 || customerUserID <= 0 || workerUserID <= 0 || customerUserID == workerUserID {
+	if bookingID <= 0 {
 		return model.Chat{}, ErrInvalidInput
+	}
+
+	participants, err := s.repo.GetBookingParticipants(ctx, bookingID)
+	if err != nil {
+		return model.Chat{}, err
+	}
+	if participants.CustomerUserID <= 0 ||
+		participants.WorkerUserID <= 0 ||
+		participants.CustomerUserID == participants.WorkerUserID {
+		return model.Chat{}, ErrInvalidInput
+	}
+	if customerUserID > 0 && customerUserID != participants.CustomerUserID {
+		return model.Chat{}, ErrForbidden
+	}
+	if workerUserID > 0 && workerUserID != participants.WorkerUserID {
+		return model.Chat{}, ErrForbidden
 	}
 
 	switch role {
 	case "admin":
 	case "customer":
-		if currentUserID != customerUserID {
+		if currentUserID != participants.CustomerUserID {
 			return model.Chat{}, ErrForbidden
 		}
 	case "worker":
-		if currentUserID != workerUserID {
+		if currentUserID != participants.WorkerUserID {
 			return model.Chat{}, ErrForbidden
 		}
 	default:
 		return model.Chat{}, ErrForbidden
 	}
 
-	return s.repo.UpsertChat(ctx, bookingID, customerUserID, workerUserID)
+	return s.repo.UpsertChat(ctx, bookingID, participants.CustomerUserID, participants.WorkerUserID)
 }
 
 func (s *ChatService) ListChats(ctx context.Context, userID int64) ([]model.Chat, error) {

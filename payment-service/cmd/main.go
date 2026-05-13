@@ -4,13 +4,16 @@ import (
 	"context"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	paymentpb "diploma/api/payment-service-proto"
 	"diploma/payment-service/internal/config"
 	"diploma/payment-service/internal/db"
+	"diploma/payment-service/internal/grpcmiddleware"
 	"diploma/payment-service/internal/grpcserver"
 	"diploma/payment-service/internal/provider"
 	"diploma/payment-service/internal/repository"
@@ -39,11 +42,12 @@ func main() {
 
 	paymentRepo := repository.NewPaymentRepository(pool)
 	paymentProvider := provider.New(provider.Config{
-		DefaultProvider:          cfg.Provider.DefaultProvider,
-		CloudPaymentsPublicID:    cfg.Provider.CloudPaymentsPublicID,
-		CloudPaymentsCheckoutURL: cfg.Provider.CloudPaymentsCheckoutURL,
-		KaspiMerchantID:          cfg.Provider.KaspiMerchantID,
-		KaspiPaymentBaseURL:      cfg.Provider.KaspiPaymentBaseURL,
+		DefaultProvider:      cfg.Provider.DefaultProvider,
+		StripeSecretKey:      cfg.Provider.StripeSecretKey,
+		StripeSuccessURL:     cfg.Provider.StripeSuccessURL,
+		StripeCancelURL:      cfg.Provider.StripeCancelURL,
+		StripeCheckoutAPIURL: cfg.Provider.StripeCheckoutAPIURL,
+		StripeMockURL:        cfg.Provider.StripeMockURL,
 	})
 	paymentService := service.NewPaymentService(paymentRepo, paymentProvider)
 
@@ -52,7 +56,9 @@ func main() {
 		log.Fatalf("gRPC listen error: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(
+		grpcmiddleware.Auth(cfg.Gateway.SharedSecret),
+	))
 	paymentpb.RegisterPaymentServiceServer(
 		grpcServer,
 		grpcserver.New(paymentService),
@@ -65,10 +71,27 @@ func main() {
 		}
 	}()
 
+	webhookServer := &http.Server{
+		Addr:              ":" + cfg.HTTP.WebhookPort,
+		Handler:           grpcserver.NewWebhookHandler(paymentService, cfg.Provider.StripeWebhookSecret),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		log.Printf("Payment webhook service listening on :%s", cfg.HTTP.WebhookPort)
+		if err := webhookServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("webhook server error: %v", err)
+		}
+	}()
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := webhookServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Payment webhook graceful shutdown failed: %v", err)
+	}
 	grpcServer.GracefulStop()
 	log.Println("Payment service stopped")
 }

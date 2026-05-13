@@ -86,3 +86,39 @@ func (r *GeolocationRepository) FindNearbyWorkers(
 
 	return workers, nil
 }
+
+func (r *GeolocationRepository) UpdateWorkerLocation(
+	ctx context.Context,
+	userID int,
+	latitude float64,
+	longitude float64,
+) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE worker_profiles
+		SET
+			current_latitude = $2,
+			current_longitude = $3,
+			current_location = ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography
+		WHERE user_id = $1
+	`, userID, latitude, longitude)
+
+	return err
+}
+
+func (r *GeolocationRepository) UpdateCustomerLocation(
+	ctx context.Context,
+	userID int,
+	latitude float64,
+	longitude float64,
+) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE customer_profiles
+		SET
+			latitude = $2,
+			longitude = $3,
+			location = ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography
+		WHERE user_id = $1
+	`, userID, latitude, longitude)
+
+	return err
+}

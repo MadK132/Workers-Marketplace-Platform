@@ -78,6 +78,43 @@ func (r *PaymentRepository) Create(
 	return payment, nil
 }
 
+func (r *PaymentRepository) GetByBookingID(ctx context.Context, bookingID int) (Payment, error) {
+	var payment Payment
+	var paidAt *time.Time
+
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			payment_id,
+			booking_id,
+			amount::float8,
+			TRIM(currency),
+			payment_status::text,
+			COALESCE(payment_method, ''),
+			COALESCE(transaction_reference, ''),
+			paid_at
+		FROM payments
+		WHERE booking_id = $1
+	`, bookingID).Scan(
+		&payment.ID,
+		&payment.BookingID,
+		&payment.Amount,
+		&payment.Currency,
+		&payment.Status,
+		&payment.Provider,
+		&payment.TransactionReference,
+		&paidAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Payment{}, ErrPaymentNotFound
+		}
+		return Payment{}, err
+	}
+	payment.PaidAt = paidAt
+
+	return payment, nil
+}
+
 func (r *PaymentRepository) GetByID(ctx context.Context, paymentID int) (Payment, error) {
 	var payment Payment
 	var paidAt *time.Time
@@ -141,6 +178,50 @@ func (r *PaymentRepository) UpdateStatus(
 			COALESCE(transaction_reference, ''),
 			paid_at
 	`, paymentID, status, transactionReference).Scan(
+		&payment.ID,
+		&payment.BookingID,
+		&payment.Amount,
+		&payment.Currency,
+		&payment.Status,
+		&payment.Provider,
+		&payment.TransactionReference,
+		&paidAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Payment{}, ErrPaymentNotFound
+		}
+		return Payment{}, err
+	}
+	payment.PaidAt = paidAt
+
+	return payment, nil
+}
+
+func (r *PaymentRepository) UpdateStatusByTransactionReference(
+	ctx context.Context,
+	transactionReference string,
+	status string,
+) (Payment, error) {
+	var payment Payment
+	var paidAt *time.Time
+
+	err := r.db.QueryRow(ctx, `
+		UPDATE payments
+		SET
+			payment_status = $2,
+			paid_at = CASE WHEN $2 = 'completed' THEN NOW() ELSE paid_at END
+		WHERE transaction_reference = $1
+		RETURNING
+			payment_id,
+			booking_id,
+			amount::float8,
+			TRIM(currency),
+			payment_status::text,
+			COALESCE(payment_method, ''),
+			COALESCE(transaction_reference, ''),
+			paid_at
+	`, transactionReference, status).Scan(
 		&payment.ID,
 		&payment.BookingID,
 		&payment.Amount,

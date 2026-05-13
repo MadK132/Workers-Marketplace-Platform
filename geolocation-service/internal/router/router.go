@@ -17,6 +17,8 @@ func Setup(h *handler.Handler, cfg config.Config) *gin.Engine {
 	api.Use(middleware.GatewayOnly(cfg.Gateway.SharedSecret))
 	{
 		api.GET("/geo/workers/nearby", h.FindNearbyWorkers)
+		api.PATCH("/geo/worker/location", h.UpdateWorkerLocation)
+		api.PATCH("/geo/customer/location", h.UpdateCustomerLocation)
 	}
 
 	return r

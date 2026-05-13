@@ -8,13 +8,23 @@ import (
 
 type Config struct {
 	DB      DBConfig
+	HTTP    HTTPConfig
 	GRPC    GRPCConfig
 	JWT     JWTConfig
 	Gateway GatewayConfig
+	User    UserServiceConfig
+}
+
+type HTTPConfig struct {
+	Port string
 }
 
 type GRPCConfig struct {
 	Port string
+}
+
+type UserServiceConfig struct {
+	URL string
 }
 
 type JWTConfig struct {
@@ -39,6 +49,9 @@ func Load() Config {
 			MinConns:    getEnvInt32("DB_MIN_CONNS", 2),
 			PingTimeout: getEnvDuration("DB_PING_TIMEOUT", "3s"),
 		},
+		HTTP: HTTPConfig{
+			Port: getEnv("BOOKING_HTTP_PORT", "8082"),
+		},
 		GRPC: GRPCConfig{
 			Port: getEnv("BOOKING_GRPC_PORT", "9094"),
 		},
@@ -47,6 +60,9 @@ func Load() Config {
 		},
 		Gateway: GatewayConfig{
 			SharedSecret: getEnv("GATEWAY_SHARED_SECRET", ""),
+		},
+		User: UserServiceConfig{
+			URL: getEnv("USER_SERVICE_URL", "http://localhost:8081"),
 		},
 	}
 }

@@ -22,7 +22,7 @@ func Load() Config {
 		UserServiceURL:    getEnv("USER_SERVICE_URL", "http://localhost:8081"),
 		BookingServiceURL: getEnv("BOOKING_SERVICE_URL", "http://localhost:8082"),
 		ChatServiceURL:    getEnv("CHAT_SERVICE_URL", "http://localhost:8083"),
-		GeoServiceURL:     getEnv("GEOLOCATION_SERVICE_URL", "http://localhost:8083"),
+		GeoServiceURL:     getEnv("GEOLOCATION_SERVICE_URL", "http://localhost:8084"),
 		JWTSecret:         getEnv("JWT_SECRET", ""),
 		GatewaySecret:     getEnv("GATEWAY_SHARED_SECRET", ""),
 		AllowedOrigins: parseOrigins(

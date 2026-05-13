@@ -13,6 +13,8 @@ import (
 
 type GeolocationService interface {
 	FindNearbyWorkers(ctx context.Context, categoryID int, latitude float64, longitude float64, radiusMeters int) ([]repository.NearbyWorker, error)
+	UpdateWorkerLocation(ctx context.Context, userID int, latitude float64, longitude float64) error
+	UpdateCustomerLocation(ctx context.Context, userID int, latitude float64, longitude float64) error
 }
 
 type Handler struct {
@@ -62,6 +64,43 @@ func (h *Handler) FindNearbyWorkers(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, workers)
+}
+
+func (h *Handler) UpdateWorkerLocation(c *gin.Context) {
+	if c.GetString("role") != "worker" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only workers allowed"})
+		return
+	}
+	h.updateLocation(c, h.geo.UpdateWorkerLocation)
+}
+
+func (h *Handler) UpdateCustomerLocation(c *gin.Context) {
+	if c.GetString("role") != "customer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only customers allowed"})
+		return
+	}
+	h.updateLocation(c, h.geo.UpdateCustomerLocation)
+}
+
+func (h *Handler) updateLocation(
+	c *gin.Context,
+	update func(context.Context, int, float64, float64) error,
+) {
+	var req struct {
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	if err := update(c.Request.Context(), c.GetInt("user_id"), req.Latitude, req.Longitude); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "location updated"})
 }
 
 func parseIntQuery(c *gin.Context, key string, required bool, fallback int) (int, error) {
