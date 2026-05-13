@@ -1,4 +1,4 @@
-.PHONY: help full infra-up infra-down db-import db-geo run-gateway run-user run-booking run-geo proto proto-user proto-booking proto-geo test
+.PHONY: help full infra-up infra-down db-import db-geo run-gateway run-user run-booking run-geo run-payment proto proto-user proto-booking proto-geo proto-payment test
 
 POWERSHELL := powershell -NoProfile -ExecutionPolicy Bypass -Command
 
@@ -12,6 +12,7 @@ help:
 	@echo "  make run-user     - run usermanagement-service"
 	@echo "  make run-booking  - run booking-service"
 	@echo "  make run-geo      - run geolocation-service"
+	@echo "  make run-payment  - run payment-service"
 	@echo "  make run-gateway  - run api-gateway"
 	@echo "  make proto        - regenerate all protobuf Go files"
 	@echo "  make test         - run go test ./..."
@@ -20,6 +21,7 @@ full: infra-up
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./usermanagement-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./booking-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./geolocation-service/cmd'"
+	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./payment-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./api-gateway/cmd'"
 
 infra-up:
@@ -43,10 +45,13 @@ run-booking:
 run-geo:
 	go run ./geolocation-service/cmd
 
+run-payment:
+	go run ./payment-service/cmd
+
 run-gateway:
 	go run ./api-gateway/cmd
 
-proto: proto-user proto-booking proto-geo
+proto: proto-user proto-booking proto-geo proto-payment
 
 proto-user:
 	protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative api/usermanagement-service-proto/usermanagement.proto
@@ -56,6 +61,9 @@ proto-booking:
 
 proto-geo:
 	protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative api/geolocation-service-proto/geolocation.proto
+
+proto-payment:
+	protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative api/payment-service-proto/payment.proto
 
 test:
 	$(POWERSHELL) "$$env:GOCACHE = Join-Path (Get-Location) '.gocache'; go test ./..."
