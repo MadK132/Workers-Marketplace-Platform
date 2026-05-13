@@ -28,7 +28,7 @@ type AuthService interface {
 	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) error
 	VerifyWorkerSkill(ctx context.Context, skillID int) error
 	SetAvailability(ctx context.Context, userID int, available bool) error
-	FindWorkers(ctx context.Context, categoryID int) ([]repository.WorkerSearchResult, error)
+	FindWorkers(ctx context.Context, categoryID int, latitude *float64, longitude *float64, radiusMeters int) ([]repository.WorkerSearchResult, error)
 	VerifyWorker(ctx context.Context, workerID int) error
 	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
 	GetWorkerProfile(ctx context.Context, userID int) (*model.WorkerProfile, error)
@@ -364,13 +364,50 @@ func (h *AuthHandler) FindWorkers(c *gin.Context) {
 		return
 	}
 
-	result, err := h.auth.FindWorkers(c.Request.Context(), categoryID)
+	latitude, longitude, err := parseCoordinates(c)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	radiusMeters := 5000
+	if radiusStr := c.Query("radius_meters"); radiusStr != "" {
+		radiusMeters, err = strconv.Atoi(radiusStr)
+		if err != nil || radiusMeters <= 0 {
+			c.JSON(400, gin.H{"error": "invalid radius_meters"})
+			return
+		}
+	}
+
+	result, err := h.auth.FindWorkers(c.Request.Context(), categoryID, latitude, longitude, radiusMeters)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
 	c.JSON(200, result)
+}
+
+func parseCoordinates(c *gin.Context) (*float64, *float64, error) {
+	latStr := c.Query("latitude")
+	lonStr := c.Query("longitude")
+	if latStr == "" && lonStr == "" {
+		return nil, nil, nil
+	}
+	if latStr == "" || lonStr == "" {
+		return nil, nil, errors.New("latitude and longitude must be provided together")
+	}
+
+	latitude, err := strconv.ParseFloat(latStr, 64)
+	if err != nil || latitude < -90 || latitude > 90 {
+		return nil, nil, errors.New("invalid latitude")
+	}
+	longitude, err := strconv.ParseFloat(lonStr, 64)
+	if err != nil || longitude < -180 || longitude > 180 {
+		return nil, nil, errors.New("invalid longitude")
+	}
+
+	return &latitude, &longitude, nil
 }
 func (h *AuthHandler) VerifyWorker(c *gin.Context) {
 	role := c.GetString("role")
