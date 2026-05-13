@@ -415,16 +415,7 @@ func isValidExperience(level string) bool {
 func (s *AuthService) FindWorkers(
 	ctx context.Context,
 	categoryID int,
-	latitude *float64,
-	longitude *float64,
-	radiusMeters int,
 ) ([]repository.WorkerSearchResult, error) {
-	if latitude != nil && longitude != nil {
-		if radiusMeters <= 0 {
-			radiusMeters = 5000
-		}
-		return s.workerSkills.FindWorkersNearby(ctx, categoryID, *latitude, *longitude, radiusMeters)
-	}
 	return s.workerSkills.FindWorkersByCategory(ctx, categoryID)
 }
 func (s *AuthService) VerifyWorker(ctx context.Context, workerID int) error {
