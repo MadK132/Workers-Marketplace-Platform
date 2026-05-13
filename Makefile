@@ -1,4 +1,4 @@
-.PHONY: help full infra-up infra-down db-import db-geo run-gateway run-user run-booking run-chat run-geo run-payment proto proto-user proto-booking proto-geo proto-payment test
+.PHONY: help full infra-up infra-down db-import db-geo run-gateway run-user run-booking run-chat run-geo run-payment run-notification proto proto-user proto-booking proto-geo proto-payment test
 
 POWERSHELL := powershell -NoProfile -ExecutionPolicy Bypass -Command
 
@@ -14,6 +14,7 @@ help:
 	@echo "  make run-chat     - run chat-service"
 	@echo "  make run-geo      - run geolocation-service"
 	@echo "  make run-payment  - run payment-service"
+	@echo "  make run-notification - run notification-service"
 	@echo "  make run-gateway  - run api-gateway"
 	@echo "  make proto        - regenerate all protobuf Go files"
 	@echo "  make test         - run go test ./..."
@@ -24,6 +25,7 @@ full: infra-up
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./chat-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./geolocation-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./payment-service/cmd'"
+	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./notification-service/cmd'"
 	$(POWERSHELL) "Start-Process powershell -ArgumentList '-NoExit','-Command','cd \"$(CURDIR)\"; go run ./api-gateway/cmd'"
 
 infra-up:
@@ -52,6 +54,9 @@ run-geo:
 
 run-payment:
 	go run ./payment-service/cmd
+
+run-notification:
+	go run ./notification-service/cmd
 
 run-gateway:
 	go run ./api-gateway/cmd

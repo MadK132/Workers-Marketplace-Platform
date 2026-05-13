@@ -18,7 +18,8 @@ func Setup(
 	userProxy,
 	bookingProxy,
 	chatProxy,
-	geoProxy *httputil.ReverseProxy,
+	geoProxy,
+	notificationProxy *httputil.ReverseProxy,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -62,6 +63,8 @@ func Setup(
 			chatProxy.ServeHTTP(c.Writer, c.Request)
 		case isGeoPath(path):
 			geoProxy.ServeHTTP(c.Writer, c.Request)
+		case isNotificationPath(path):
+			notificationProxy.ServeHTTP(c.Writer, c.Request)
 		default:
 			userProxy.ServeHTTP(c.Writer, c.Request)
 		}
@@ -80,4 +83,8 @@ func isChatPath(path string) bool {
 
 func isGeoPath(path string) bool {
 	return strings.HasPrefix(path, "/geo/")
+}
+
+func isNotificationPath(path string) bool {
+	return strings.HasPrefix(path, "/notifications")
 }

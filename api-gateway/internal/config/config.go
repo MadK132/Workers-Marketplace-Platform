@@ -11,6 +11,7 @@ type Config struct {
 	BookingServiceURL string
 	ChatServiceURL    string
 	GeoServiceURL     string
+	NotificationURL   string
 	JWTSecret         string
 	GatewaySecret     string
 	AllowedOrigins    []string
@@ -23,6 +24,7 @@ func Load() Config {
 		BookingServiceURL: getEnv("BOOKING_SERVICE_URL", "http://localhost:8082"),
 		ChatServiceURL:    getEnv("CHAT_SERVICE_URL", "http://localhost:8083"),
 		GeoServiceURL:     getEnv("GEOLOCATION_SERVICE_URL", "http://localhost:8084"),
+		NotificationURL:   getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8085"),
 		JWTSecret:         getEnv("JWT_SECRET", ""),
 		GatewaySecret:     getEnv("GATEWAY_SHARED_SECRET", ""),
 		AllowedOrigins: parseOrigins(
