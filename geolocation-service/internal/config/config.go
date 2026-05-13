@@ -41,7 +41,7 @@ func Load() Config {
 			PingTimeout: getEnvDuration("DB_PING_TIMEOUT", "3s"),
 		},
 		HTTP: HTTPConfig{
-			Port: getEnv("GEOLOCATION_PORT", "8083"),
+			Port: getEnv("GEOLOCATION_PORT", "8084"),
 		},
 		GRPC: GRPCConfig{
 			Port: getEnv("GEOLOCATION_GRPC_PORT", "9095"),

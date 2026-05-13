@@ -1,5 +1,4 @@
-.PHONY: help full infra-up infra-down db-import run-gateway run-user run-booking run-chat proto proto-user proto-booking test
-.PHONY: help full infra-up infra-down db-import db-geo run-gateway run-user run-booking run-geo run-payment proto proto-user proto-booking proto-geo proto-payment test
+.PHONY: help full infra-up infra-down db-import db-geo run-gateway run-user run-booking run-chat run-geo run-payment proto proto-user proto-booking proto-geo proto-payment test
 
 POWERSHELL := powershell -NoProfile -ExecutionPolicy Bypass -Command
 
@@ -47,6 +46,7 @@ run-booking:
 
 run-chat:
 	go run ./chat-service/cmd
+
 run-geo:
 	go run ./geolocation-service/cmd
 

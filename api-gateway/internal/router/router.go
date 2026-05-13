@@ -17,9 +17,9 @@ func Setup(
 	cfg config.Config,
 	userProxy,
 	bookingProxy,
-	chatProxy *httputil.ReverseProxy,
+	chatProxy,
+	geoProxy *httputil.ReverseProxy,
 ) *gin.Engine {
-func Setup(cfg config.Config, userProxy, bookingProxy, geoProxy *httputil.ReverseProxy) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
@@ -55,17 +55,16 @@ func Setup(cfg config.Config, userProxy, bookingProxy, geoProxy *httputil.Revers
 			c.Request.Header.Set("X-Gateway-Secret", cfg.GatewaySecret)
 		}
 
-		if isBookingPath(path) {
+		switch {
+		case isBookingPath(path):
 			bookingProxy.ServeHTTP(c.Writer, c.Request)
-			return
-		}
-		if isChatPath(path) {
+		case isChatPath(path):
 			chatProxy.ServeHTTP(c.Writer, c.Request)
-		if isGeoPath(path) {
+		case isGeoPath(path):
 			geoProxy.ServeHTTP(c.Writer, c.Request)
-			return
+		default:
+			userProxy.ServeHTTP(c.Writer, c.Request)
 		}
-		userProxy.ServeHTTP(c.Writer, c.Request)
 	})
 
 	return r
@@ -77,6 +76,8 @@ func isBookingPath(path string) bool {
 
 func isChatPath(path string) bool {
 	return strings.HasPrefix(path, "/chats")
+}
+
 func isGeoPath(path string) bool {
 	return strings.HasPrefix(path, "/geo/")
 }
