@@ -70,8 +70,7 @@ func (r *WorkerSkillRepository) FindWorkersByCategory(
 	}
 	defer rows.Close()
 
-	var result []WorkerSearchResult
-
+	result := make([]WorkerSearchResult, 0)
 	for rows.Next() {
 		var w WorkerSearchResult
 
@@ -87,6 +86,10 @@ func (r *WorkerSkillRepository) FindWorkersByCategory(
 		}
 
 		result = append(result, w)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return result, nil
