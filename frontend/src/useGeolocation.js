@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const FALLBACK_POSITION = {
   latitude: 43.238949,
@@ -6,6 +6,7 @@ const FALLBACK_POSITION = {
 };
 
 export function useGeolocation() {
+  const watchID = useRef(null);
   const [position, setPosition] = useState(null);
   const [geoStatus, setGeoStatus] = useState("idle");
   const [geoError, setGeoError] = useState("");
@@ -42,5 +43,48 @@ export function useGeolocation() {
     );
   }, []);
 
-  return { position, geoStatus, geoError, locate };
+  const startWatch = useCallback(() => {
+    setGeoStatus("loading");
+    setGeoError("");
+
+    if (!navigator.geolocation) {
+      setGeoStatus("error");
+      setGeoError("Browser geolocation is unavailable.");
+      return;
+    }
+
+    if (watchID.current !== null) {
+      navigator.geolocation.clearWatch(watchID.current);
+    }
+
+    watchID.current = navigator.geolocation.watchPosition(
+      (result) => {
+        setPosition({
+          latitude: result.coords.latitude,
+          longitude: result.coords.longitude,
+        });
+        setGeoStatus("watching");
+      },
+      () => {
+        setGeoStatus("error");
+        setGeoError("Location permission is required for worker mode.");
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 5000,
+      }
+    );
+  }, []);
+
+  const stopWatch = useCallback(() => {
+    if (watchID.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchID.current);
+      watchID.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopWatch, [stopWatch]);
+
+  return { position, geoStatus, geoError, locate, startWatch, stopWatch };
 }

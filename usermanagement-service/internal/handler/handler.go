@@ -2,9 +2,16 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +32,8 @@ type AuthService interface {
 	SelectRole(ctx context.Context, userID int, role model.Role) error
 	CreateCustomerProfile(ctx context.Context, userID int) error
 	CreateWorkerProfile(ctx context.Context, userID int) error
-	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) error
+	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) (int, error)
+	AddWorkerSkillEvidence(ctx context.Context, workerSkillID int, fileName string, filePath string, contentType string, note string) error
 	VerifyWorkerSkill(ctx context.Context, skillID int) error
 	SetAvailability(ctx context.Context, userID int, available bool) error
 	FindWorkers(ctx context.Context, categoryID int) ([]repository.WorkerSearchResult, error)
@@ -212,6 +220,24 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 
 	c.JSON(200, gin.H{"message": "if email exists, reset link sent"})
 }
+
+func (h *AuthHandler) ResetPasswordPage(c *gin.Context) {
+	redirectToApp(c, "/auth/reset")
+}
+
+func redirectToApp(c *gin.Context, path string) {
+	baseURL := os.Getenv("APP_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:5173"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	target := baseURL + path
+	if c.Request.URL.RawQuery != "" {
+		target += "?" + c.Request.URL.RawQuery
+	}
+	c.Redirect(http.StatusFound, target)
+}
+
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req struct {
 		Token       string `json:"token"`
@@ -279,25 +305,19 @@ func (h *AuthHandler) CreateWorkerProfile(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "worker profile created"})
 }
 func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
-	var req struct {
-		CategoryID int    `json:"category_id"`
-		Experience string `json:"experience_level"`
-		Price      int    `json:"price_base"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "invalid JSON"})
+	categoryID, experience, price, note, files, ok := h.parseWorkerSkillRequest(c)
+	if !ok {
 		return
 	}
 
 	userID := c.GetInt("user_id")
 
-	err := h.auth.AddWorkerSkill(
+	skillID, err := h.auth.AddWorkerSkill(
 		c.Request.Context(),
 		userID,
-		req.CategoryID,
-		req.Experience,
-		req.Price,
+		categoryID,
+		experience,
+		price,
 	)
 
 	if err != nil {
@@ -305,7 +325,116 @@ func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "skill added"})
+	for _, file := range files {
+		storedPath, err := saveEvidenceFile(c, file)
+		if err != nil {
+			c.JSON(400, gin.H{"error": err.Error()})
+			return
+		}
+		if err := h.auth.AddWorkerSkillEvidence(
+			c.Request.Context(),
+			skillID,
+			file.Filename,
+			storedPath,
+			file.Header.Get("Content-Type"),
+			note,
+		); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	c.JSON(200, gin.H{"message": "skill added", "worker_skill_id": skillID})
+}
+
+func (h *AuthHandler) parseWorkerSkillRequest(c *gin.Context) (int, string, int, string, []*multipart.FileHeader, bool) {
+	contentType := c.GetHeader("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		categoryID, err := strconv.Atoi(c.PostForm("category_id"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid category_id"})
+			return 0, "", 0, "", nil, false
+		}
+		price, err := strconv.Atoi(firstNonEmpty(c.PostForm("price_base"), c.PostForm("price")))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid price"})
+			return 0, "", 0, "", nil, false
+		}
+		form, _ := c.MultipartForm()
+		var files []*multipart.FileHeader
+		if form != nil {
+			files = form.File["evidence_files"]
+		}
+		return categoryID, c.PostForm("experience_level"), price, c.PostForm("evidence_note"), files, true
+	}
+
+	var req struct {
+		CategoryID int    `json:"category_id"`
+		Experience string `json:"experience_level"`
+		PriceBase  int    `json:"price_base"`
+		Price      int    `json:"price"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return 0, "", 0, "", nil, false
+	}
+	price := req.PriceBase
+	if price == 0 {
+		price = req.Price
+	}
+	return req.CategoryID, req.Experience, price, "", nil, true
+}
+
+func saveEvidenceFile(c *gin.Context, file *multipart.FileHeader) (string, error) {
+	if file.Size > 10*1024*1024 {
+		return "", errors.New("evidence file must be 10MB or less")
+	}
+
+	uploadRoot := os.Getenv("VERIFICATION_UPLOAD_DIR")
+	if uploadRoot == "" {
+		uploadRoot = filepath.Join("uploads", "verification")
+	}
+	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
+		return "", err
+	}
+
+	ext := strings.ToLower(filepath.Ext(file.Filename))
+	if !isAllowedEvidenceExt(ext) {
+		return "", errors.New("allowed evidence files: jpg, jpeg, png, webp, pdf")
+	}
+	fileName := fmt.Sprintf("%s%s", randomHex(16), ext)
+	fullPath := filepath.Join(uploadRoot, fileName)
+	if err := c.SaveUploadedFile(file, fullPath); err != nil {
+		return "", err
+	}
+	return "/" + filepath.ToSlash(fullPath), nil
+}
+
+func isAllowedEvidenceExt(ext string) bool {
+	switch ext {
+	case ".jpg", ".jpeg", ".png", ".webp", ".pdf":
+		return true
+	default:
+		return false
+	}
+}
+
+func randomHex(size int) string {
+	buf := make([]byte, size)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
 	role := c.GetString("role")

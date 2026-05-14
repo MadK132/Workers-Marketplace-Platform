@@ -60,7 +60,7 @@ func (s *Sender) SendResetEmail(to, token string) error {
 func buildAppURL(path string) string {
 	baseURL := os.Getenv("APP_BASE_URL")
 	if baseURL == "" {
-		baseURL = "http://localhost:8081"
+		baseURL = "http://localhost:5173"
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	if !strings.HasPrefix(path, "/") {

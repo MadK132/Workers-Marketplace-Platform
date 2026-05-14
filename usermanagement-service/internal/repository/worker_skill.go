@@ -27,13 +27,31 @@ func (r *WorkerSkillRepository) Create(
 	categoryID int,
 	experience string,
 	price int,
-) error {
-	_, err := r.db.Exec(ctx,
+) (int, error) {
+	var skillID int
+	err := r.db.QueryRow(ctx,
 		`INSERT INTO worker_skills 
 		(worker_profile_id, category_id, experience_level, price_base)
-		VALUES ($1, $2, $3, $4)`,
+		VALUES ($1, $2, $3, $4)
+		RETURNING worker_skill_id`,
 		workerProfileID, categoryID, experience, price,
-	)
+	).Scan(&skillID)
+	return skillID, err
+}
+
+func (r *WorkerSkillRepository) AddEvidence(
+	ctx context.Context,
+	workerSkillID int,
+	fileName string,
+	filePath string,
+	contentType string,
+	note string,
+) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO worker_skill_evidence
+			(worker_skill_id, file_name, file_path, content_type, note)
+		VALUES ($1, $2, $3, $4, $5)
+	`, workerSkillID, fileName, filePath, contentType, note)
 	return err
 }
 func (r *WorkerSkillRepository) Verify(ctx context.Context, skillID int) error {

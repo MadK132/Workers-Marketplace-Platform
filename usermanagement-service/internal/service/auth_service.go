@@ -321,6 +321,15 @@ func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword stri
 		return errors.New("token expired")
 	}
 
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(newPassword)); err == nil {
+		return &ValidationError{Field: "new_password", Message: "must be different from old password"}
+	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -377,25 +386,36 @@ func (s *AuthService) AddWorkerSkill(
 	categoryID int,
 	experience string,
 	price int,
-) error {
+) (int, error) {
 	if !isValidExperience(experience) {
-		return errors.New("invalid experience level")
+		return 0, errors.New("invalid experience level")
 	}
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	if user.Role != model.RoleWorker {
-		return errors.New("not a worker")
+		return 0, errors.New("not a worker")
 	}
 
 	workerID, err := s.workerProfiles.GetByUserID(ctx, userID)
 	if err != nil {
-		return errors.New("worker profile not found")
+		return 0, errors.New("worker profile not found")
 	}
 
 	return s.workerSkills.Create(ctx, workerID, categoryID, experience, price)
+}
+
+func (s *AuthService) AddWorkerSkillEvidence(
+	ctx context.Context,
+	workerSkillID int,
+	fileName string,
+	filePath string,
+	contentType string,
+	note string,
+) error {
+	return s.workerSkills.AddEvidence(ctx, workerSkillID, fileName, filePath, contentType, note)
 }
 func (s *AuthService) VerifyWorkerSkill(ctx context.Context, skillID int) error {
 	return s.workerSkills.Verify(ctx, skillID)

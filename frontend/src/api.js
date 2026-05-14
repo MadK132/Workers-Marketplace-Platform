@@ -31,12 +31,25 @@ export async function apiPatch(path, token, body) {
   return parseResponse(response);
 }
 
+export async function apiMultipart(path, token, body) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    headers: authHeaders(token),
+    body,
+  });
+  return parseResponse(response);
+}
+
 export function wsURL(path, token) {
   const base = new URL(API_BASE_URL);
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
   base.pathname = path;
   base.search = token ? `access_token=${encodeURIComponent(token)}` : "";
   return base.toString();
+}
+
+export function apiURL(path) {
+  return `${API_BASE_URL}${path}`;
 }
 
 function authHeaders(token) {

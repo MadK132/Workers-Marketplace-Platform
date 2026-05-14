@@ -39,6 +39,7 @@ type PendingSkill struct {
 	WorkerFullName  string `json:"worker_full_name"`
 	WorkerUserID    int    `json:"worker_user_id"`
 	WorkerUserEmail string `json:"worker_user_email"`
+	EvidenceFiles   string `json:"evidence_files"`
 }
 
 type AdminOverview struct {
@@ -139,12 +140,16 @@ func (r *AdminRepository) GetOverview(ctx context.Context) (AdminOverview, error
 			ws.is_verified,
 			u.full_name,
 			u.user_id,
-			u.email
+			u.email,
+			COALESCE(string_agg(wse.file_path, ',' ORDER BY wse.evidence_id), '') AS evidence_files
 		FROM worker_skills ws
 		JOIN worker_profiles wp ON wp.worker_profile_id = ws.worker_profile_id
 		JOIN users u ON u.user_id = wp.user_id
 		LEFT JOIN service_categories sc ON sc.category_id = ws.category_id
+		LEFT JOIN worker_skill_evidence wse ON wse.worker_skill_id = ws.worker_skill_id
 		WHERE ws.is_verified = false
+		GROUP BY ws.worker_skill_id, ws.worker_profile_id, ws.category_id, sc.name,
+			ws.experience_level, ws.price_base, ws.is_verified, u.full_name, u.user_id, u.email
 		ORDER BY ws.worker_skill_id DESC
 		LIMIT 200
 	`)
@@ -166,6 +171,7 @@ func (r *AdminRepository) GetOverview(ctx context.Context) (AdminOverview, error
 			&item.WorkerFullName,
 			&item.WorkerUserID,
 			&item.WorkerUserEmail,
+			&item.EvidenceFiles,
 		); err != nil {
 			return AdminOverview{}, err
 		}

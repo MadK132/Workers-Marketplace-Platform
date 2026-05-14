@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiGet, apiPatch, apiPost } from "./api.js";
+import { apiGet, apiMultipart, apiPatch, apiPost, apiURL } from "./api.js";
 import MapView from "./MapView.jsx";
 import WorkerList from "./WorkerList.jsx";
 import { useGeolocation } from "./useGeolocation.js";
@@ -9,23 +9,23 @@ const ROLE_KEY = "workers_marketplace_role";
 
 const roleTabs = {
   customer: [
-    ["find", "Find worker"],
-    ["requests", "Requests"],
-    ["bookings", "Bookings"],
-    ["profile", "Profile"],
-    ["notifications", "Alerts"],
+    ["find", "Поиск"],
+    ["requests", "Заявки"],
+    ["bookings", "Бронирования"],
+    ["profile", "Профиль"],
+    ["notifications", "Уведомления"],
   ],
   worker: [
-    ["pro", "Pro"],
-    ["jobs", "Jobs"],
-    ["skills", "Skills"],
-    ["profile", "Profile"],
-    ["notifications", "Alerts"],
+    ["pro", "Карта"],
+    ["jobs", "Заказы"],
+    ["skills", "Услуги"],
+    ["profile", "Профиль"],
+    ["notifications", "Уведомления"],
   ],
   admin: [
-    ["overview", "Overview"],
-    ["verify", "Verify"],
-    ["notifications", "Alerts"],
+    ["overview", "Обзор"],
+    ["verify", "Проверка"],
+    ["notifications", "Уведомления"],
   ],
 };
 
@@ -47,6 +47,7 @@ export default function App() {
   const signOut = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ROLE_KEY);
+    clearAuthURL();
     setToken("");
     setRole("");
     setActiveTab("find");
@@ -69,7 +70,8 @@ export default function App() {
 }
 
 function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState("signin");
+  const [mode, setMode] = useState(() => initialAuthMode());
+  const activationStarted = useRef(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -82,8 +84,12 @@ function AuthScreen({ onAuth }) {
     role: "customer",
   });
   const [forgotEmail, setForgotEmail] = useState("");
-  const [reset, setReset] = useState({ token: "", new_password: "" });
-  const [verifyToken, setVerifyToken] = useState("");
+  const [reset, setReset] = useState(() => ({
+    token: tokenFromURL(),
+    new_password: "",
+    confirm_password: "",
+  }));
+  const [activationToken] = useState(() => tokenFromURL());
 
   async function run(action) {
     setBusy(true);
@@ -97,6 +103,13 @@ function AuthScreen({ onAuth }) {
       setBusy(false);
     }
   }
+
+  const changeMode = useCallback((nextMode) => {
+    setMode(nextMode);
+    if (nextMode === "signin" || nextMode === "signup" || nextMode === "forgot") {
+      clearAuthURL();
+    }
+  }, []);
 
   const submitLogin = (event) => {
     event.preventDefault();
@@ -115,6 +128,14 @@ function AuthScreen({ onAuth }) {
     run(async () => {
       await apiPost("/auth/register", "", register);
       setMessage("Account created. Check email verification before signing in.");
+      setRegister({
+        full_name: "",
+        email: "",
+        phone: "",
+        password: "",
+        role: "customer",
+      });
+      clearAuthURL();
       setMode("signin");
     });
   };
@@ -123,27 +144,41 @@ function AuthScreen({ onAuth }) {
     event.preventDefault();
     run(async () => {
       await apiPost("/auth/forgot-password", "", { email: forgotEmail });
-      setMessage("Password reset link/token was sent if the email exists.");
+      setMessage("Password reset email was sent if the account exists.");
+      clearAuthURL();
+      setMode("signin");
     });
   };
 
   const submitReset = (event) => {
     event.preventDefault();
     run(async () => {
-      await apiPost("/auth/reset-password", "", reset);
+      if (reset.new_password !== reset.confirm_password) {
+        throw new Error("Passwords do not match.");
+      }
+      await apiPost("/auth/reset-password", "", {
+        token: reset.token,
+        new_password: reset.new_password,
+      });
       setMessage("Password was reset. You can sign in now.");
+      clearAuthURL();
       setMode("signin");
     });
   };
 
-  const submitVerify = (event) => {
-    event.preventDefault();
+  useEffect(() => {
+    if (mode !== "activation" || activationStarted.current) {
+      return;
+    }
+    activationStarted.current = true;
     run(async () => {
-      await apiGet(`/auth/verify?token=${encodeURIComponent(verifyToken)}`, "");
-      setMessage("Email verified. You can sign in now.");
-      setMode("signin");
+      if (!activationToken) {
+        throw new Error("Activation token is missing.");
+      }
+      await apiGet(`/auth/verify?token=${encodeURIComponent(activationToken)}`, "");
+      setMessage("Email activated. You can sign in now.");
     });
-  };
+  }, [activationToken, mode]);
 
   return (
     <main className="authShell">
@@ -153,18 +188,21 @@ function AuthScreen({ onAuth }) {
         <p>Sign in first. Then the app opens either the customer flow for hiring or the worker Pro flow for accepting jobs.</p>
       </section>
       <section className="authCard">
-        <div className="authTabs">
-          <button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>Sign in</button>
-          <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Sign up</button>
-          <button className={mode === "forgot" ? "active" : ""} onClick={() => setMode("forgot")}>Reset</button>
-          <button className={mode === "verify" ? "active" : ""} onClick={() => setMode("verify")}>Verify</button>
-        </div>
+        {(mode === "signin" || mode === "signup") && (
+          <div className="authTabs">
+            <button className={mode === "signin" ? "active" : ""} onClick={() => changeMode("signin")}>Sign in</button>
+            <button className={mode === "signup" ? "active" : ""} onClick={() => changeMode("signup")}>Sign up</button>
+          </div>
+        )}
 
         {mode === "signin" && (
           <form className="formStack" onSubmit={submitLogin}>
             <Field label="Email"><input value={login.email} onChange={(e) => setLogin({ ...login, email: e.target.value })} type="email" required /></Field>
             <Field label="Password"><input value={login.password} onChange={(e) => setLogin({ ...login, password: e.target.value })} type="password" required /></Field>
             <button disabled={busy}>Sign in</button>
+            <div className="authLinks">
+              <button type="button" onClick={() => changeMode("forgot")}>Forgot password?</button>
+            </div>
           </form>
         )}
 
@@ -185,30 +223,148 @@ function AuthScreen({ onAuth }) {
         )}
 
         {mode === "forgot" && (
-          <div className="formStack">
-            <form className="formStack" onSubmit={submitForgot}>
-              <Field label="Email"><input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} type="email" required /></Field>
-              <button disabled={busy}>Send reset token</button>
-            </form>
-            <form className="formStack" onSubmit={submitReset}>
-              <Field label="Reset token"><input value={reset.token} onChange={(e) => setReset({ ...reset, token: e.target.value })} required /></Field>
-              <Field label="New password"><input value={reset.new_password} onChange={(e) => setReset({ ...reset, new_password: e.target.value })} type="password" required /></Field>
-              <button className="secondaryButton" disabled={busy}>Set new password</button>
-            </form>
-          </div>
+          <form className="formStack" onSubmit={submitForgot}>
+            <AuthTitle title="Password reset" text="Enter your account email. We will send a password reset link there." />
+            <Field label="Email"><input value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} type="email" required /></Field>
+            <button disabled={busy}>Send reset email</button>
+            <div className="authLinks">
+              <button type="button" onClick={() => changeMode("signin")}>Back to sign in</button>
+            </div>
+          </form>
         )}
 
-        {mode === "verify" && (
-          <form className="formStack" onSubmit={submitVerify}>
-            <Field label="Email verification token"><input value={verifyToken} onChange={(e) => setVerifyToken(e.target.value)} required /></Field>
-            <button disabled={busy}>Verify email</button>
+        {mode === "reset" && (
+          <form className="formStack" onSubmit={submitReset}>
+            <AuthTitle title="Set new password" text="This page opens from the password reset link in your email." />
+            <Field label="New password"><input value={reset.new_password} onChange={(e) => setReset({ ...reset, new_password: e.target.value })} type="password" required /></Field>
+            <Field label="Repeat new password"><input value={reset.confirm_password} onChange={(e) => setReset({ ...reset, confirm_password: e.target.value })} type="password" required /></Field>
+            <button disabled={busy}>Set new password</button>
+            <div className="authLinks">
+              <button type="button" onClick={() => changeMode("signin")}>Back to sign in</button>
+            </div>
           </form>
+        )}
+
+        {mode === "activation" && (
+          <div className="formStack">
+            <AuthTitle title="Email activation" text={busy ? "Activating your email..." : "Your email activation link has been processed."} />
+            {busy && <div className="loader" />}
+            <div className="authLinks">
+              <button type="button" onClick={() => changeMode("signin")}>Back to sign in</button>
+            </div>
+          </div>
         )}
 
         <Messages message={message} error={error} />
       </section>
     </main>
   );
+}
+
+function AuthTitle({ title, text }) {
+  return (
+    <header className="authTitle">
+      <h2>{title}</h2>
+      <p>{text}</p>
+    </header>
+  );
+}
+
+function initialAuthMode() {
+  const path = window.location.pathname.toLowerCase();
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("mode")?.toLowerCase();
+  if (path.includes("reset") || mode === "reset") {
+    return "reset";
+  }
+  if (path.includes("verify") || path.includes("activate") || mode === "activation" || mode === "verify") {
+    return "activation";
+  }
+  return "signin";
+}
+
+function tokenFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("token") || params.get("reset_token") || params.get("verification_token") || "";
+}
+
+function isEmptyResultError(err) {
+  const message = err?.message?.toLowerCase() || "";
+  return message.includes("no rows in result set");
+}
+
+function categoryTitle(name) {
+  const normalized = String(name || "").toLowerCase();
+  const titles = {
+    appliance_installation: "Установка техники",
+    carpenter: "Плотник",
+    carpentry: "Плотник",
+    cleaner: "Клининг",
+    cleaning: "Клининг",
+    electrician: "Электрик",
+    electrical: "Электрик",
+    gardener: "Садовник",
+    mover: "Грузчик",
+    plumber: "Сантехник",
+    plumbing: "Сантехник",
+    renovation: "Ремонт",
+    painting: "Малярные работы",
+  };
+  return titles[normalized] || humanize(name);
+}
+
+function categoryDescription(name, fallback) {
+  const normalized = String(name || "").toLowerCase();
+  const descriptions = {
+    appliance_installation: "Подключение и настройка бытовой техники.",
+    carpenter: "Сборка мебели, двери, мелкий ремонт дерева.",
+    carpentry: "Сборка мебели, двери, мелкий ремонт дерева.",
+    cleaner: "Уборка квартиры, дома или офиса.",
+    cleaning: "Уборка квартиры, дома или офиса.",
+    electrician: "Розетки, свет, проводка и диагностика.",
+    electrical: "Розетки, свет, проводка и диагностика.",
+    gardener: "Уход за участком и растениями.",
+    mover: "Погрузка, перенос и помощь при переезде.",
+    plumber: "Трубы, протечки, смесители и сантехника.",
+    plumbing: "Трубы, протечки, смесители и сантехника.",
+    renovation: "Отделка и ремонтные работы.",
+    painting: "Покраска стен, потолков и декор.",
+  };
+  return descriptions[normalized] || fallback || "Категория услуги";
+}
+
+function experienceTitle(level) {
+  const titles = {
+    junior: "junior",
+    middle: "middle",
+    senior: "senior",
+  };
+  return titles[level] || humanize(level);
+}
+
+function humanize(value) {
+  return String(value || "")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function isMissingWorkerProfileError(err) {
+  const message = err?.message?.toLowerCase() || "";
+  return message.includes("no rows in result set") || message.includes("worker profile not found");
+}
+
+async function ensureWorkerProfile(token, position) {
+  await apiPost("/api/worker/profile", token, {
+    bio: "",
+    current_latitude: position?.latitude || 0,
+    current_longitude: position?.longitude || 0,
+  });
+}
+
+function clearAuthURL() {
+  if (window.location.pathname !== "/" || window.location.search) {
+    window.history.replaceState({}, "", "/");
+  }
 }
 
 function AppFrame({ role, session, activeTab, onTab, onSignOut, children }) {
@@ -350,7 +506,7 @@ function CustomerApp({ token, activeTab, onNavigate }) {
 }
 
 function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
-  const { position, geoStatus, geoError, locate } = useGeolocation();
+  const { position, geoStatus, geoError, startWatch } = useGeolocation();
   const mapRef = useRef(null);
   const [available, setAvailable] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -359,24 +515,26 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
   const [error, setError] = useState("");
 
   const loadBookings = useCallback(async () => {
-    setSearching(true);
     setError("");
     try {
       const data = await apiGet("/api/bookings/my", token);
-      setBookings(Array.isArray(data) ? data : data.bookings || []);
+      const nextBookings = Array.isArray(data) ? data : data.bookings || [];
+      setBookings(nextBookings);
+      if (nextBookings.length > 0) {
+        setSearching(false);
+      }
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setSearching(false);
+      if (!isEmptyResultError(err)) {
+        setError(err.message);
+      }
     }
   }, [token]);
 
   useEffect(() => {
-    locate();
     loadBookings();
-  }, [locate, loadBookings]);
+  }, [loadBookings]);
 
-  const syncLocation = async () => {
+  const syncLocation = useCallback(async () => {
     if (!position) {
       setError("Location is not ready.");
       return;
@@ -391,14 +549,37 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
     } catch (err) {
       setError(err.message);
     }
-  };
+  }, [position, token]);
+
+  useEffect(() => {
+    if (!available || !position) {
+      return undefined;
+    }
+    syncLocation();
+    const intervalID = window.setInterval(() => {
+      syncLocation();
+      if (searching) {
+        loadBookings();
+      }
+    }, 15000);
+    return () => window.clearInterval(intervalID);
+  }, [available, loadBookings, position, searching, syncLocation]);
 
   const toggleAvailability = async () => {
     setError("");
     try {
       const next = !available;
-      await apiPatch("/api/worker/availability", token, { is_available: next });
+      try {
+        await apiPatch("/api/worker/availability", token, { is_available: next });
+      } catch (err) {
+        if (!next || !isMissingWorkerProfileError(err)) {
+          throw err;
+        }
+        await ensureWorkerProfile(token, position);
+        await apiPatch("/api/worker/availability", token, { is_available: next });
+      }
       setAvailable(next);
+      setSearching(next);
       setMessage(next ? "Online. Searching jobs..." : "Offline.");
       if (next) {
         await syncLocation();
@@ -433,6 +614,10 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} /></WorkerPhonePage>;
   }
 
+  if (!position) {
+    return <WorkerLocationGate geoStatus={geoStatus} geoError={geoError} onAllow={startWatch} onSignOut={onSignOut} />;
+  }
+
   return (
     <div className="proPhoneShell">
       <section className="proPhone" aria-label="Worker Pro map workspace">
@@ -442,33 +627,22 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
           <span className="phoneSignal" />
         </div>
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
-        <div className="proScoreBubble">
-          <strong>{available ? "8" : "6"}</strong>
-        </div>
-        <strong className="proSearchLabel">{available ? "online" : "search"}</strong>
         <div className="proMoneyCard">
           <strong>{bookings.length > 0 ? `${bookings.length * 2800},25 KZT` : "0 KZT"}</strong>
-          <span>{searching ? "searching" : `${bookings.length} jobs`}</span>
+          <span>{searching ? "поиск заказов" : `${bookings.length} заказов`}</span>
           <div className="proAvatar">WM</div>
         </div>
-        <button className="roundMapButton searchButton" onClick={loadBookings}>⌕</button>
-        <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
-        <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>−</button>
-        <button className="roundMapButton navButtonMap" onClick={() => { locate(); mapRef.current?.recenter(); }}>⌖</button>
-        <div className="energyPill">
-          <strong>↯</strong>
-          <span>2,2</span>
-          <span>...</span>
-          <span>3,4</span>
-        </div>
-        <div className="driverArrow" />
-        <button className={available ? "lineButton online" : "lineButton"} onClick={toggleAvailability}>
-          {available ? "Go offline" : "Go online"}
+        <button className={available ? "searchButton lineSearchButton online" : "searchButton lineSearchButton"} onClick={toggleAvailability}>
+          {available ? "Offline" : "На линию"}
         </button>
+        <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
+        <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
+        <button className="roundMapButton navButtonMap" onClick={() => mapRef.current?.recenter()}>GPS</button>
+        <div className="driverArrow" />
         <div className="offersDrawer">
           <div>
-            <h2>Offers</h2>
-            <button className="walletButton" onClick={() => onNavigate("jobs")}>▣</button>
+            <h2>Предложения</h2>
+            <button className="walletButton" onClick={() => onNavigate("jobs")}>Заказы</button>
           </div>
           <Messages message={message} error={error} />
           <JobBoard bookings={bookings.slice(0, 2)} onProgress={updateBooking} compact />
@@ -493,6 +667,21 @@ function WorkerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
   );
 }
 
+function WorkerLocationGate({ geoStatus, geoError, onAllow, onSignOut }) {
+  return (
+    <main className="geoGate">
+      <section className="geoGateCard">
+        <div className="appIcon">WM</div>
+        <h1>Разрешите геолокацию</h1>
+        <p>Карта работника откроется после доступа к координатам. Браузер обновляет позицию при изменении местоположения, а в режиме на линии приложение отправляет координаты на сервер каждые 15 секунд.</p>
+        <button onClick={onAllow} disabled={geoStatus === "loading"}>{geoStatus === "loading" ? "Запрашиваем..." : "Разрешить геолокацию"}</button>
+        <button className="secondaryButton" onClick={onSignOut}>Выход</button>
+        {geoError && <p className="errorMessage">{geoError}</p>}
+      </section>
+    </main>
+  );
+}
+
 function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
   return (
     <div className="workerPhoneTabs">
@@ -501,7 +690,7 @@ function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
           {label}
         </button>
       ))}
-      <button onClick={onSignOut}>Exit</button>
+      <button onClick={onSignOut}>Выход</button>
     </div>
   );
 }
@@ -513,23 +702,55 @@ function AdminApp({ token, activeTab }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const loadOverview = useCallback(() => {
+    apiGet("/api/admin/overview", token).then(setOverview).catch((err) => setError(err.message));
+  }, [token]);
+
   useEffect(() => {
-    if (activeTab === "overview") {
-      apiGet("/api/admin/overview", token).then(setOverview).catch((err) => setError(err.message));
+    if (activeTab === "overview" || activeTab === "verify") {
+      loadOverview();
     }
-  }, [activeTab, token]);
+  }, [activeTab, loadOverview]);
 
   if (activeTab === "notifications") return <NotificationsPanel token={token} />;
 
   const verify = async (type) => {
     setError("");
+    setMessage("");
     try {
       if (type === "worker") {
-        await apiPost("/api/admin/verify-worker", token, { worker_profile_id: Number(workerID) });
+        await apiPost("/api/admin/verify-worker", token, { worker_id: Number(workerID) });
       } else {
         await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(skillID) });
       }
       setMessage("Verification request completed.");
+      loadOverview();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const verifyWorker = async (id) => {
+    setWorkerID(String(id));
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/verify-worker", token, { worker_id: Number(id) });
+      setMessage("Worker verified.");
+      loadOverview();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const verifySkill = async (id) => {
+    setSkillID(String(id));
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(id) });
+      setMessage("Skill verified.");
+      loadOverview();
     } catch (err) {
       setError(err.message);
     }
@@ -539,18 +760,16 @@ function AdminApp({ token, activeTab }) {
     <section className="pagePanel">
       <SectionHeader title={activeTab === "verify" ? "Verification" : "Admin overview"} text="Administrative controls for the marketplace." />
       {activeTab === "verify" ? (
-        <div className="splitGrid">
-          <div className="toolCard">
-            <h3>Verify worker</h3>
-            <Field label="Worker profile ID" light><input value={workerID} onChange={(e) => setWorkerID(e.target.value)} /></Field>
-            <button onClick={() => verify("worker")}>Verify worker</button>
-          </div>
-          <div className="toolCard">
-            <h3>Verify skill</h3>
-            <Field label="Worker skill ID" light><input value={skillID} onChange={(e) => setSkillID(e.target.value)} /></Field>
-            <button onClick={() => verify("skill")}>Verify skill</button>
-          </div>
-        </div>
+        <AdminVerificationPanel
+          overview={overview}
+          workerID={workerID}
+          skillID={skillID}
+          setWorkerID={setWorkerID}
+          setSkillID={setSkillID}
+          verify={verify}
+          verifyWorker={verifyWorker}
+          verifySkill={verifySkill}
+        />
       ) : (
         <pre className="jsonBox">{JSON.stringify(overview || {}, null, 2)}</pre>
       )}
@@ -561,6 +780,77 @@ function AdminApp({ token, activeTab }) {
 
 function RequestsPanel({ token }) {
   return <ListPanel title="My requests" endpoint="/api/requests/my" token={token} empty="No service requests yet." />;
+}
+
+function AdminVerificationPanel({
+  overview,
+  workerID,
+  skillID,
+  setWorkerID,
+  setSkillID,
+  verify,
+  verifyWorker,
+  verifySkill,
+}) {
+  const pendingWorkers = overview?.pending_workers || [];
+  const pendingSkills = overview?.pending_skills || [];
+
+  return (
+    <div className="adminVerifyGrid">
+      <div className="toolCard">
+        <h3>Pending workers</h3>
+        <p className="muted">Check worker identity/profile data and approve the profile.</p>
+        <div className="dataList">
+          {pendingWorkers.length === 0 && <EmptyState title="No pending workers" text="New worker profiles will appear here." />}
+          {pendingWorkers.map((worker) => (
+            <article className="dataRow" key={worker.worker_profile_id}>
+              <strong>{worker.full_name}</strong>
+              <span>{worker.email}</span>
+              <span>Profile #{worker.worker_profile_id} - User #{worker.user_id}</span>
+              <button onClick={() => verifyWorker(worker.worker_profile_id)}>Verify worker</button>
+            </article>
+          ))}
+        </div>
+      </div>
+      <div className="toolCard">
+        <h3>Pending skills</h3>
+        <p className="muted">Approve skills after checking category, price and worker profile.</p>
+        <div className="dataList">
+          {pendingSkills.length === 0 && <EmptyState title="No pending skills" text="New worker skills will appear here." />}
+          {pendingSkills.map((skill) => (
+            <article className="dataRow" key={skill.worker_skill_id}>
+              <strong>{categoryTitle(skill.category_name)}</strong>
+              <span>{skill.worker_full_name} - {skill.worker_user_email}</span>
+              <span>{skill.experience_level} - {skill.price_base} KZT - Skill #{skill.worker_skill_id}</span>
+              <EvidenceLinks value={skill.evidence_files} />
+              <button onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill</button>
+            </article>
+          ))}
+        </div>
+      </div>
+      <div className="toolCard">
+        <h3>Manual verify</h3>
+        <Field label="Worker profile ID" light><input value={workerID} onChange={(e) => setWorkerID(e.target.value)} /></Field>
+        <button onClick={() => verify("worker")}>Verify worker</button>
+        <Field label="Worker skill ID" light><input value={skillID} onChange={(e) => setSkillID(e.target.value)} /></Field>
+        <button className="secondaryButton" onClick={() => verify("skill")}>Verify skill</button>
+      </div>
+    </div>
+  );
+}
+
+function EvidenceLinks({ value }) {
+  const files = String(value || "").split(",").filter(Boolean);
+  if (files.length === 0) {
+    return <span>No evidence files</span>;
+  }
+  return (
+    <div className="evidenceLinks">
+      {files.map((file) => (
+        <a key={file} href={apiURL(file)} target="_blank" rel="noreferrer">Open evidence</a>
+      ))}
+    </div>
+  );
 }
 
 function BookingsPanel({ token, canProgress, onProgress }) {
@@ -675,39 +965,132 @@ function WorkerProfilePanel({ token, onNavigate }) {
 }
 
 function WorkerSkillsPanel({ token }) {
-  const [form, setForm] = useState({ category_id: "", experience_level: "junior", price: "" });
+  const [categories, setCategories] = useState([]);
+  const [profileID, setProfileID] = useState("");
+  const [form, setForm] = useState({
+    category_id: "",
+    experience_level: "junior",
+    price: "",
+    evidence_note: "",
+  });
+  const [files, setFiles] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiGet("/api/categories", token)
+      .then((items) => {
+        setCategories(items);
+        if (items.length > 0) {
+          setForm((current) => current.category_id ? current : { ...current, category_id: String(items[0].category_id) });
+        }
+      })
+      .catch((err) => setError(err.message));
+
+    apiGet("/api/internal/worker-profile", token)
+      .then((data) => setProfileID(data.worker_profile_id || ""))
+      .catch(() => setProfileID(""));
+  }, [token]);
 
   const submit = async (event) => {
     event.preventDefault();
     setError("");
+    setMessage("");
     try {
-      await apiPost("/api/worker/skills", token, {
-        category_id: Number(form.category_id),
-        experience_level: form.experience_level,
-        price: Number(form.price),
-      });
-      setMessage("Skill sent for verification.");
+      if (!profileID) {
+        const createdProfile = await apiPost("/api/worker/profile", token, {
+          bio: "",
+          current_latitude: 0,
+          current_longitude: 0,
+        });
+        setProfileID(createdProfile.worker_profile_id || createdProfile.id || "created");
+      }
+      const body = new FormData();
+      body.append("category_id", form.category_id);
+      body.append("experience_level", form.experience_level);
+      body.append("price_base", form.price);
+      body.append("evidence_note", form.evidence_note);
+      files.forEach((file) => body.append("evidence_files", file));
+      await apiMultipart("/api/worker/skills", token, body);
+      setFiles([]);
+      setMessage("Заявка на услугу отправлена. Админ проверит доказательства квалификации.");
     } catch (err) {
       setError(err.message);
     }
   };
 
   return (
-    <section className="pagePanel">
-      <SectionHeader title="Skills" text="Add worker categories and prices." />
-      <form className="formGrid" onSubmit={submit}>
-        <Field label="Category ID" light><input value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required /></Field>
-        <Field label="Experience" light><input value={form.experience_level} onChange={(e) => setForm({ ...form, experience_level: e.target.value })} required /></Field>
-        <Field label="Price KZT" light><input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} required /></Field>
-        <button>Add skill</button>
+    <section className="pagePanel skillsPage">
+      <SectionHeader title="Услуги" text="Выберите категорию, опыт, цену и приложите доказательства квалификации." />
+      <div className="skillStatusGrid">
+        <article className="skillStatusCard">
+          <span>Верификация</span>
+          <strong>Прикрепите сертификаты, фото работ, дипломы или портфолио. Админ проверит их перед допуском на линию.</strong>
+        </article>
+      </div>
+      <form className="skillForm" onSubmit={submit}>
+        <Field label="Категория услуги" light>
+          <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
+            {categories.length === 0 && <option value="">Категории не загружены</option>}
+            {categories.map((category) => (
+              <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>
+            ))}
+          </select>
+        </Field>
+        <div className="field light">
+          <span>Опыт</span>
+          <div className="segmentedControl">
+            {["junior", "middle", "senior"].map((level) => (
+              <button
+                key={level}
+                type="button"
+                className={form.experience_level === level ? "active" : ""}
+                onClick={() => setForm({ ...form, experience_level: level })}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Field label="Цена от, KZT" light>
+          <input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} inputMode="numeric" placeholder="15000" required />
+        </Field>
+        <button>Добавить</button>
+        <Field label="Доказательства квалификации" light>
+          <input
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/webp,application/pdf"
+            onChange={(e) => setFiles(Array.from(e.target.files || []))}
+          />
+        </Field>
+        <Field label="Комментарий для админа" light>
+          <textarea
+            value={form.evidence_note}
+            onChange={(e) => setForm({ ...form, evidence_note: e.target.value })}
+            placeholder="Например: 3 года опыта, сертификат прикреплен, фото последних работ..."
+          />
+        </Field>
+        <div className="selectedFiles">
+          {files.length === 0 ? <span>Файлы не выбраны</span> : files.map((file) => <span key={file.name}>{file.name}</span>)}
+        </div>
       </form>
+      <div className="skillCategoryGrid">
+        {categories.map((category) => (
+          <article
+            key={category.category_id}
+            className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"}
+            onClick={() => setForm({ ...form, category_id: String(category.category_id) })}
+          >
+            <strong>{categoryTitle(category.name)}</strong>
+            <span>{categoryDescription(category.name, category.description)}</span>
+          </article>
+        ))}
+      </div>
       <Messages message={message} error={error} />
     </section>
   );
 }
-
 function ProfileForm({ title, text, form, setForm, onSubmit, links = [], onNavigate }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");

@@ -16,6 +16,7 @@ func SetupRouter(
 	r := gin.Default()
 
 	r.GET("/healthz", h.Health)
+	r.Static("/uploads", "./uploads")
 
 	auth := r.Group("/auth")
 	{
@@ -25,6 +26,7 @@ func SetupRouter(
 		auth.POST("/refresh", h.Refresh)
 		auth.POST("/resend-verification", h.ResendVerification)
 		auth.POST("/forgot-password", h.ForgotPassword)
+		auth.GET("/reset", h.ResetPasswordPage)
 		auth.POST("/reset-password", h.ResetPassword)
 		auth.POST("/select-role", middleware.AuthMiddleware(tokens, gatewaySharedSecret), h.SelectRole)
 
