@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "./api.js";
 import MapView from "./MapView.jsx";
 import WorkerList from "./WorkerList.jsx";
@@ -58,8 +58,8 @@ export default function App() {
 
   return (
     <AppFrame role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
-      {role === "customer" && <CustomerApp token={token} activeTab={activeTab} />}
-      {role === "worker" && <WorkerApp token={token} activeTab={activeTab} />}
+      {role === "customer" && <CustomerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} />}
+      {role === "worker" && <WorkerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} onSignOut={signOut} />}
       {role === "admin" && <AdminApp token={token} activeTab={activeTab} />}
       {!["customer", "worker", "admin"].includes(role) && (
         <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
@@ -213,6 +213,9 @@ function AuthScreen({ onAuth }) {
 
 function AppFrame({ role, session, activeTab, onTab, onSignOut, children }) {
   const tabs = roleTabs[role] || [];
+  if (role === "worker") {
+    return <main className="workerFullscreen">{children}</main>;
+  }
   return (
     <main className="dashboardShell">
       <aside className="controlPanel dashboardNav">
@@ -237,7 +240,7 @@ function AppFrame({ role, session, activeTab, onTab, onSignOut, children }) {
   );
 }
 
-function CustomerApp({ token, activeTab }) {
+function CustomerApp({ token, activeTab, onNavigate }) {
   const { position, geoStatus, geoError, locate } = useGeolocation();
   const [categories, setCategories] = useState([]);
   const [categoryID, setCategoryID] = useState("");
@@ -305,7 +308,7 @@ function CustomerApp({ token, activeTab }) {
 
   if (activeTab === "requests") return <RequestsPanel token={token} />;
   if (activeTab === "bookings") return <BookingsPanel token={token} />;
-  if (activeTab === "profile") return <CustomerProfilePanel token={token} />;
+  if (activeTab === "profile") return <CustomerProfilePanel token={token} onNavigate={onNavigate} />;
   if (activeTab === "notifications") return <NotificationsPanel token={token} />;
 
   return (
@@ -346,15 +349,26 @@ function CustomerApp({ token, activeTab }) {
   );
 }
 
-function WorkerApp({ token, activeTab }) {
+function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
   const { position, geoStatus, geoError, locate } = useGeolocation();
+  const mapRef = useRef(null);
   const [available, setAvailable] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [bookings, setBookings] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const loadBookings = useCallback(() => {
-    apiGet("/api/bookings/my", token).then((data) => setBookings(Array.isArray(data) ? data : data.bookings || [])).catch((err) => setError(err.message));
+  const loadBookings = useCallback(async () => {
+    setSearching(true);
+    setError("");
+    try {
+      const data = await apiGet("/api/bookings/my", token);
+      setBookings(Array.isArray(data) ? data : data.bookings || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSearching(false);
+    }
   }, [token]);
 
   useEffect(() => {
@@ -385,7 +399,11 @@ function WorkerApp({ token, activeTab }) {
       const next = !available;
       await apiPatch("/api/worker/availability", token, { is_available: next });
       setAvailable(next);
-      setMessage(next ? "You are online." : "You are offline.");
+      setMessage(next ? "Online. Searching jobs..." : "Offline.");
+      if (next) {
+        await syncLocation();
+        await loadBookings();
+      }
     } catch (err) {
       setError(err.message);
     }
@@ -402,34 +420,88 @@ function WorkerApp({ token, activeTab }) {
     }
   };
 
-  if (activeTab === "jobs") return <BookingsPanel token={token} canProgress onProgress={updateBooking} />;
-  if (activeTab === "skills") return <WorkerSkillsPanel token={token} />;
-  if (activeTab === "profile") return <WorkerProfilePanel token={token} />;
-  if (activeTab === "notifications") return <NotificationsPanel token={token} />;
+  if (activeTab === "jobs") {
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canProgress onProgress={updateBooking} /></WorkerPhonePage>;
+  }
+  if (activeTab === "skills") {
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><WorkerSkillsPanel token={token} /></WorkerPhonePage>;
+  }
+  if (activeTab === "profile") {
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><WorkerProfilePanel token={token} onNavigate={onNavigate} /></WorkerPhonePage>;
+  }
+  if (activeTab === "notifications") {
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} /></WorkerPhonePage>;
+  }
 
   return (
-    <div className="proLayout">
-      <section className="proMap">
-        <MapView position={position} workers={[]} selectedWorker={null} onSelectWorker={() => {}} />
-        <div className="proStatusCard">
-          <span className={available ? "liveDot online" : "liveDot"} />
+    <div className="proPhoneShell">
+      <section className="proPhone" aria-label="Worker Pro map workspace">
+        <MapView ref={mapRef} position={position} workers={[]} selectedWorker={null} onSelectWorker={() => {}} />
+        <div className="phoneStatusBar">
+          <span>12:30</span>
+          <span className="phoneSignal" />
+        </div>
+        <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
+        <div className="proScoreBubble">
+          <strong>{available ? "8" : "6"}</strong>
+        </div>
+        <strong className="proSearchLabel">{available ? "online" : "search"}</strong>
+        <div className="proMoneyCard">
+          <strong>{bookings.length > 0 ? `${bookings.length * 2800},25 KZT` : "0 KZT"}</strong>
+          <span>{searching ? "searching" : `${bookings.length} jobs`}</span>
+          <div className="proAvatar">WM</div>
+        </div>
+        <button className="roundMapButton searchButton" onClick={loadBookings}>⌕</button>
+        <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
+        <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>−</button>
+        <button className="roundMapButton navButtonMap" onClick={() => { locate(); mapRef.current?.recenter(); }}>⌖</button>
+        <div className="energyPill">
+          <strong>↯</strong>
+          <span>2,2</span>
+          <span>...</span>
+          <span>3,4</span>
+        </div>
+        <div className="driverArrow" />
+        <button className={available ? "lineButton online" : "lineButton"} onClick={toggleAvailability}>
+          {available ? "Go offline" : "Go online"}
+        </button>
+        <div className="offersDrawer">
           <div>
-            <strong>{available ? "Online" : "Offline"}</strong>
-            <p>{available ? "Ready to receive nearby jobs" : "Go online when you are ready"}</p>
+            <h2>Offers</h2>
+            <button className="walletButton" onClick={() => onNavigate("jobs")}>▣</button>
           </div>
-          <button onClick={toggleAvailability}>{available ? "Go offline" : "Go online"}</button>
+          <Messages message={message} error={error} />
+          <JobBoard bookings={bookings.slice(0, 2)} onProgress={updateBooking} compact />
         </div>
       </section>
-      <section className="pagePanel">
-        <SectionHeader title="Worker Pro" text="Map, online status, location sync, active jobs and quick actions." />
-        <div className="toolbarGrid">
-          <button onClick={syncLocation}>Update location</button>
-          <button className="secondaryButton" onClick={loadBookings}>Refresh jobs</button>
+    </div>
+  );
+}
+
+function WorkerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
+  return (
+    <div className="proPhoneShell">
+      <section className="proPhone workerPagePhone">
+        <div className="phoneStatusBar">
+          <span>12:30</span>
+          <span className="phoneSignal" />
         </div>
-        <StatusLine geoStatus={geoStatus} geoError={geoError} />
-        <Messages message={message} error={error} />
-        <JobBoard bookings={bookings} onProgress={updateBooking} />
+        <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
+        <div className="workerInnerPage">{children}</div>
       </section>
+    </div>
+  );
+}
+
+function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
+  return (
+    <div className="workerPhoneTabs">
+      {roleTabs.worker.map(([id, label]) => (
+        <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
+          {label}
+        </button>
+      ))}
+      <button onClick={onSignOut}>Exit</button>
     </div>
   );
 }
@@ -556,7 +628,7 @@ function NotificationsPanel({ token }) {
   );
 }
 
-function CustomerProfilePanel({ token }) {
+function CustomerProfilePanel({ token, onNavigate }) {
   const [form, setForm] = useState({ address: "", latitude: "", longitude: "" });
   return (
     <ProfileForm
@@ -564,6 +636,12 @@ function CustomerProfilePanel({ token }) {
       text="Set the customer location used for searching and booking."
       form={form}
       setForm={setForm}
+      links={[
+        ["bookings", "My bookings", "Open all customer bookings"],
+        ["requests", "My requests", "Track created service requests"],
+        ["find", "Find worker", "Back to map search"],
+      ]}
+      onNavigate={onNavigate}
       onSubmit={() => apiPost("/api/customer/profile", token, {
         address: form.address,
         latitude: Number(form.latitude),
@@ -573,7 +651,7 @@ function CustomerProfilePanel({ token }) {
   );
 }
 
-function WorkerProfilePanel({ token }) {
+function WorkerProfilePanel({ token, onNavigate }) {
   const [form, setForm] = useState({ bio: "", current_latitude: "", current_longitude: "" });
   return (
     <ProfileForm
@@ -581,6 +659,12 @@ function WorkerProfilePanel({ token }) {
       text="Describe yourself and set your working location."
       form={form}
       setForm={setForm}
+      links={[
+        ["jobs", "My bookings", "Open assigned jobs"],
+        ["pro", "Go Pro", "Back to map and online status"],
+        ["skills", "Skills", "Manage services and prices"],
+      ]}
+      onNavigate={onNavigate}
       onSubmit={() => apiPost("/api/worker/profile", token, {
         bio: form.bio,
         current_latitude: Number(form.current_latitude),
@@ -624,7 +708,7 @@ function WorkerSkillsPanel({ token }) {
   );
 }
 
-function ProfileForm({ title, text, form, setForm, onSubmit }) {
+function ProfileForm({ title, text, form, setForm, onSubmit, links = [], onNavigate }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const submit = async (event) => {
@@ -648,6 +732,16 @@ function ProfileForm({ title, text, form, setForm, onSubmit }) {
         ))}
         <button>Save profile</button>
       </form>
+      {links.length > 0 && (
+        <div className="profileLinks">
+          {links.map(([target, titleText, body]) => (
+            <button className="profileLinkCard" key={target} type="button" onClick={() => onNavigate?.(target)}>
+              <strong>{titleText}</strong>
+              <span>{body}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <Messages message={message} error={error} />
     </section>
   );
@@ -673,9 +767,9 @@ function ListPanel({ title, endpoint, token, empty }) {
   );
 }
 
-function JobBoard({ bookings, onProgress }) {
+function JobBoard({ bookings, onProgress, compact }) {
   return (
-    <div className="jobBoard">
+    <div className={compact ? "jobBoard compact" : "jobBoard"}>
       {bookings.length === 0 && <EmptyState title="No active jobs" text="When a customer books you, the job card appears here." />}
       {bookings.map((booking) => {
         const id = booking.booking_id || booking.id;

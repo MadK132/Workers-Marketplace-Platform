@@ -1,14 +1,29 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { loadMapGL } from "./mapgl.js";
 
 const MAP_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 
-export default function MapView({ position, workers, selectedWorker, onSelectWorker }) {
+const MapView = forwardRef(function MapView({ position, workers, selectedWorker, onSelectWorker }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
+  const zoomRef = useRef(13);
   const markersRef = useRef([]);
   const userMarkerRef = useRef(null);
   const [mapError, setMapError] = useState("");
+
+  useImperativeHandle(ref, () => ({
+    zoomIn() {
+      setMapZoom(zoomRef.current + 1);
+    },
+    zoomOut() {
+      setMapZoom(zoomRef.current - 1);
+    },
+    recenter() {
+      if (mapRef.current && position) {
+        mapRef.current.setCenter([position.longitude, position.latitude]);
+      }
+    },
+  }));
 
   useEffect(() => {
     if (!position || !containerRef.current || mapRef.current || !MAP_KEY) {
@@ -25,7 +40,9 @@ export default function MapView({ position, workers, selectedWorker, onSelectWor
           center: [position.longitude, position.latitude],
           zoom: 13,
           key: MAP_KEY,
+          controls: [],
         });
+        zoomRef.current = 13;
         userMarkerRef.current = new mapgl.Marker(mapRef.current, {
           coordinates: [position.longitude, position.latitude],
           label: {
@@ -60,10 +77,10 @@ export default function MapView({ position, workers, selectedWorker, onSelectWor
     if (workers.length > 0) {
       const first = selectedWorker || workers[0];
       mapRef.current.setCenter([first.longitude, first.latitude]);
-      mapRef.current.setZoom(14);
+      setMapZoom(14);
     } else {
       mapRef.current.setCenter([position.longitude, position.latitude]);
-      mapRef.current.setZoom(13);
+      setMapZoom(13);
     }
   }, [workers, selectedWorker, position, onSelectWorker]);
 
@@ -84,7 +101,15 @@ export default function MapView({ position, workers, selectedWorker, onSelectWor
       )}
     </section>
   );
-}
+
+  function setMapZoom(nextZoom) {
+    const zoom = Math.max(2, Math.min(20, nextZoom));
+    zoomRef.current = zoom;
+    mapRef.current?.setZoom(zoom);
+  }
+});
+
+export default MapView;
 
 function formatDistance(value) {
   if (!Number.isFinite(value)) {
