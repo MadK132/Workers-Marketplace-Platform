@@ -7,6 +7,13 @@ import (
 	"diploma/geolocation-service/internal/repository"
 )
 
+const (
+	astanaMinLatitude  = 50.95
+	astanaMaxLatitude  = 51.35
+	astanaMinLongitude = 71.15
+	astanaMaxLongitude = 71.75
+)
+
 type GeolocationRepository interface {
 	FindNearbyWorkers(ctx context.Context, categoryID int, latitude float64, longitude float64, radiusMeters int) ([]repository.NearbyWorker, error)
 	UpdateWorkerLocation(ctx context.Context, userID int, latitude float64, longitude float64) error
@@ -36,6 +43,9 @@ func (s *GeolocationService) FindNearbyWorkers(
 	}
 	if longitude < -180 || longitude > 180 {
 		return nil, errors.New("invalid longitude")
+	}
+	if !isInsideAstana(latitude, longitude) {
+		return nil, errors.New("service is available only in Astana")
 	}
 	if radiusMeters <= 0 {
 		radiusMeters = 5000
@@ -80,5 +90,15 @@ func validateLocationInput(userID int, latitude float64, longitude float64) erro
 	if longitude < -180 || longitude > 180 {
 		return errors.New("invalid longitude")
 	}
+	if !isInsideAstana(latitude, longitude) {
+		return errors.New("service is available only in Astana")
+	}
 	return nil
+}
+
+func isInsideAstana(latitude float64, longitude float64) bool {
+	return latitude >= astanaMinLatitude &&
+		latitude <= astanaMaxLatitude &&
+		longitude >= astanaMinLongitude &&
+		longitude <= astanaMaxLongitude
 }

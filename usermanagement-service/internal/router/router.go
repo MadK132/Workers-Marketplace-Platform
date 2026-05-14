@@ -16,7 +16,6 @@ func SetupRouter(
 	r := gin.Default()
 
 	r.GET("/healthz", h.Health)
-	r.Static("/uploads", "./uploads")
 
 	auth := r.Group("/auth")
 	{
@@ -36,6 +35,7 @@ func SetupRouter(
 	api.Use(middleware.AuthMiddleware(tokens, gatewaySharedSecret))
 	{
 		api.POST("/customer/profile", h.CreateCustomerProfile)
+		api.GET("/worker/profile", h.GetWorkerProfile)
 		api.POST("/worker/profile", h.CreateWorkerProfile)
 		api.POST("/worker/skills", h.AddWorkerSkill)
 		api.POST("/admin/verify-skill", h.VerifyWorkerSkill)

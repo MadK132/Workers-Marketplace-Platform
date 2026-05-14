@@ -49,6 +49,9 @@ export function wsURL(path, token) {
 }
 
 export function apiURL(path) {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
   return `${API_BASE_URL}${path}`;
 }
 

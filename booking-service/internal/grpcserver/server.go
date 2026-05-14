@@ -15,7 +15,7 @@ import (
 )
 
 type RequestService interface {
-	CreateRequest(ctx context.Context, customerProfileID int, categoryID int, description string) error
+	CreateRequest(ctx context.Context, customerProfileID int, categoryID int, description string, address string, latitude float64, longitude float64) error
 	ListCustomerRequests(ctx context.Context, customerProfileID int) ([]repository.RequestListItem, error)
 }
 
@@ -56,6 +56,9 @@ func (s *Server) CreateRequest(
 		int(req.GetCustomerProfileId()),
 		int(req.GetCategoryId()),
 		req.GetDescription(),
+		"Astana",
+		51.1694,
+		71.4491,
 	)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())

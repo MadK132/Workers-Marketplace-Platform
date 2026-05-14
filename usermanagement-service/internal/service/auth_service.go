@@ -380,6 +380,29 @@ func (s *AuthService) CreateWorkerProfile(ctx context.Context, userID int) error
 
 	return s.workerProfiles.Create(ctx, userID)
 }
+
+func (s *AuthService) UpsertWorkerProfile(
+	ctx context.Context,
+	userID int,
+	bio string,
+	latitude *float64,
+	longitude *float64,
+	profilePhotoURL *string,
+) (*model.WorkerProfile, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.Role != model.RoleWorker {
+		return nil, errors.New("not a worker")
+	}
+
+	profile, err := s.workerProfiles.UpsertDetails(ctx, userID, bio, latitude, longitude, profilePhotoURL)
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
 func (s *AuthService) AddWorkerSkill(
 	ctx context.Context,
 	userID int,
@@ -467,6 +490,17 @@ func (s *AuthService) GetWorkerProfile(
 	}
 
 	return &profile, nil
+}
+
+func (s *AuthService) ListVerifiedWorkerSkills(
+	ctx context.Context,
+	userID int,
+) ([]repository.VerifiedWorkerSkill, error) {
+	profile, err := s.workerProfiles.GetByUserIDFull(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.workerProfiles.ListVerifiedSkills(ctx, profile.ID)
 }
 
 func (s *AuthService) GetCategories(ctx context.Context) ([]repository.ServiceCategory, error) {

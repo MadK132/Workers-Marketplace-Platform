@@ -39,6 +39,9 @@ type WorkerProfile struct {
 	Rating             float64
 	VerificationStatus string
 	IsAvailable        bool
+	CurrentLatitude    *float64
+	CurrentLongitude   *float64
+	ProfilePhotoURL    *string
 }
 type CustomerProfile struct {
 	ID        int

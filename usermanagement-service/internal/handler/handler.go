@@ -2,20 +2,17 @@ package handler
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"mime/multipart"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"diploma/usermanagement-service/internal/filestorage"
 	"diploma/usermanagement-service/internal/model"
 	"diploma/usermanagement-service/internal/repository"
 	"diploma/usermanagement-service/internal/service"
@@ -32,6 +29,7 @@ type AuthService interface {
 	SelectRole(ctx context.Context, userID int, role model.Role) error
 	CreateCustomerProfile(ctx context.Context, userID int) error
 	CreateWorkerProfile(ctx context.Context, userID int) error
+	UpsertWorkerProfile(ctx context.Context, userID int, bio string, latitude *float64, longitude *float64, profilePhotoURL *string) (*model.WorkerProfile, error)
 	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) (int, error)
 	AddWorkerSkillEvidence(ctx context.Context, workerSkillID int, fileName string, filePath string, contentType string, note string) error
 	VerifyWorkerSkill(ctx context.Context, skillID int) error
@@ -40,6 +38,7 @@ type AuthService interface {
 	VerifyWorker(ctx context.Context, workerID int) error
 	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
 	GetWorkerProfile(ctx context.Context, userID int) (*model.WorkerProfile, error)
+	ListVerifiedWorkerSkills(ctx context.Context, userID int) ([]repository.VerifiedWorkerSkill, error)
 	GetCategories(ctx context.Context) ([]repository.ServiceCategory, error)
 	GetAdminOverview(ctx context.Context) (repository.AdminOverview, error)
 }
@@ -296,13 +295,68 @@ func (h *AuthHandler) CreateCustomerProfile(c *gin.Context) {
 func (h *AuthHandler) CreateWorkerProfile(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
-	err := h.auth.CreateWorkerProfile(c.Request.Context(), userID)
+	bio, latitude, longitude, photoURL, ok := h.parseWorkerProfileRequest(c)
+	if !ok {
+		return
+	}
+
+	profile, err := h.auth.UpsertWorkerProfile(c.Request.Context(), userID, bio, latitude, longitude, photoURL)
 	if err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "worker profile created"})
+	c.JSON(200, gin.H{
+		"worker_profile_id":   profile.ID,
+		"user_id":             profile.UserID,
+		"bio":                 profile.Bio,
+		"rating":              profile.Rating,
+		"verification_status": profile.VerificationStatus,
+		"is_available":        profile.IsAvailable,
+		"current_latitude":    profile.CurrentLatitude,
+		"current_longitude":   profile.CurrentLongitude,
+		"profile_photo_url":   profile.ProfilePhotoURL,
+	})
+}
+
+func (h *AuthHandler) parseWorkerProfileRequest(c *gin.Context) (string, *float64, *float64, *string, bool) {
+	contentType := c.GetHeader("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		bio := c.PostForm("bio")
+		latitude, err := optionalFloat(c.PostForm("current_latitude"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid current_latitude"})
+			return "", nil, nil, nil, false
+		}
+		longitude, err := optionalFloat(c.PostForm("current_longitude"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid current_longitude"})
+			return "", nil, nil, nil, false
+		}
+		var photoURL *string
+		file, err := c.FormFile("profile_photo")
+		if err == nil && file != nil {
+			storedPath, err := saveProfilePhoto(c.Request.Context(), file)
+			if err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return "", nil, nil, nil, false
+			}
+			photoURL = &storedPath
+		}
+		return bio, latitude, longitude, photoURL, true
+	}
+
+	var req struct {
+		Bio              string   `json:"bio"`
+		CurrentLatitude  *float64 `json:"current_latitude"`
+		CurrentLongitude *float64 `json:"current_longitude"`
+		ProfilePhotoURL  *string  `json:"profile_photo_url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return "", nil, nil, nil, false
+	}
+	return req.Bio, req.CurrentLatitude, req.CurrentLongitude, req.ProfilePhotoURL, true
 }
 func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
 	categoryID, experience, price, note, files, ok := h.parseWorkerSkillRequest(c)
@@ -326,7 +380,7 @@ func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
 	}
 
 	for _, file := range files {
-		storedPath, err := saveEvidenceFile(c, file)
+		storedPath, err := saveEvidenceFile(c.Request.Context(), file)
 		if err != nil {
 			c.JSON(400, gin.H{"error": err.Error()})
 			return
@@ -386,46 +440,31 @@ func (h *AuthHandler) parseWorkerSkillRequest(c *gin.Context) (int, string, int,
 	return req.CategoryID, req.Experience, price, "", nil, true
 }
 
-func saveEvidenceFile(c *gin.Context, file *multipart.FileHeader) (string, error) {
-	if file.Size > 10*1024*1024 {
-		return "", errors.New("evidence file must be 10MB or less")
-	}
-
-	uploadRoot := os.Getenv("VERIFICATION_UPLOAD_DIR")
-	if uploadRoot == "" {
-		uploadRoot = filepath.Join("uploads", "verification")
-	}
-	if err := os.MkdirAll(uploadRoot, 0o755); err != nil {
-		return "", err
-	}
-
-	ext := strings.ToLower(filepath.Ext(file.Filename))
-	if !isAllowedEvidenceExt(ext) {
-		return "", errors.New("allowed evidence files: jpg, jpeg, png, webp, pdf")
-	}
-	fileName := fmt.Sprintf("%s%s", randomHex(16), ext)
-	fullPath := filepath.Join(uploadRoot, fileName)
-	if err := c.SaveUploadedFile(file, fullPath); err != nil {
-		return "", err
-	}
-	return "/" + filepath.ToSlash(fullPath), nil
+func saveEvidenceFile(ctx context.Context, file *multipart.FileHeader) (string, error) {
+	return filestorage.SaveUploadedFile(ctx, file, filestorage.SaveOptions{
+		Prefix:      "verification",
+		MaxSize:     10 * 1024 * 1024,
+		AllowedExts: map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".pdf": true},
+	})
 }
 
-func isAllowedEvidenceExt(ext string) bool {
-	switch ext {
-	case ".jpg", ".jpeg", ".png", ".webp", ".pdf":
-		return true
-	default:
-		return false
-	}
+func saveProfilePhoto(ctx context.Context, file *multipart.FileHeader) (string, error) {
+	return filestorage.SaveUploadedFile(ctx, file, filestorage.SaveOptions{
+		Prefix:      "profiles",
+		MaxSize:     5 * 1024 * 1024,
+		AllowedExts: map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true},
+	})
 }
 
-func randomHex(size int) string {
-	buf := make([]byte, size)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
+func optionalFloat(value string) (*float64, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, nil
 	}
-	return hex.EncodeToString(buf)
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
 }
 
 func firstNonEmpty(values ...string) string {
@@ -574,9 +613,22 @@ func (h *AuthHandler) GetWorkerProfile(c *gin.Context) {
 		c.JSON(404, gin.H{"error": "worker profile not found"})
 		return
 	}
+	skills, err := h.auth.ListVerifiedWorkerSkills(c.Request.Context(), userID)
+	if err != nil {
+		skills = []repository.VerifiedWorkerSkill{}
+	}
 
 	c.JSON(200, gin.H{
-		"worker_profile_id": profile.ID,
+		"worker_profile_id":   profile.ID,
+		"user_id":             profile.UserID,
+		"bio":                 profile.Bio,
+		"rating":              profile.Rating,
+		"verification_status": profile.VerificationStatus,
+		"is_available":        profile.IsAvailable,
+		"current_latitude":    profile.CurrentLatitude,
+		"current_longitude":   profile.CurrentLongitude,
+		"profile_photo_url":   profile.ProfilePhotoURL,
+		"verified_skills":     skills,
 	})
 }
 

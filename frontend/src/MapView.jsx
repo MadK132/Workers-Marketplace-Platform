@@ -3,7 +3,20 @@ import { loadMapGL } from "./mapgl.js";
 
 const MAP_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 
-const MapView = forwardRef(function MapView({ position, workers, selectedWorker, onSelectWorker }, ref) {
+const DRIVER_MARKER_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg width="44" height="54" viewBox="0 0 44 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M22 2L42 52L22 38L2 52L22 2Z" fill="#FFC21A" stroke="#24302C" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M22 2L22 38" stroke="#F7A900" stroke-width="1.5"/>
+</svg>
+`)}`;
+
+const MapView = forwardRef(function MapView({
+  position,
+  workers,
+  selectedWorker,
+  onSelectWorker,
+  userMarker = "default",
+}, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const zoomRef = useRef(13);
@@ -40,15 +53,10 @@ const MapView = forwardRef(function MapView({ position, workers, selectedWorker,
           center: [position.longitude, position.latitude],
           zoom: 13,
           key: MAP_KEY,
+          zoomControl: false,
           controls: [],
         });
         zoomRef.current = 13;
-        userMarkerRef.current = new mapgl.Marker(mapRef.current, {
-          coordinates: [position.longitude, position.latitude],
-          label: {
-            text: "You",
-          },
-        });
       })
       .catch((error) => setMapError(error.message));
 
@@ -56,6 +64,39 @@ const MapView = forwardRef(function MapView({ position, workers, selectedWorker,
       cancelled = true;
     };
   }, [position]);
+
+  useEffect(() => {
+    if (!mapRef.current || !window.mapgl || !position) {
+      return;
+    }
+
+    userMarkerRef.current?.destroy?.();
+    userMarkerRef.current = null;
+
+    if (userMarker === "none") {
+      return;
+    }
+
+    const markerOptions = {
+      coordinates: [position.longitude, position.latitude],
+    };
+
+    if (userMarker === "driver") {
+      markerOptions.icon = DRIVER_MARKER_ICON;
+      markerOptions.size = [44, 54];
+      markerOptions.anchor = [22, 27];
+      markerOptions.zIndex = 10;
+    } else {
+      markerOptions.label = { text: "You" };
+    }
+
+    userMarkerRef.current = new window.mapgl.Marker(mapRef.current, markerOptions);
+
+    return () => {
+      userMarkerRef.current?.destroy?.();
+      userMarkerRef.current = null;
+    };
+  }, [position, userMarker]);
 
   useEffect(() => {
     if (!mapRef.current || !window.mapgl || !position) {

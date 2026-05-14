@@ -29,11 +29,16 @@ func (r *RequestRepository) Create(
 	customerProfileID int,
 	categoryID int,
 	description string,
+	address string,
+	latitude float64,
+	longitude float64,
 ) error {
 	_, err := r.db.Exec(ctx, `
-		INSERT INTO service_requests (customer_profile_id, category_id, description)
-		VALUES ($1, $2, $3)
-	`, customerProfileID, categoryID, description)
+		INSERT INTO service_requests
+			(customer_profile_id, category_id, description, address, latitude, longitude, location)
+		VALUES
+			($1, $2, $3, $4, $5, $6, ST_SetSRID(ST_MakePoint($6, $5), 4326)::geography)
+	`, customerProfileID, categoryID, description, address, latitude, longitude)
 
 	return err
 }

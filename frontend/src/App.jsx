@@ -6,26 +6,32 @@ import { useGeolocation } from "./useGeolocation.js";
 
 const TOKEN_KEY = "workers_marketplace_token";
 const ROLE_KEY = "workers_marketplace_role";
+const ASTANA_BOUNDS = {
+  minLatitude: 50.95,
+  maxLatitude: 51.35,
+  minLongitude: 71.15,
+  maxLongitude: 71.75,
+};
 
 const roleTabs = {
   customer: [
-    ["find", "Поиск"],
-    ["requests", "Заявки"],
-    ["bookings", "Бронирования"],
-    ["profile", "Профиль"],
-    ["notifications", "Уведомления"],
+    ["find", "Search"],
+    ["requests", "Requests"],
+    ["bookings", "Bookings"],
+    ["profile", "Profile"],
+    ["notifications", "Alerts"],
   ],
   worker: [
-    ["pro", "Карта"],
-    ["jobs", "Заказы"],
-    ["skills", "Услуги"],
-    ["profile", "Профиль"],
-    ["notifications", "Уведомления"],
+    ["pro", "Map"],
+    ["jobs", "Jobs"],
+    ["skills", "Services"],
+    ["profile", "Profile"],
+    ["notifications", "Alerts"],
   ],
   admin: [
-    ["overview", "Обзор"],
-    ["verify", "Проверка"],
-    ["notifications", "Уведомления"],
+    ["overview", "Overview"],
+    ["verify", "Verify"],
+    ["notifications", "Alerts"],
   ],
 };
 
@@ -296,19 +302,19 @@ function isEmptyResultError(err) {
 function categoryTitle(name) {
   const normalized = String(name || "").toLowerCase();
   const titles = {
-    appliance_installation: "Установка техники",
-    carpenter: "Плотник",
-    carpentry: "Плотник",
-    cleaner: "Клининг",
-    cleaning: "Клининг",
-    electrician: "Электрик",
-    electrical: "Электрик",
-    gardener: "Садовник",
-    mover: "Грузчик",
-    plumber: "Сантехник",
-    plumbing: "Сантехник",
-    renovation: "Ремонт",
-    painting: "Малярные работы",
+    appliance_installation: "Appliance installation",
+    carpenter: "Carpenter",
+    carpentry: "Carpenter",
+    cleaner: "Cleaning",
+    cleaning: "Cleaning",
+    electrician: "Electrician",
+    electrical: "Electrician",
+    gardener: "Gardener",
+    mover: "Mover",
+    plumber: "Plumber",
+    plumbing: "Plumber",
+    renovation: "Renovation",
+    painting: "Painting",
   };
   return titles[normalized] || humanize(name);
 }
@@ -316,21 +322,21 @@ function categoryTitle(name) {
 function categoryDescription(name, fallback) {
   const normalized = String(name || "").toLowerCase();
   const descriptions = {
-    appliance_installation: "Подключение и настройка бытовой техники.",
-    carpenter: "Сборка мебели, двери, мелкий ремонт дерева.",
-    carpentry: "Сборка мебели, двери, мелкий ремонт дерева.",
-    cleaner: "Уборка квартиры, дома или офиса.",
-    cleaning: "Уборка квартиры, дома или офиса.",
-    electrician: "Розетки, свет, проводка и диагностика.",
-    electrical: "Розетки, свет, проводка и диагностика.",
-    gardener: "Уход за участком и растениями.",
-    mover: "Погрузка, перенос и помощь при переезде.",
-    plumber: "Трубы, протечки, смесители и сантехника.",
-    plumbing: "Трубы, протечки, смесители и сантехника.",
-    renovation: "Отделка и ремонтные работы.",
-    painting: "Покраска стен, потолков и декор.",
+    appliance_installation: "Appliance setup and home device installation.",
+    carpenter: "Furniture assembly, doors and small wood repairs.",
+    carpentry: "Furniture assembly, doors and small wood repairs.",
+    cleaner: "Apartment, house or office cleaning.",
+    cleaning: "Apartment, house or office cleaning.",
+    electrician: "Sockets, lighting, wiring and diagnostics.",
+    electrical: "Sockets, lighting, wiring and diagnostics.",
+    gardener: "Garden and plant care.",
+    mover: "Loading, carrying and moving help.",
+    plumber: "Pipes, leaks, mixers and plumbing.",
+    plumbing: "Pipes, leaks, mixers and plumbing.",
+    renovation: "Finishing and renovation work.",
+    painting: "Walls, ceilings and decorative painting.",
   };
-  return descriptions[normalized] || fallback || "Категория услуги";
+  return descriptions[normalized] || fallback || "Service category";
 }
 
 function experienceTitle(level) {
@@ -351,6 +357,16 @@ function humanize(value) {
 function isMissingWorkerProfileError(err) {
   const message = err?.message?.toLowerCase() || "";
   return message.includes("no rows in result set") || message.includes("worker profile not found");
+}
+
+function isInsideAstana(position) {
+  if (!position) {
+    return false;
+  }
+  return position.latitude >= ASTANA_BOUNDS.minLatitude &&
+    position.latitude <= ASTANA_BOUNDS.maxLatitude &&
+    position.longitude >= ASTANA_BOUNDS.minLongitude &&
+    position.longitude <= ASTANA_BOUNDS.maxLongitude;
 }
 
 async function ensureWorkerProfile(token, position) {
@@ -419,6 +435,10 @@ function CustomerApp({ token, activeTab, onNavigate }) {
       setError("Choose category and allow location first.");
       return;
     }
+    if (!isInsideAstana(position)) {
+      setError("Service is available only in Astana.");
+      return;
+    }
     setLoading(true);
     setError("");
     setMessage("");
@@ -441,6 +461,10 @@ function CustomerApp({ token, activeTab, onNavigate }) {
   const hireWorker = async (worker) => {
     if (!position || !categoryID) {
       setError("Location and category are required.");
+      return;
+    }
+    if (!isInsideAstana(position)) {
+      setError("Orders are accepted only in Astana.");
       return;
     }
     setError("");
@@ -621,24 +645,14 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
   return (
     <div className="proPhoneShell">
       <section className="proPhone" aria-label="Worker Pro map workspace">
-        <MapView ref={mapRef} position={position} workers={[]} selectedWorker={null} onSelectWorker={() => {}} />
-        <div className="phoneStatusBar">
-          <span>12:30</span>
-          <span className="phoneSignal" />
-        </div>
+        <MapView ref={mapRef} position={position} workers={[]} selectedWorker={null} onSelectWorker={() => {}} userMarker="driver" />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
-        <div className="proMoneyCard">
-          <strong>{bookings.length > 0 ? `${bookings.length * 2800},25 KZT` : "0 KZT"}</strong>
-          <span>{searching ? "поиск заказов" : `${bookings.length} заказов`}</span>
-          <div className="proAvatar">WM</div>
-        </div>
         <button className={available ? "searchButton lineSearchButton online" : "searchButton lineSearchButton"} onClick={toggleAvailability}>
           {available ? "Offline" : "На линию"}
         </button>
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
         <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
         <button className="roundMapButton navButtonMap" onClick={() => mapRef.current?.recenter()}>GPS</button>
-        <div className="driverArrow" />
         <div className="offersDrawer">
           <div>
             <h2>Предложения</h2>
@@ -942,37 +956,135 @@ function CustomerProfilePanel({ token, onNavigate }) {
 }
 
 function WorkerProfilePanel({ token, onNavigate }) {
-  const [form, setForm] = useState({ bio: "", current_latitude: "", current_longitude: "" });
+  const [profile, setProfile] = useState(null);
+  const [bookings, setBookings] = useState([]);
+  const [form, setForm] = useState({ bio: "" });
+  const [photo, setPhoto] = useState(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const loadProfile = useCallback(() => {
+    setError("");
+    apiGet("/api/worker/profile", token)
+      .then((data) => {
+        setProfile(data);
+        setForm({
+          bio: data.bio || "",
+        });
+      })
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  useEffect(() => {
+    loadProfile();
+    apiGet("/api/bookings/my", token)
+      .then((data) => setBookings(Array.isArray(data) ? data : data.bookings || []))
+      .catch(() => setBookings([]));
+  }, [loadProfile, token]);
+
+  const stats = useMemo(() => buildIncomeStats(bookings), [bookings]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("bio", form.bio);
+      if (photo) {
+        body.append("profile_photo", photo);
+      }
+      const updated = await apiMultipart("/api/worker/profile", token, body);
+      setProfile((current) => ({ ...(current || {}), ...updated }));
+      setPhoto(null);
+      setMessage("Profile saved.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const photoURL = profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "";
+
   return (
-    <ProfileForm
-      title="Worker profile"
-      text="Describe yourself and set your working location."
-      form={form}
-      setForm={setForm}
-      links={[
-        ["jobs", "My bookings", "Open assigned jobs"],
-        ["pro", "Go Pro", "Back to map and online status"],
-        ["skills", "Skills", "Manage services and prices"],
-      ]}
-      onNavigate={onNavigate}
-      onSubmit={() => apiPost("/api/worker/profile", token, {
-        bio: form.bio,
-        current_latitude: Number(form.current_latitude),
-        current_longitude: Number(form.current_longitude),
-      })}
-    />
+    <section className="pagePanel workerProfilePage">
+      <SectionHeader title="Worker profile" text="Profile photo, bio, verified skills and income analytics." />
+      <div className="workerProfileHero">
+        <div className="profilePhotoBlock">
+          <div className="profilePhoto">
+            <span>WM</span>
+            {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+          </div>
+          <label className="fileButton">
+            Upload photo
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+          </label>
+          {photo && <span className="muted">{photo.name}</span>}
+        </div>
+        <form className="profileEditForm" onSubmit={submit}>
+          <Field label="About me" light>
+            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
+          </Field>
+          <button>Save profile</button>
+        </form>
+      </div>
+      <div className="profileStatsGrid">
+        <StatCard title="This week" value={formatMoney(stats.weekTotal) + " KZT"} text={stats.weekCompleted + " completed jobs"} />
+        <StatCard title="This month" value={formatMoney(stats.monthTotal) + " KZT"} text={stats.monthCompleted + " completed jobs"} />
+        <StatCard title="Average check" value={formatMoney(stats.average) + " KZT"} text="Completed jobs this month" />
+      </div>
+      <section className="profileSection">
+        <div className="sectionTitleRow">
+          <h3>Monthly income</h3>
+          <span>{stats.monthCompleted} jobs</span>
+        </div>
+        <div className="incomeBars">
+          {stats.weekBuckets.map((bucket) => (
+            <div className="incomeBar" key={bucket.label}>
+              <span>{bucket.label}</span>
+              <div><b style={{ width: bucket.percent + "%" }} /></div>
+              <strong>{formatMoney(bucket.total)}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="profileSection">
+        <div className="sectionTitleRow">
+          <h3>Verified skills</h3>
+          <button className="secondaryButton fitButton" onClick={() => onNavigate("skills")}>Add service</button>
+        </div>
+        <div className="verifiedSkillsGrid">
+          {(profile?.verified_skills || []).length === 0 && <EmptyState title="No verified skills yet" text="Add a service and attach qualification evidence." />}
+          {(profile?.verified_skills || []).map((skill) => (
+            <article className="verifiedSkillCard" key={skill.worker_skill_id}>
+              <strong>{categoryTitle(skill.category_name)}</strong>
+              <span>{skill.experience_level} - from {skill.price_base} KZT</span>
+            </article>
+          ))}
+        </div>
+      </section>
+      <div className="profileLinks">
+        <button className="profileLinkCard" type="button" onClick={() => onNavigate("jobs")}>
+          <strong>My jobs</strong>
+          <span>Open assigned bookings</span>
+        </button>
+        <button className="profileLinkCard" type="button" onClick={() => onNavigate("pro")}>
+          <strong>Map</strong>
+          <span>Return to online mode and job search</span>
+        </button>
+        <button className="profileLinkCard" type="button" onClick={() => onNavigate("skills")}>
+          <strong>Services</strong>
+          <span>Manage skills and prices</span>
+        </button>
+      </div>
+      <Messages message={message} error={error} />
+    </section>
   );
 }
 
 function WorkerSkillsPanel({ token }) {
   const [categories, setCategories] = useState([]);
   const [profileID, setProfileID] = useState("");
-  const [form, setForm] = useState({
-    category_id: "",
-    experience_level: "junior",
-    price: "",
-    evidence_note: "",
-  });
+  const [form, setForm] = useState({ category_id: "", experience_level: "junior", price: "", evidence_note: "" });
   const [files, setFiles] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -987,7 +1099,7 @@ function WorkerSkillsPanel({ token }) {
       })
       .catch((err) => setError(err.message));
 
-    apiGet("/api/internal/worker-profile", token)
+    apiGet("/api/worker/profile", token)
       .then((data) => setProfileID(data.worker_profile_id || ""))
       .catch(() => setProfileID(""));
   }, [token]);
@@ -998,11 +1110,7 @@ function WorkerSkillsPanel({ token }) {
     setMessage("");
     try {
       if (!profileID) {
-        const createdProfile = await apiPost("/api/worker/profile", token, {
-          bio: "",
-          current_latitude: 0,
-          current_longitude: 0,
-        });
+        const createdProfile = await apiPost("/api/worker/profile", token, { bio: "" });
         setProfileID(createdProfile.worker_profile_id || createdProfile.id || "created");
       }
       const body = new FormData();
@@ -1013,7 +1121,7 @@ function WorkerSkillsPanel({ token }) {
       files.forEach((file) => body.append("evidence_files", file));
       await apiMultipart("/api/worker/skills", token, body);
       setFiles([]);
-      setMessage("Заявка на услугу отправлена. Админ проверит доказательства квалификации.");
+      setMessage("Service request sent. Admin will review qualification evidence.");
     } catch (err) {
       setError(err.message);
     }
@@ -1021,67 +1129,45 @@ function WorkerSkillsPanel({ token }) {
 
   return (
     <section className="pagePanel skillsPage">
-      <SectionHeader title="Услуги" text="Выберите категорию, опыт, цену и приложите доказательства квалификации." />
+      <SectionHeader title="Services" text="Choose a category, level, base price and attach qualification evidence." />
       <div className="skillStatusGrid">
         <article className="skillStatusCard">
-          <span>Верификация</span>
-          <strong>Прикрепите сертификаты, фото работ, дипломы или портфолио. Админ проверит их перед допуском на линию.</strong>
+          <span>Verification</span>
+          <strong>Attach certificates, work photos, diplomas or portfolio files. Admin approval is required before going online.</strong>
         </article>
       </div>
       <form className="skillForm" onSubmit={submit}>
-        <Field label="Категория услуги" light>
+        <Field label="Service category" light>
           <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
-            {categories.length === 0 && <option value="">Категории не загружены</option>}
-            {categories.map((category) => (
-              <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>
-            ))}
+            {categories.length === 0 && <option value="">Categories are not loaded</option>}
+            {categories.map((category) => <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>)}
           </select>
         </Field>
         <div className="field light">
-          <span>Опыт</span>
+          <span>Level</span>
           <div className="segmentedControl">
             {["junior", "middle", "senior"].map((level) => (
-              <button
-                key={level}
-                type="button"
-                className={form.experience_level === level ? "active" : ""}
-                onClick={() => setForm({ ...form, experience_level: level })}
-              >
-                {level}
-              </button>
+              <button key={level} type="button" className={form.experience_level === level ? "active" : ""} onClick={() => setForm({ ...form, experience_level: level })}>{level}</button>
             ))}
           </div>
         </div>
-        <Field label="Цена от, KZT" light>
+        <Field label="Price from, KZT" light>
           <input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} inputMode="numeric" placeholder="15000" required />
         </Field>
-        <button>Добавить</button>
-        <Field label="Доказательства квалификации" light>
-          <input
-            type="file"
-            multiple
-            accept="image/png,image/jpeg,image/webp,application/pdf"
-            onChange={(e) => setFiles(Array.from(e.target.files || []))}
-          />
+        <button>Add service</button>
+        <Field label="Qualification evidence" light>
+          <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
         </Field>
-        <Field label="Комментарий для админа" light>
-          <textarea
-            value={form.evidence_note}
-            onChange={(e) => setForm({ ...form, evidence_note: e.target.value })}
-            placeholder="Например: 3 года опыта, сертификат прикреплен, фото последних работ..."
-          />
+        <Field label="Admin note" light>
+          <textarea value={form.evidence_note} onChange={(e) => setForm({ ...form, evidence_note: e.target.value })} placeholder="Example: 3 years of experience, certificate attached, recent work photos..." />
         </Field>
         <div className="selectedFiles">
-          {files.length === 0 ? <span>Файлы не выбраны</span> : files.map((file) => <span key={file.name}>{file.name}</span>)}
+          {files.length === 0 ? <span>No files selected</span> : files.map((file) => <span key={file.name}>{file.name}</span>)}
         </div>
       </form>
       <div className="skillCategoryGrid">
         {categories.map((category) => (
-          <article
-            key={category.category_id}
-            className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"}
-            onClick={() => setForm({ ...form, category_id: String(category.category_id) })}
-          >
+          <article key={category.category_id} className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"} onClick={() => setForm({ ...form, category_id: String(category.category_id) })}>
             <strong>{categoryTitle(category.name)}</strong>
             <span>{categoryDescription(category.name, category.description)}</span>
           </article>
@@ -1091,6 +1177,70 @@ function WorkerSkillsPanel({ token }) {
     </section>
   );
 }
+
+function StatCard({ title, value, text }) {
+  return (
+    <article className="statCard">
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <small>{text}</small>
+    </article>
+  );
+}
+
+function buildIncomeStats(bookings) {
+  const now = new Date();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - 7);
+  const monthStart = new Date(now);
+  monthStart.setDate(now.getDate() - 30);
+
+  const completed = bookings.filter((item) => String(item.status || item.booking_status || "").toLowerCase() === "completed");
+  const inWeek = completed.filter((item) => bookingDate(item) >= weekStart);
+  const inMonth = completed.filter((item) => bookingDate(item) >= monthStart);
+  const weekTotal = sumBookings(inWeek);
+  const monthTotal = sumBookings(inMonth);
+  const average = inMonth.length > 0 ? monthTotal / inMonth.length : 0;
+  const weekBuckets = Array.from({ length: 4 }, (_, index) => {
+    const end = new Date(now);
+    end.setDate(now.getDate() - index * 7);
+    const start = new Date(end);
+    start.setDate(end.getDate() - 7);
+    const total = sumBookings(completed.filter((item) => {
+      const date = bookingDate(item);
+      return date >= start && date <= end;
+    }));
+    return { label: `W${4 - index}`, total };
+  }).reverse();
+  const max = Math.max(...weekBuckets.map((bucket) => bucket.total), 1);
+
+  return {
+    weekTotal,
+    monthTotal,
+    average,
+    weekCompleted: inWeek.length,
+    monthCompleted: inMonth.length,
+    weekBuckets: weekBuckets.map((bucket) => ({ ...bucket, percent: Math.max(6, Math.round((bucket.total / max) * 100)) })),
+  };
+}
+
+function bookingDate(item) {
+  return new Date(item.end_time || item.start_time || item.scheduled_time || item.created_at || Date.now());
+}
+
+function sumBookings(items) {
+  return items.reduce((sum, item) => sum + parseMoney(item.final_price || item.amount || 0), 0);
+}
+
+function parseMoney(value) {
+  const parsed = Number.parseFloat(String(value ?? "0").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoney(value) {
+  return Math.round(value).toLocaleString("ru-RU");
+}
+
 function ProfileForm({ title, text, form, setForm, onSubmit, links = [], onNavigate }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");

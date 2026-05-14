@@ -331,6 +331,17 @@ textarea {
   min-height: 100vh;
 }
 
+.mapCanvas [class*="control"],
+.mapCanvas [class*="Control"],
+.mapCanvas [class*="zoom"],
+.mapCanvas [class*="Zoom"],
+.mapCanvas button[aria-label*="zoom"],
+.mapCanvas button[aria-label*="Zoom"] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 .phoneStatusBar {
   position: absolute;
   z-index: 20;
@@ -532,19 +543,6 @@ textarea {
 
 .energyPill strong {
   font-size: 26px;
-}
-
-.driverArrow {
-  position: absolute;
-  z-index: 10;
-  top: 392px;
-  left: 50%;
-  width: 72px;
-  height: 88px;
-  transform: translateX(-50%);
-  clip-path: polygon(50% 0, 100% 100%, 50% 74%, 0 100%);
-  background: #ffc21a;
-  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, 0.22));
 }
 
 .lineButton {
@@ -769,6 +767,167 @@ textarea {
   color: #6f716b;
   font-size: 13px;
   font-weight: 650;
+}
+
+.workerProfilePage {
+  gap: 20px;
+}
+
+.workerProfileHero {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.profilePhotoBlock,
+.profileSection,
+.statCard {
+  border: 1px solid #ddd4c2;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fffaf2;
+}
+
+.profilePhotoBlock {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  align-content: start;
+}
+
+.profilePhoto {
+  position: relative;
+  display: grid;
+  width: 132px;
+  height: 132px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #82d9e5;
+  color: #10231f;
+  font-size: 30px;
+  font-weight: 900;
+}
+
+.profilePhoto img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fileButton {
+  display: grid;
+  min-height: 42px;
+  place-items: center;
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #10231f;
+  color: #fffaf2;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.fileButton input {
+  display: none;
+}
+
+.profileEditForm {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 0.24fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.profileEditForm textarea {
+  min-height: 118px;
+}
+
+.profileStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.statCard {
+  display: grid;
+  gap: 7px;
+}
+
+.statCard span,
+.statCard small,
+.sectionTitleRow span {
+  color: #6f716b;
+  font-weight: 750;
+}
+
+.statCard strong {
+  color: #10231f;
+  font-size: 28px;
+}
+
+.profileSection {
+  display: grid;
+  gap: 14px;
+}
+
+.sectionTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionTitleRow h3 {
+  margin: 0;
+}
+
+.incomeBars {
+  display: grid;
+  gap: 10px;
+}
+
+.incomeBar {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 90px;
+  gap: 12px;
+  align-items: center;
+}
+
+.incomeBar div {
+  overflow: hidden;
+  height: 12px;
+  border-radius: 999px;
+  background: #f0eadc;
+}
+
+.incomeBar b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #ffd900;
+}
+
+.verifiedSkillsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.verifiedSkillCard {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #ddd4c2;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff;
+}
+
+.verifiedSkillCard span {
+  color: #6f716b;
+  font-weight: 700;
 }
 
 .skillsPage {
@@ -1373,6 +1532,12 @@ textarea {
   }
 
   .skillForm {
+    grid-template-columns: 1fr;
+  }
+
+  .workerProfileHero,
+  .profileEditForm,
+  .profileStatsGrid {
     grid-template-columns: 1fr;
   }
 

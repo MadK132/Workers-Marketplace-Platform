@@ -31,8 +31,11 @@ func NewHandler(
 
 func (h *Handler) CreateRequest(c *gin.Context) {
 	var req struct {
-		CategoryID  int    `json:"category_id"`
-		Description string `json:"description"`
+		CategoryID  int     `json:"category_id"`
+		Description string  `json:"description"`
+		Address     string  `json:"address"`
+		Latitude    float64 `json:"latitude"`
+		Longitude   float64 `json:"longitude"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -67,9 +70,16 @@ func (h *Handler) CreateRequest(c *gin.Context) {
 		customerProfileID,
 		req.CategoryID,
 		req.Description,
+		req.Address,
+		req.Latitude,
+		req.Longitude,
 	)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		if errors.Is(err, service.ErrOutsideAstana) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
