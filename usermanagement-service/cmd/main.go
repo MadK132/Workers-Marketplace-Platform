@@ -74,6 +74,9 @@ func main() {
 	if err := categoryRepo.EnsureDefaults(ctx); err != nil {
 		log.Printf("Category bootstrap skipped: %v", err)
 	}
+	if err := workerSkillRepo.EnsureEvidenceTable(ctx); err != nil {
+		log.Printf("Worker skill evidence bootstrap skipped: %v", err)
+	}
 
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
 	authService := service.NewAuthService(

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiMultipart, apiPatch, apiPost, apiURL } from "./api.js";
 import MapView from "./MapView.jsx";
 import WorkerList from "./WorkerList.jsx";
@@ -648,15 +648,15 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
         <MapView ref={mapRef} position={position} workers={[]} selectedWorker={null} onSelectWorker={() => {}} userMarker="driver" />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         <button className={available ? "searchButton lineSearchButton online" : "searchButton lineSearchButton"} onClick={toggleAvailability}>
-          {available ? "Offline" : "На линию"}
+          {available ? "Offline" : "Go online"}
         </button>
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
         <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
         <button className="roundMapButton navButtonMap" onClick={() => mapRef.current?.recenter()}>GPS</button>
         <div className="offersDrawer">
           <div>
-            <h2>Предложения</h2>
-            <button className="walletButton" onClick={() => onNavigate("jobs")}>Заказы</button>
+            <h2>Offers</h2>
+            <button className="walletButton" onClick={() => onNavigate("jobs")}>Jobs</button>
           </div>
           <Messages message={message} error={error} />
           <JobBoard bookings={bookings.slice(0, 2)} onProgress={updateBooking} compact />
@@ -670,10 +670,6 @@ function WorkerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
   return (
     <div className="proPhoneShell">
       <section className="proPhone workerPagePhone">
-        <div className="phoneStatusBar">
-          <span>12:30</span>
-          <span className="phoneSignal" />
-        </div>
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         <div className="workerInnerPage">{children}</div>
       </section>
@@ -686,10 +682,10 @@ function WorkerLocationGate({ geoStatus, geoError, onAllow, onSignOut }) {
     <main className="geoGate">
       <section className="geoGateCard">
         <div className="appIcon">WM</div>
-        <h1>Разрешите геолокацию</h1>
-        <p>Карта работника откроется после доступа к координатам. Браузер обновляет позицию при изменении местоположения, а в режиме на линии приложение отправляет координаты на сервер каждые 15 секунд.</p>
-        <button onClick={onAllow} disabled={geoStatus === "loading"}>{geoStatus === "loading" ? "Запрашиваем..." : "Разрешить геолокацию"}</button>
-        <button className="secondaryButton" onClick={onSignOut}>Выход</button>
+        <h1>Allow location</h1>
+        <p>We need your location for the worker map and online job search.</p>
+        <button onClick={onAllow} disabled={geoStatus === "loading"}>{geoStatus === "loading" ? "Requesting..." : "Allow location"}</button>
+        <button className="secondaryButton" onClick={onSignOut}>Exit</button>
         {geoError && <p className="errorMessage">{geoError}</p>}
       </section>
     </main>
@@ -704,7 +700,7 @@ function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
           {label}
         </button>
       ))}
-      <button onClick={onSignOut}>Выход</button>
+      <button onClick={onSignOut}>Exit</button>
     </div>
   );
 }

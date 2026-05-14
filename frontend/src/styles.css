@@ -342,18 +342,6 @@ textarea {
   pointer-events: none !important;
 }
 
-.phoneStatusBar {
-  position: absolute;
-  z-index: 20;
-  top: 16px;
-  right: 22px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  font-weight: 800;
-  color: #111;
-}
-
 .workerPhoneTabs {
   position: absolute;
   top: 48px;
@@ -382,12 +370,8 @@ textarea {
   color: #111;
 }
 
-.phoneSignal {
-  display: block;
-  width: 12px;
-  height: 18px;
-  border-radius: 2px;
-  background: #111;
+.workerPagePhone .workerPhoneTabs {
+  top: 24px;
 }
 
 .proScoreBubble {
