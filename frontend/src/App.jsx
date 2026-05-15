@@ -838,6 +838,13 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
       <section className="proPhone" aria-label="Worker Pro map workspace">
         <MapView ref={mapRef} position={position} workers={[]} selectedWorker={null} onSelectWorker={() => {}} userMarker="driver" />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
+        {available && searching && bookings.length === 0 && (
+          <div className="searchPulse" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
+        )}
         <button className={available ? "searchButton lineSearchButton online" : "searchButton lineSearchButton"} onClick={toggleAvailability}>
           {available ? "Offline" : "Go online"}
         </button>
@@ -869,13 +876,15 @@ function WorkerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
 }
 
 function WorkerLocationGate({ geoStatus, geoError, onAllow, onSignOut }) {
+  const loading = geoStatus === "loading";
   return (
     <main className="geoGate">
       <section className="geoGateCard">
         <div className="appIcon">WM</div>
         <h1>Allow location</h1>
         <p>We need your location for the worker map and online job search.</p>
-        <button onClick={onAllow} disabled={geoStatus === "loading"}>{geoStatus === "loading" ? "Requesting..." : "Allow location"}</button>
+        {loading && <div className="geoLoader" aria-hidden="true"><span /><span /></div>}
+        <button onClick={onAllow} disabled={loading}>{loading ? "Finding location..." : "Allow location"}</button>
         <button className="secondaryButton" onClick={onSignOut}>Exit</button>
         {geoError && <p className="errorMessage">{geoError}</p>}
       </section>

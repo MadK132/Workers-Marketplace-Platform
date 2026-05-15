@@ -10,6 +10,22 @@ const DRIVER_MARKER_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponen
 </svg>
 `)}`;
 
+const WORKER_MARKER_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg width="42" height="48" viewBox="0 0 42 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M21 46C21 46 36 30.8 36 18C36 8.6 29.3 3 21 3C12.7 3 6 8.6 6 18C6 30.8 21 46 21 46Z" fill="#2E8979" stroke="#10231F" stroke-width="2"/>
+  <circle cx="21" cy="18" r="10" fill="#FFFAF2"/>
+  <path d="M15 18.5H27M17 15H25V23H17V15ZM18.5 15V12.8C18.5 11.8 19.3 11 20.3 11H21.7C22.7 11 23.5 11.8 23.5 12.8V15" stroke="#10231F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+`)}`;
+
+const SELECTED_WORKER_MARKER_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+<svg width="48" height="54" viewBox="0 0 48 54" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M24 52C24 52 42 34.4 42 20C42 9.8 34 3 24 3C14 3 6 9.8 6 20C6 34.4 24 52 24 52Z" fill="#FFD900" stroke="#10231F" stroke-width="2.5"/>
+  <circle cx="24" cy="20" r="11" fill="#FFFAF2"/>
+  <path d="M17 20.5H31M19.5 16.5H28.5V25H19.5V16.5ZM21 16.5V14C21 12.9 21.9 12 23 12H25C26.1 12 27 12.9 27 14V16.5" stroke="#10231F" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+`)}`;
+
 const MapView = forwardRef(function MapView({
   position,
   workers,
@@ -154,11 +170,13 @@ const MapView = forwardRef(function MapView({
 
     markersRef.current.forEach((marker) => marker.destroy?.());
     markersRef.current = workers.map((worker) => {
+      const active = selectedWorker?.worker_id === worker.worker_id;
       const marker = new window.mapgl.Marker(mapRef.current, {
         coordinates: [worker.longitude, worker.latitude],
-        label: {
-          text: `${worker.full_name} - ${formatDistance(worker.distance_meters)}`,
-        },
+        icon: active ? SELECTED_WORKER_MARKER_ICON : WORKER_MARKER_ICON,
+        size: active ? [48, 54] : [42, 48],
+        anchor: active ? [24, 52] : [21, 46],
+        zIndex: active ? 12 : 8,
       });
       marker.on("click", () => onSelectWorker(worker));
       return marker;
@@ -200,13 +218,3 @@ const MapView = forwardRef(function MapView({
 });
 
 export default MapView;
-
-function formatDistance(value) {
-  if (!Number.isFinite(value)) {
-    return "";
-  }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)} km`;
-  }
-  return `${Math.round(value)} m`;
-}

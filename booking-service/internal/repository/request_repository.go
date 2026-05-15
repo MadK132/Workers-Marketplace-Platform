@@ -37,7 +37,8 @@ func (r *RequestRepository) Create(
 		INSERT INTO service_requests
 			(customer_profile_id, category_id, description, address, latitude, longitude, location)
 		VALUES
-			($1, $2, $3, $4, $5, $6, ST_SetSRID(ST_MakePoint($6, $5), 4326)::geography)
+			($1, $2, $3, $4, $5::numeric, $6::numeric,
+			 ST_SetSRID(ST_MakePoint($6::double precision, $5::double precision), 4326)::geography)
 	`, customerProfileID, categoryID, description, address, latitude, longitude)
 
 	return err

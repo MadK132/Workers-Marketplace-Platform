@@ -96,9 +96,9 @@ func (r *GeolocationRepository) UpdateWorkerLocation(
 	_, err := r.db.Exec(ctx, `
 		UPDATE worker_profiles
 		SET
-			current_latitude = $2,
-			current_longitude = $3,
-			current_location = ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography
+			current_latitude = $2::numeric,
+			current_longitude = $3::numeric,
+			current_location = ST_SetSRID(ST_MakePoint($3::double precision, $2::double precision), 4326)::geography
 		WHERE user_id = $1
 	`, userID, latitude, longitude)
 
@@ -114,9 +114,9 @@ func (r *GeolocationRepository) UpdateCustomerLocation(
 	_, err := r.db.Exec(ctx, `
 		UPDATE customer_profiles
 		SET
-			latitude = $2,
-			longitude = $3,
-			location = ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography
+			latitude = $2::numeric,
+			longitude = $3::numeric,
+			location = ST_SetSRID(ST_MakePoint($3::double precision, $2::double precision), 4326)::geography
 		WHERE user_id = $1
 	`, userID, latitude, longitude)
 

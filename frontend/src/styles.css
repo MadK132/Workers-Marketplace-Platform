@@ -343,6 +343,27 @@ textarea {
   line-height: 1.5;
 }
 
+.geoLoader {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  margin: 4px auto;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffd900 0 12px, rgba(255, 217, 0, 0.12) 13px 100%);
+}
+
+.geoLoader span {
+  position: absolute;
+  inset: 14px;
+  border: 2px solid rgba(46, 137, 121, 0.45);
+  border-radius: 50%;
+  animation: geoPulse 1.5s ease-out infinite;
+}
+
+.geoLoader span:last-child {
+  animation-delay: 0.45s;
+}
+
 .ghostButton {
   margin-top: auto;
   background: rgba(255, 250, 242, 0.1);
@@ -748,6 +769,33 @@ textarea {
   color: #ffd900;
 }
 
+.searchPulse {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  top: 62%;
+  width: 280px;
+  height: 112px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.searchPulse span {
+  position: absolute;
+  inset: 22px 72px;
+  border: 2px solid rgba(255, 217, 0, 0.7);
+  border-radius: 999px;
+  animation: searchWave 1.6s ease-out infinite;
+}
+
+.searchPulse span:nth-child(2) {
+  animation-delay: 0.38s;
+}
+
+.searchPulse span:nth-child(3) {
+  animation-delay: 0.76s;
+}
+
 .offersDrawer {
   position: absolute;
   z-index: 20;
@@ -788,6 +836,28 @@ textarea {
   color: #fff;
   font-size: 13px;
   font-weight: 900;
+}
+
+@keyframes geoPulse {
+  from {
+    opacity: 0.95;
+    transform: scale(0.45);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.55);
+  }
+}
+
+@keyframes searchWave {
+  from {
+    opacity: 0.85;
+    transform: scale(0.65);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9);
+  }
 }
 
 .jobBoard.compact {

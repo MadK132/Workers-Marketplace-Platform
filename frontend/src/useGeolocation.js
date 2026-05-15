@@ -62,6 +62,24 @@ export function useGeolocation() {
       navigator.geolocation.clearWatch(watchID.current);
     }
 
+    navigator.geolocation.getCurrentPosition(
+      (result) => {
+        setPosition({
+          latitude: result.coords.latitude,
+          longitude: result.coords.longitude,
+        });
+        setGeoStatus("ready");
+      },
+      () => {
+        setGeoStatus("loading");
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 3500,
+        maximumAge: 60000,
+      }
+    );
+
     watchID.current = navigator.geolocation.watchPosition(
       (result) => {
         setPosition({
@@ -76,8 +94,8 @@ export function useGeolocation() {
       },
       {
         enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 5000,
+        timeout: 8000,
+        maximumAge: 10000,
       }
     );
   }, []);
