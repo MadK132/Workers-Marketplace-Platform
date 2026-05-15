@@ -73,13 +73,31 @@ func (r *WorkerSkillRepository) AddEvidence(
 	return err
 }
 func (r *WorkerSkillRepository) Verify(ctx context.Context, skillID int) error {
-	_, err := r.db.Exec(ctx,
-		`UPDATE worker_skills 
-		 SET is_verified = true 
-		 WHERE worker_skill_id = $1`,
-		skillID,
-	)
-	return err
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var workerProfileID int
+	if err := tx.QueryRow(ctx, `
+		UPDATE worker_skills
+		SET is_verified = true
+		WHERE worker_skill_id = $1
+		RETURNING worker_profile_id
+	`, skillID).Scan(&workerProfileID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET verification_status = 'verified'
+		WHERE worker_profile_id = $1
+	`, workerProfileID); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 func (r *WorkerSkillRepository) FindWorkersByCategory(
 	ctx context.Context,

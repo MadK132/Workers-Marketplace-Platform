@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiGet, apiMultipart, apiPatch, apiPost, apiURL } from "./api.js";
+import { apiDelete, apiGet, apiMultipart, apiPatch, apiPost, apiURL } from "./api.js";
 import MapView from "./MapView.jsx";
 import WorkerList from "./WorkerList.jsx";
 import { useGeolocation } from "./useGeolocation.js";
@@ -12,6 +12,7 @@ const ASTANA_BOUNDS = {
   minLongitude: 71.15,
   maxLongitude: 71.75,
 };
+const GIS_API_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 
 const roleTabs = {
   customer: [
@@ -29,8 +30,16 @@ const roleTabs = {
     ["notifications", "Alerts"],
   ],
   admin: [
-    ["overview", "Overview"],
-    ["verify", "Verify"],
+    ["overview", "Dashboard"],
+    ["verify", "Queue"],
+    ["users", "Users"],
+    ["accounts", "Staff"],
+    ["notifications", "Alerts"],
+  ],
+  manager: [
+    ["overview", "Dashboard"],
+    ["verify", "Queue"],
+    ["users", "Users"],
     ["notifications", "Alerts"],
   ],
 };
@@ -38,7 +47,7 @@ const roleTabs = {
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
-  const [activeTab, setActiveTab] = useState(role === "worker" ? "pro" : "find");
+  const [activeTab, setActiveTab] = useState(defaultTabForRole(role));
   const session = useMemo(() => decodeToken(token), [token]);
 
   const saveSession = useCallback((nextToken, fallbackRole) => {
@@ -47,7 +56,7 @@ export default function App() {
     localStorage.setItem(ROLE_KEY, nextRole);
     setToken(nextToken);
     setRole(nextRole);
-    setActiveTab(nextRole === "worker" ? "pro" : "find");
+    setActiveTab(defaultTabForRole(nextRole));
   }, []);
 
   const signOut = useCallback(() => {
@@ -63,12 +72,26 @@ export default function App() {
     return <AuthScreen onAuth={saveSession} />;
   }
 
+  if (role === "customer") {
+    return (
+      <main className="workerFullscreen">
+        <CustomerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} onSignOut={signOut} />
+      </main>
+    );
+  }
+
+  if (role === "worker") {
+    return (
+      <main className="workerFullscreen">
+        <WorkerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} onSignOut={signOut} />
+      </main>
+    );
+  }
+
   return (
     <AppFrame role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
-      {role === "customer" && <CustomerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} />}
-      {role === "worker" && <WorkerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} onSignOut={signOut} />}
-      {role === "admin" && <AdminApp token={token} activeTab={activeTab} />}
-      {!["customer", "worker", "admin"].includes(role) && (
+      {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={setActiveTab} />}
+      {!["customer", "worker", "admin", "manager"].includes(role) && (
         <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
       )}
     </AppFrame>
@@ -369,6 +392,70 @@ function isInsideAstana(position) {
     position.longitude <= ASTANA_BOUNDS.maxLongitude;
 }
 
+function locationLabel(position, prefix = "Location") {
+  if (!position) {
+    return "";
+  }
+  return `${prefix}: ${Number(position.latitude).toFixed(6)}, ${Number(position.longitude).toFixed(6)}`;
+}
+
+async function reverseGeocode(position) {
+  if (!position || !GIS_API_KEY) {
+    return locationLabel(position, "Location");
+  }
+  const params = new URLSearchParams({
+    lat: String(position.latitude),
+    lon: String(position.longitude),
+    radius: "1200",
+    type: "building,street,road,crossroad,gate,parking",
+    fields: "items.point,items.address,items.full_address_name,items.adm_div",
+    key: GIS_API_KEY,
+  });
+  const response = await fetch(`https://catalog.api.2gis.com/3.0/items/geocode?${params}`);
+  if (!response.ok) {
+    return locationLabel(position, "Location");
+  }
+  const data = await response.json();
+  const items = data?.result?.items || [];
+  const exact = items
+    .map(formatGeocoderItem)
+    .find((value) => value && !isBroadAddress(value));
+  return exact || "No exact street or building found. Pick closer to a road or building.";
+}
+
+function formatGeocoderItem(item) {
+  if (!item || String(item.type || "").startsWith("adm_div")) {
+    return "";
+  }
+  if (item.full_address_name) {
+    return item.full_address_name;
+  }
+  if (item.address_name) {
+    return item.address_name;
+  }
+  if (item.address?.building_name) {
+    return item.address.building_name;
+  }
+  const components = item.address?.components || [];
+  const street = components.find((part) => part.type === "street")?.name;
+  const number = components.find((part) => part.type === "street_number")?.name;
+  if (street && number) {
+    return `${street}, ${number}`;
+  }
+  if (street) {
+    return street;
+  }
+  return item.name || "";
+}
+
+function isBroadAddress(value) {
+  const normalized = String(value).toLowerCase();
+  return normalized === "астана, есиль" ||
+    normalized === "astana, esil" ||
+    normalized === "астана" ||
+    normalized === "astana";
+}
+
 async function ensureWorkerProfile(token, position) {
   await apiPost("/api/worker/profile", token, {
     bio: "",
@@ -383,40 +470,55 @@ function clearAuthURL() {
   }
 }
 
+function defaultTabForRole(role) {
+  if (role === "worker") {
+    return "pro";
+  }
+  if (role === "admin") {
+    return "overview";
+  }
+  if (role === "manager") {
+    return "overview";
+  }
+  return "find";
+}
+
 function AppFrame({ role, session, activeTab, onTab, onSignOut, children }) {
   const tabs = roleTabs[role] || [];
-  if (role === "worker") {
+  if (role === "worker" || role === "customer") {
     return <main className="workerFullscreen">{children}</main>;
   }
   return (
-    <main className="dashboardShell">
-      <aside className="controlPanel dashboardNav">
-        <div className="brandBlock">
+    <main className="adminShell">
+      <header className="adminTopbar">
+        <div className="brandBlock compactBrand">
           <div className="appIcon">WM</div>
           <div>
-            <h1>{role === "worker" ? "Pro workspace" : "Marketplace"}</h1>
+            <h1>{role === "admin" ? "Admin workspace" : "Manager workspace"}</h1>
             <p>{session.email || "Signed in"} - {role || "no role"}</p>
           </div>
         </div>
-        <nav className="sideNav">
+        <nav className="adminTabs">
           {tabs.map(([id, label]) => (
-            <button key={id} className={activeTab === id ? "navButton active" : "navButton"} onClick={() => onTab(id)}>
+            <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onTab(id)}>
               {label}
             </button>
           ))}
         </nav>
-        <button className="ghostButton" onClick={onSignOut}>Sign out</button>
-      </aside>
+        <button className="ghostButton fitButton" onClick={onSignOut}>Sign out</button>
+      </header>
       <section className="dashboardBody">{children}</section>
     </main>
   );
 }
 
-function CustomerApp({ token, activeTab, onNavigate }) {
-  const { position, geoStatus, geoError, locate } = useGeolocation();
+function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
+  const { position, geoStatus, geoError, locate, startWatch } = useGeolocation();
+  const mapRef = useRef(null);
   const [categories, setCategories] = useState([]);
   const [categoryID, setCategoryID] = useState("");
-  const [radius, setRadius] = useState(5000);
+  const [locationMode, setLocationMode] = useState("current");
+  const [pickedPosition, setPickedPosition] = useState(null);
   const [workers, setWorkers] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [description, setDescription] = useState("");
@@ -426,16 +528,48 @@ function CustomerApp({ token, activeTab, onNavigate }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    locate();
     apiGet("/api/categories", token).then(setCategories).catch((err) => setError(err.message));
-  }, [locate, token]);
+  }, [token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (position && locationMode === "current" && !address) {
+      reverseGeocode(position).then((nextAddress) => {
+        if (!cancelled) {
+          setAddress(nextAddress);
+        }
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [address, locationMode, position]);
+
+  const searchPosition = locationMode === "map" ? pickedPosition : position;
+
+  const useCurrentLocation = async () => {
+    const nextPosition = await locate();
+    setLocationMode("current");
+    setPickedPosition(null);
+    if (nextPosition) {
+      setAddress(await reverseGeocode(nextPosition));
+      mapRef.current?.recenter();
+    }
+  };
+
+  const pickMapPosition = async (nextPosition) => {
+    setPickedPosition(nextPosition);
+    setLocationMode("map");
+    setAddress("Resolving address...");
+    setAddress(await reverseGeocode(nextPosition));
+  };
 
   const searchWorkers = async () => {
-    if (!position || !categoryID) {
-      setError("Choose category and allow location first.");
+    if (!searchPosition || !categoryID) {
+      setError("Choose category and location first.");
       return;
     }
-    if (!isInsideAstana(position)) {
+    if (!isInsideAstana(searchPosition)) {
       setError("Service is available only in Astana.");
       return;
     }
@@ -445,9 +579,8 @@ function CustomerApp({ token, activeTab, onNavigate }) {
     try {
       const query = new URLSearchParams({
         category_id: categoryID,
-        latitude: String(position.latitude),
-        longitude: String(position.longitude),
-        radius_meters: String(radius),
+        latitude: String(searchPosition.latitude),
+        longitude: String(searchPosition.longitude),
       });
       const data = await apiGet(`/api/geo/workers/nearby?${query}`, token);
       setWorkers(Array.isArray(data) ? data : data.workers || []);
@@ -459,11 +592,11 @@ function CustomerApp({ token, activeTab, onNavigate }) {
   };
 
   const hireWorker = async (worker) => {
-    if (!position || !categoryID) {
+    if (!searchPosition || !categoryID) {
       setError("Location and category are required.");
       return;
     }
-    if (!isInsideAstana(position)) {
+    if (!isInsideAstana(searchPosition)) {
       setError("Orders are accepted only in Astana.");
       return;
     }
@@ -473,8 +606,8 @@ function CustomerApp({ token, activeTab, onNavigate }) {
         category_id: Number(categoryID),
         description: description || `Request for ${worker.full_name}`,
         address: address || "Customer location",
-        latitude: position.latitude,
-        longitude: position.longitude,
+        latitude: searchPosition.latitude,
+        longitude: searchPosition.longitude,
       });
       await apiPost("/api/bookings", token, {
         request_id: Number(request.request_id || request.id),
@@ -486,45 +619,103 @@ function CustomerApp({ token, activeTab, onNavigate }) {
     }
   };
 
-  if (activeTab === "requests") return <RequestsPanel token={token} />;
-  if (activeTab === "bookings") return <BookingsPanel token={token} />;
-  if (activeTab === "profile") return <CustomerProfilePanel token={token} onNavigate={onNavigate} />;
-  if (activeTab === "notifications") return <NotificationsPanel token={token} />;
+  if (activeTab === "requests") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><RequestsPanel token={token} /></CustomerPhonePage>;
+  if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} /></CustomerPhonePage>;
+  if (activeTab === "profile") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><CustomerProfilePanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
+  if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} /></CustomerPhonePage>;
+
+  if (!position) {
+    return <CustomerLocationGate geoStatus={geoStatus} geoError={geoError} onAllow={startWatch} onSignOut={onSignOut} />;
+  }
 
   return (
-    <div className="customerGrid">
-      <section className="mapArea">
-        <MapView position={position} workers={workers} selectedWorker={selectedWorker} onSelectWorker={setSelectedWorker} />
-      </section>
-      <section className="pagePanel">
-        <SectionHeader title="Find nearby worker" text="Customer interface: choose a category, search around your position, then pick a worker." />
-        <div className="toolbarGrid">
-          <Field label="Category" light>
-            <select value={categoryID} onChange={(e) => setCategoryID(e.target.value)}>
-              <option value="">Choose category</option>
-              {categories.map((category) => (
-                <option key={category.category_id} value={category.category_id}>{category.name}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Radius" light>
-            <select value={radius} onChange={(e) => setRadius(Number(e.target.value))}>
-              <option value={1500}>1.5 km</option>
-              <option value={5000}>5 km</option>
-              <option value={10000}>10 km</option>
-            </select>
-          </Field>
-          <button onClick={searchWorkers} disabled={loading}>Search</button>
-          <button className="secondaryButton" onClick={locate}>Use my location</button>
+    <div className="proPhoneShell">
+      <section className="proPhone customerProPhone" aria-label="Customer map workspace">
+        <MapView
+          ref={mapRef}
+          position={searchPosition || position}
+          workers={workers}
+          selectedWorker={selectedWorker}
+          onSelectWorker={setSelectedWorker}
+          userMarker={locationMode === "map" ? "none" : "default"}
+          pickMode={locationMode === "map"}
+          pickedPosition={pickedPosition}
+          onPickPosition={pickMapPosition}
+          autoCenterOnPosition={false}
+        />
+        <CustomerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
+        <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
+        <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
+        <button className="roundMapButton navButtonMap" onClick={useCurrentLocation}>GPS</button>
+        <div className="offersDrawer customerOffersDrawer">
+          <div className="dockHeader">
+            <div>
+              <h2>Find a worker</h2>
+              <p>Choose service, search nearby and book.</p>
+            </div>
+            <button className="walletButton" onClick={searchWorkers} disabled={loading}>Search</button>
+          </div>
+          <div className="locationModeTabs">
+            <button className={locationMode === "current" ? "active" : ""} onClick={useCurrentLocation}>Current location</button>
+            <button className={locationMode === "map" ? "active" : ""} onClick={() => setLocationMode("map")}>Pick on map</button>
+          </div>
+          <div className="customerSearchGrid">
+            <Field label="Category" light>
+              <select value={categoryID} onChange={(e) => setCategoryID(e.target.value)}>
+                <option value="">Choose category</option>
+                {categories.map((category) => (
+                  <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Address" light><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Arrival address" /></Field>
+            <Field label="Task" light><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe task" /></Field>
+          </div>
+          {locationMode === "map" && <p className="muted">Click on the map to choose the arrival point.</p>}
+          <StatusLine geoStatus={geoStatus} geoError={geoError} />
+          <Messages message={message} error={error} />
+          <WorkerList workers={workers} selectedWorker={selectedWorker} onSelectWorker={setSelectedWorker} onHireWorker={hireWorker} loading={loading} />
         </div>
-        <div className="formGrid">
-          <Field label="Address" light><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Where should worker arrive?" /></Field>
-          <Field label="Description" light><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the task" /></Field>
-        </div>
-        <StatusLine geoStatus={geoStatus} geoError={geoError} />
-        <Messages message={message} error={error} />
-        <WorkerList workers={workers} selectedWorker={selectedWorker} onSelectWorker={setSelectedWorker} onHireWorker={hireWorker} loading={loading} />
       </section>
+    </div>
+  );
+}
+
+function CustomerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
+  return (
+    <div className="customerPhoneShell">
+      <section className="customerPageScreen">
+        <CustomerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
+        <div className="customerInnerPage">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function CustomerLocationGate({ geoStatus, geoError, onAllow, onSignOut }) {
+  return (
+    <main className="geoGate">
+      <section className="geoGateCard">
+        <div className="appIcon">WM</div>
+        <h1>Allow location</h1>
+        <p>We use your location to find nearby workers in Astana.</p>
+        <button onClick={onAllow} disabled={geoStatus === "loading"}>{geoStatus === "loading" ? "Requesting..." : "Allow location"}</button>
+        <button className="secondaryButton" onClick={onSignOut}>Exit</button>
+        {geoError && <p className="errorMessage">{geoError}</p>}
+      </section>
+    </main>
+  );
+}
+
+function CustomerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
+  return (
+    <div className="workerPhoneTabs customerPhoneTabs">
+      {roleTabs.customer.map(([id, label]) => (
+        <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
+          {label}
+        </button>
+      ))}
+      <button onClick={onSignOut}>Exit</button>
     </div>
   );
 }
@@ -705,86 +896,232 @@ function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
   );
 }
 
-function AdminApp({ token, activeTab }) {
+function AdminApp({ token, role, activeTab, onNavigate }) {
   const [overview, setOverview] = useState(null);
-  const [workerID, setWorkerID] = useState("");
-  const [skillID, setSkillID] = useState("");
+  const [users, setUsers] = useState([]);
+  const [staffForm, setStaffForm] = useState({ full_name: "", email: "", phone: "", password: "", role: "manager" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const loadOverview = useCallback(() => {
     apiGet("/api/admin/overview", token).then(setOverview).catch((err) => setError(err.message));
   }, [token]);
+  const loadUsers = useCallback(() => {
+    apiGet("/api/admin/users", token).then(setUsers).catch((err) => setError(err.message));
+  }, [token]);
 
   useEffect(() => {
     if (activeTab === "overview" || activeTab === "verify") {
       loadOverview();
     }
-  }, [activeTab, loadOverview]);
+    if (activeTab === "users" || activeTab === "accounts" || activeTab === "overview") {
+      loadUsers();
+    }
+  }, [activeTab, loadOverview, loadUsers]);
 
   if (activeTab === "notifications") return <NotificationsPanel token={token} />;
 
-  const verify = async (type) => {
-    setError("");
-    setMessage("");
-    try {
-      if (type === "worker") {
-        await apiPost("/api/admin/verify-worker", token, { worker_id: Number(workerID) });
-      } else {
-        await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(skillID) });
-      }
-      setMessage("Verification request completed.");
-      loadOverview();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  const verifyWorker = async (id) => {
-    setWorkerID(String(id));
-    setError("");
-    setMessage("");
-    try {
-      await apiPost("/api/admin/verify-worker", token, { worker_id: Number(id) });
-      setMessage("Worker verified.");
-      loadOverview();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   const verifySkill = async (id) => {
-    setSkillID(String(id));
     setError("");
     setMessage("");
     try {
       await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(id) });
-      setMessage("Skill verified.");
+      setMessage("Skill verified. Worker profile was verified automatically.");
       loadOverview();
     } catch (err) {
       setError(err.message);
     }
   };
 
+  const deleteUser = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiDelete(`/api/admin/users/${id}`, token);
+      setMessage("User deleted.");
+      loadUsers();
+      loadOverview();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const activateUser = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/admin/users/${id}/activate`, token, {});
+      setMessage("User activated.");
+      loadUsers();
+      loadOverview();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const createStaff = async (event) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      const endpoint = staffForm.role === "admin" ? "/api/admin/admins" : "/api/admin/managers";
+      await apiPost(endpoint, token, staffForm);
+      setMessage(`${staffForm.role === "admin" ? "Admin" : "Manager"} account created.`);
+      setStaffForm({ full_name: "", email: "", phone: "", password: "", role: "manager" });
+      loadUsers();
+      loadOverview();
+      onNavigate("users");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const admins = users.filter((user) => user.role === "admin");
+  const managers = users.filter((user) => user.role === "manager");
+  const isAdmin = role === "admin";
+
   return (
-    <section className="pagePanel">
-      <SectionHeader title={activeTab === "verify" ? "Verification" : "Admin overview"} text="Administrative controls for the marketplace." />
-      {activeTab === "verify" ? (
+    <section className="adminWorkspace">
+      <SectionHeader title={activeTab === "verify" ? "Verification queue" : activeTab === "users" ? "Users" : activeTab === "accounts" ? "Staff accounts" : "Operations dashboard"} text="Support customer-worker operations, verification and account issues." />
+      {activeTab === "overview" && (
+        <AdminOverviewPanel overview={overview} users={users} onNavigate={onNavigate} isAdmin={isAdmin} />
+      )}
+      {activeTab === "verify" && (
         <AdminVerificationPanel
           overview={overview}
-          workerID={workerID}
-          skillID={skillID}
-          setWorkerID={setWorkerID}
-          setSkillID={setSkillID}
-          verify={verify}
-          verifyWorker={verifyWorker}
           verifySkill={verifySkill}
         />
-      ) : (
-        <pre className="jsonBox">{JSON.stringify(overview || {}, null, 2)}</pre>
       )}
+      {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={deleteUser} canDelete={isAdmin} />}
+      {activeTab === "accounts" && isAdmin && (
+        <AdminCreatePanel
+          admins={admins}
+          managers={managers}
+          form={staffForm}
+          setForm={setStaffForm}
+          onSubmit={createStaff}
+          onDelete={deleteUser}
+        />
+      )}
+      {activeTab === "accounts" && !isAdmin && <EmptyState title="Admins only" text="Managers can review queues and help users, but cannot create staff accounts." />}
       <Messages message={message} error={error} />
     </section>
+  );
+}
+
+function AdminOverviewPanel({ overview, users, onNavigate, isAdmin }) {
+  const stats = overview?.stats || {};
+  const pendingSkills = overview?.pending_skills || [];
+  return (
+    <div className="adminOverview">
+      <div className="profileStatsGrid">
+        <StatCard title="Users" value={stats.users_total || users.length || 0} text={`${stats.customers_total || 0} customers, ${stats.workers_total || 0} workers`} />
+        <StatCard title="Verification" value={stats.pending_worker_skills || 0} text="Pending skill evidence" />
+        <StatCard title="Bookings" value={stats.bookings_total || 0} text={`${stats.bookings_in_progress || 0} in progress`} />
+      </div>
+      <div className="adminActionGrid">
+        <button className="adminActionCard" onClick={() => onNavigate("verify")}>
+          <strong>Review queue</strong>
+          <span>{pendingSkills.length} skills waiting</span>
+        </button>
+        <button className="adminActionCard" onClick={() => onNavigate("users")}>
+          <strong>User support</strong>
+          <span>Find customers, workers, managers and admins</span>
+        </button>
+        {isAdmin && <button className="adminActionCard" onClick={() => onNavigate("accounts")}>
+          <strong>Manager access</strong>
+          <span>Create manager and admin accounts for the team</span>
+        </button>}
+      </div>
+      <div className="adminTwoColumn">
+        <AdminMiniQueue title="Pending skills" items={pendingSkills} empty="No skill evidence to review." skill />
+      </div>
+    </div>
+  );
+}
+
+function AdminMiniQueue({ title, items, empty, skill }) {
+  return (
+    <section className="toolCard">
+      <h3>{title}</h3>
+      <div className="dataList">
+        {items.length === 0 && <EmptyState title={empty} text="Everything is calm here." />}
+        {items.slice(0, 5).map((item) => (
+          <article className="dataRow" key={skill ? item.worker_skill_id : item.worker_profile_id}>
+            <strong>{skill ? categoryTitle(item.category_name) : item.full_name}</strong>
+            <span>{skill ? item.worker_user_email : item.email}</span>
+            <span>{skill ? `Skill #${item.worker_skill_id}` : `Worker #${item.worker_profile_id}`}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdminUsersPanel({ users, onActivate, onDelete, canDelete }) {
+  return (
+    <div className="adminUsersPanel">
+      <div className="dataList adminUserList">
+        {users.length === 0 && <EmptyState title="No users found" text="Registered accounts will appear here." />}
+        {users.map((user) => (
+          <article className="adminUserRow" key={user.user_id}>
+            <div>
+              <strong>{user.full_name}</strong>
+              <span>{user.email}</span>
+            </div>
+            <span className={`rolePill ${user.role}`}>{user.role}</span>
+            <span>{user.status}</span>
+            <div className="adminUserActions">
+              {user.status !== "active" && <button onClick={() => onActivate(user.user_id)}>Activate</button>}
+              {canDelete && <button className="dangerButton" onClick={() => onDelete(user.user_id)}>Delete</button>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete }) {
+  return (
+    <div className="adminTwoColumn">
+      <form className="toolCard adminCreateForm" onSubmit={onSubmit}>
+        <h3>Create staff account</h3>
+        <p className="muted">Managers can review support queues. Admins can additionally delete users and create staff accounts.</p>
+        <Field label="Account type" light>
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+            <option value="manager">Manager</option>
+            <option value="admin">Admin</option>
+          </select>
+        </Field>
+        <Field label="Full name" light><input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required /></Field>
+        <Field label="Email" light><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></Field>
+        <Field label="Phone" light><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+        <Field label="Temporary password" light><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></Field>
+        <button>Create account</button>
+      </form>
+      <section className="toolCard">
+        <h3>Current staff</h3>
+        <div className="dataList">
+          {managers.map((manager) => (
+            <article className="dataRow" key={manager.user_id}>
+              <strong>{manager.full_name}</strong>
+              <span>{manager.email}</span>
+              <span className="rolePill manager">manager</span>
+              <button className="dangerButton" onClick={() => onDelete(manager.user_id)}>Delete manager</button>
+            </article>
+          ))}
+          {admins.map((admin) => (
+            <article className="dataRow" key={admin.user_id}>
+              <strong>{admin.full_name}</strong>
+              <span>{admin.email}</span>
+              <span className="rolePill admin">admin</span>
+              <button className="dangerButton" onClick={() => onDelete(admin.user_id)}>Delete admin</button>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -794,37 +1131,15 @@ function RequestsPanel({ token }) {
 
 function AdminVerificationPanel({
   overview,
-  workerID,
-  skillID,
-  setWorkerID,
-  setSkillID,
-  verify,
-  verifyWorker,
   verifySkill,
 }) {
-  const pendingWorkers = overview?.pending_workers || [];
   const pendingSkills = overview?.pending_skills || [];
 
   return (
     <div className="adminVerifyGrid">
       <div className="toolCard">
-        <h3>Pending workers</h3>
-        <p className="muted">Check worker identity/profile data and approve the profile.</p>
-        <div className="dataList">
-          {pendingWorkers.length === 0 && <EmptyState title="No pending workers" text="New worker profiles will appear here." />}
-          {pendingWorkers.map((worker) => (
-            <article className="dataRow" key={worker.worker_profile_id}>
-              <strong>{worker.full_name}</strong>
-              <span>{worker.email}</span>
-              <span>Profile #{worker.worker_profile_id} - User #{worker.user_id}</span>
-              <button onClick={() => verifyWorker(worker.worker_profile_id)}>Verify worker</button>
-            </article>
-          ))}
-        </div>
-      </div>
-      <div className="toolCard">
         <h3>Pending skills</h3>
-        <p className="muted">Approve skills after checking category, price and worker profile.</p>
+        <p className="muted">Approve skills after checking evidence. Worker profile is verified automatically with the approved skill.</p>
         <div className="dataList">
           {pendingSkills.length === 0 && <EmptyState title="No pending skills" text="New worker skills will appear here." />}
           {pendingSkills.map((skill) => (
@@ -833,17 +1148,10 @@ function AdminVerificationPanel({
               <span>{skill.worker_full_name} - {skill.worker_user_email}</span>
               <span>{skill.experience_level} - {skill.price_base} KZT - Skill #{skill.worker_skill_id}</span>
               <EvidenceLinks value={skill.evidence_files} />
-              <button onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill</button>
+              <button onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill and worker</button>
             </article>
           ))}
         </div>
-      </div>
-      <div className="toolCard">
-        <h3>Manual verify</h3>
-        <Field label="Worker profile ID" light><input value={workerID} onChange={(e) => setWorkerID(e.target.value)} /></Field>
-        <button onClick={() => verify("worker")}>Verify worker</button>
-        <Field label="Worker skill ID" light><input value={skillID} onChange={(e) => setSkillID(e.target.value)} /></Field>
-        <button className="secondaryButton" onClick={() => verify("skill")}>Verify skill</button>
       </div>
     </div>
   );
@@ -929,25 +1237,112 @@ function NotificationsPanel({ token }) {
 }
 
 function CustomerProfilePanel({ token, onNavigate }) {
-  const [form, setForm] = useState({ address: "", latitude: "", longitude: "" });
+  const { position, locate } = useGeolocation();
+  const [profile, setProfile] = useState(null);
+  const [form, setForm] = useState({ address: "", bio: "", latitude: "", longitude: "" });
+  const [photo, setPhoto] = useState(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const loadProfile = useCallback(() => {
+    setError("");
+    apiGet("/api/customer/profile", token)
+      .then((data) => {
+        setProfile(data);
+        setForm({
+          address: data.address || "",
+          bio: data.bio || "",
+          latitude: data.latitude ? String(data.latitude) : "",
+          longitude: data.longitude ? String(data.longitude) : "",
+        });
+      })
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const useCurrentLocation = async () => {
+    const nextPosition = await locate();
+    if (nextPosition) {
+      setForm((current) => ({
+        ...current,
+        latitude: String(nextPosition.latitude),
+        longitude: String(nextPosition.longitude),
+      }));
+      setForm((current) => ({ ...current, address: current.address || "Resolving address..." }));
+      const nextAddress = await reverseGeocode(nextPosition);
+      setForm((current) => ({ ...current, address: nextAddress }));
+    }
+  };
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("address", form.address);
+      body.append("bio", form.bio);
+      if (form.latitude) body.append("latitude", form.latitude);
+      if (form.longitude) body.append("longitude", form.longitude);
+      if (photo) body.append("profile_photo", photo);
+      const updated = await apiMultipart("/api/customer/profile", token, body);
+      setProfile((current) => ({ ...(current || {}), ...updated }));
+      setPhoto(null);
+      setMessage("Profile saved.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const photoURL = profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "";
+
   return (
-    <ProfileForm
-      title="Customer profile"
-      text="Set the customer location used for searching and booking."
-      form={form}
-      setForm={setForm}
-      links={[
-        ["bookings", "My bookings", "Open all customer bookings"],
-        ["requests", "My requests", "Track created service requests"],
-        ["find", "Find worker", "Back to map search"],
-      ]}
-      onNavigate={onNavigate}
-      onSubmit={() => apiPost("/api/customer/profile", token, {
-        address: form.address,
-        latitude: Number(form.latitude),
-        longitude: Number(form.longitude),
-      })}
-    />
+    <section className="pagePanel workerProfilePage">
+      <SectionHeader title="Customer profile" text="Photo, address and booking preferences." />
+      <div className="workerProfileHero">
+        <div className="profilePhotoBlock">
+          <div className="profilePhoto">
+            <span>WM</span>
+            {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+          </div>
+          <label className="fileButton">
+            Upload photo
+            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+          </label>
+          {photo && <span className="muted">{photo.name}</span>}
+        </div>
+        <form className="profileEditForm" onSubmit={submit}>
+          <Field label="About me" light>
+            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
+          </Field>
+          <Field label="Saved address" light>
+            <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
+          </Field>
+          <div className="rowActions">
+            <button type="button" className="secondaryButton" onClick={useCurrentLocation}>Use current location</button>
+            <button>Save profile</button>
+          </div>
+        </form>
+      </div>
+      <div className="profileLinks">
+        <button className="profileLinkCard" type="button" onClick={() => onNavigate("bookings")}>
+          <strong>My bookings</strong>
+          <span>Open all customer bookings</span>
+        </button>
+        <button className="profileLinkCard" type="button" onClick={() => onNavigate("requests")}>
+          <strong>My requests</strong>
+          <span>Track created service requests</span>
+        </button>
+        <button className="profileLinkCard" type="button" onClick={() => onNavigate("find")}>
+          <strong>Find worker</strong>
+          <span>Back to map search</span>
+        </button>
+      </div>
+      <Messages message={message} error={error} />
+    </section>
   );
 }
 

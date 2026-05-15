@@ -244,6 +244,69 @@ textarea {
   background: #f5f2ea;
 }
 
+.adminShell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100vh;
+  background: #f5f2ea;
+}
+
+.adminTopbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #ddd4c2;
+  padding: 16px 24px;
+  background: rgba(255, 250, 242, 0.92);
+  backdrop-filter: blur(14px);
+}
+
+.adminTopbar .ghostButton {
+  flex: 0 0 auto;
+  margin-left: 0;
+  background: #10231f;
+  color: #fffaf2;
+}
+
+.compactBrand h1,
+.compactBrand p {
+  margin: 0;
+}
+
+.compactBrand h1 {
+  font-size: 22px;
+}
+
+.compactBrand p {
+  color: #6f716b;
+}
+
+.adminTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.adminTabs button {
+  min-height: 38px;
+  border-radius: 999px;
+  background: #fffaf2;
+  color: #17221f;
+  box-shadow: 0 10px 24px rgba(16, 35, 31, 0.08);
+}
+
+.adminTabs button.active,
+.adminTabs button:hover {
+  background: #10231f;
+  color: #fffaf2;
+}
+
 .workerFullscreen {
   min-height: 100vh;
   background: #0f1715;
@@ -295,6 +358,140 @@ textarea {
   display: grid;
   grid-template-columns: minmax(360px, 48vw) minmax(360px, 1fr);
   min-height: 100vh;
+}
+
+.customerPhoneShell {
+  min-height: 100vh;
+  background: #f5f2ea;
+}
+
+.customerProPhone .mapShell {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+.customerProPhone .plusButton {
+  top: 260px;
+}
+
+.customerProPhone .minusButton {
+  top: 334px;
+}
+
+.customerProPhone .navButtonMap {
+  top: 408px;
+}
+
+.customerMapScreen,
+.customerPageScreen {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #f5f2ea;
+}
+
+.customerMapScreen .mapShell {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+}
+
+.customerPhoneTabs {
+  max-width: min(680px, calc(100% - 36px));
+}
+
+.customerSearchDock {
+  position: absolute;
+  z-index: 20;
+  left: 24px;
+  right: 24px;
+  bottom: 24px;
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(221, 212, 194, 0.9);
+  border-radius: 8px;
+  padding: 18px;
+  background: rgba(255, 250, 242, 0.94);
+  box-shadow: 0 24px 60px rgba(16, 35, 31, 0.16);
+  backdrop-filter: blur(12px);
+}
+
+.customerOffersDrawer {
+  max-height: min(78vh, 720px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  transform: translateY(calc(100% - 164px));
+  transition: transform 180ms ease, box-shadow 180ms ease;
+  scrollbar-gutter: stable;
+}
+
+.customerOffersDrawer:hover,
+.customerOffersDrawer:focus-within {
+  transform: translateY(0);
+  box-shadow: 0 -22px 58px rgba(16, 35, 31, 0.18);
+}
+
+.customerOffersDrawer .walletButton {
+  width: 96px;
+}
+
+.dockHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.dockHeader h2,
+.dockHeader p {
+  margin: 0;
+}
+
+.dockHeader h2 {
+  font-size: 26px;
+}
+
+.dockHeader p {
+  color: #6f716b;
+}
+
+.customerSearchGrid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(180px, 1fr) minmax(220px, 1fr);
+  gap: 10px;
+  align-items: end;
+}
+
+.locationModeTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.locationModeTabs button {
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #f0eadc;
+  color: #17221f;
+  font-size: 13px;
+}
+
+.locationModeTabs button.active,
+.locationModeTabs button:hover {
+  background: #10231f;
+  color: #fffaf2;
+}
+
+.customerInnerPage {
+  width: min(1120px, calc(100% - 32px));
+  margin: 112px auto 28px;
+}
+
+.customerInnerPage .pagePanel {
+  min-height: auto;
+  border-radius: 8px;
 }
 
 .proPhoneShell {
@@ -829,6 +1026,12 @@ textarea {
   min-height: 118px;
 }
 
+.profileLocationGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
 .profileStatsGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -1033,6 +1236,131 @@ textarea {
 
 .adminVerifyGrid .toolCard:last-child {
   grid-column: 1 / -1;
+}
+
+.adminWorkspace {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-height: calc(100vh - 72px);
+  padding: 24px;
+}
+
+.adminOverview,
+.adminUsersPanel {
+  display: grid;
+  gap: 18px;
+}
+
+.adminActionGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.adminActionCard {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  align-content: center;
+  justify-items: start;
+  border: 1px solid #ddd4c2;
+  background: #fffaf2;
+  color: #17221f;
+  text-align: left;
+}
+
+.adminActionCard strong {
+  font-size: 20px;
+}
+
+.adminActionCard span {
+  color: #6f716b;
+}
+
+.adminActionCard:hover {
+  background: #f0eadc;
+  color: #17221f;
+}
+
+.adminTwoColumn {
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr);
+  gap: 16px;
+}
+
+.adminUserList {
+  max-height: none;
+}
+
+.adminUserRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 120px 120px minmax(190px, auto);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #e2d9c8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffaf2;
+}
+
+.adminUserRow div {
+  display: grid;
+  gap: 4px;
+}
+
+.adminUserRow span {
+  color: #6f716b;
+}
+
+.adminUserActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.adminUserActions button {
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.rolePill {
+  display: inline-grid;
+  min-height: 30px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #f0eadc;
+  color: #17221f;
+  font-weight: 850;
+}
+
+.rolePill.admin {
+  background: #10231f;
+  color: #fffaf2;
+}
+
+.rolePill.manager {
+  background: #2e8979;
+  color: #fffaf2;
+}
+
+.rolePill.worker {
+  background: #ffd900;
+  color: #111;
+}
+
+.dangerButton {
+  background: #ef6f55;
+}
+
+.dangerButton:hover {
+  background: #c94d39;
+}
+
+.adminCreateForm {
+  align-content: start;
 }
 
 .controlPanel {
@@ -1467,11 +1795,25 @@ textarea {
 
 @media (max-width: 920px) {
   .authShell,
+  .adminTopbar,
   .dashboardShell,
   .customerGrid,
+  .customerSearchGrid,
+  .adminActionGrid,
+  .adminTwoColumn,
   .proLayout,
   .proPhoneShell {
     grid-template-columns: 1fr;
+  }
+
+  .adminTopbar {
+    position: static;
+  }
+
+  .customerSearchDock {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
   }
 
   .dashboardNav,
@@ -1525,7 +1867,8 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .adminVerifyGrid {
+  .adminVerifyGrid,
+  .adminUserRow {
     grid-template-columns: 1fr;
   }
 }

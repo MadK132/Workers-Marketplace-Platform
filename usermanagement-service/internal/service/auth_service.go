@@ -368,6 +368,25 @@ func (s *AuthService) CreateCustomerProfile(ctx context.Context, userID int) err
 
 	return s.customerProfiles.Create(ctx, userID)
 }
+
+func (s *AuthService) UpsertCustomerProfile(
+	ctx context.Context,
+	userID int,
+	address string,
+	latitude *float64,
+	longitude *float64,
+	bio string,
+	profilePhotoURL *string,
+) (*model.CustomerProfile, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.Role != model.RoleCustomer {
+		return nil, errors.New("not a customer")
+	}
+	return s.customerProfiles.Upsert(ctx, userID, address, latitude, longitude, bio, profilePhotoURL)
+}
 func (s *AuthService) CreateWorkerProfile(ctx context.Context, userID int) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
@@ -509,4 +528,73 @@ func (s *AuthService) GetCategories(ctx context.Context) ([]repository.ServiceCa
 
 func (s *AuthService) GetAdminOverview(ctx context.Context) (repository.AdminOverview, error) {
 	return s.admin.GetOverview(ctx)
+}
+
+func (s *AuthService) ListUsers(ctx context.Context) ([]repository.UserSummary, error) {
+	return s.users.ListUsers(ctx)
+}
+
+func (s *AuthService) EnsureDefaultAdmin(ctx context.Context) error {
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return s.users.EnsureDefaultAdmin(ctx, "sa@sa.sa", string(passwordHash))
+}
+
+func (s *AuthService) DeleteUser(ctx context.Context, userID int) error {
+	return s.users.DeleteUser(ctx, userID)
+}
+
+func (s *AuthService) ActivateUser(ctx context.Context, userID int) error {
+	return s.users.ActivateUser(ctx, userID)
+}
+
+func (s *AuthService) CreateAdmin(ctx context.Context, input RegisterInput) (model.User, error) {
+	return s.createPrivilegedUser(ctx, input, model.RoleAdmin)
+}
+
+func (s *AuthService) CreateManager(ctx context.Context, input RegisterInput) (model.User, error) {
+	return s.createPrivilegedUser(ctx, input, model.RoleManager)
+}
+
+func (s *AuthService) createPrivilegedUser(ctx context.Context, input RegisterInput, role model.Role) (model.User, error) {
+	fullName := strings.TrimSpace(input.FullName)
+	email := strings.ToLower(strings.TrimSpace(input.Email))
+	password := strings.TrimSpace(input.Password)
+
+	if fullName == "" {
+		return model.User{}, &ValidationError{Field: "full_name", Message: "is required"}
+	}
+	if email == "" {
+		return model.User{}, &ValidationError{Field: "email", Message: "is required"}
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return model.User{}, &ValidationError{Field: "email", Message: "must be a valid email address"}
+	}
+	if len(password) < 8 {
+		return model.User{}, &ValidationError{Field: "password", Message: "must be at least 8 characters"}
+	}
+
+	var phone *string
+	if input.Phone != nil {
+		trimmed := strings.TrimSpace(*input.Phone)
+		if trimmed != "" {
+			phone = &trimmed
+		}
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return model.User{}, err
+	}
+
+	return s.users.CreateUser(ctx, repository.CreateUserParams{
+		FullName:     fullName,
+		Email:        email,
+		Phone:        phone,
+		PasswordHash: string(passwordHash),
+		Role:         role,
+		Status:       model.StatusActive,
+	})
 }

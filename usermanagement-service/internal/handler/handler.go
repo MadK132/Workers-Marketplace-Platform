@@ -28,6 +28,7 @@ type AuthService interface {
 	ResetPassword(ctx context.Context, token, newPassword string) error
 	SelectRole(ctx context.Context, userID int, role model.Role) error
 	CreateCustomerProfile(ctx context.Context, userID int) error
+	UpsertCustomerProfile(ctx context.Context, userID int, address string, latitude *float64, longitude *float64, bio string, profilePhotoURL *string) (*model.CustomerProfile, error)
 	CreateWorkerProfile(ctx context.Context, userID int) error
 	UpsertWorkerProfile(ctx context.Context, userID int, bio string, latitude *float64, longitude *float64, profilePhotoURL *string) (*model.WorkerProfile, error)
 	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) (int, error)
@@ -35,12 +36,16 @@ type AuthService interface {
 	VerifyWorkerSkill(ctx context.Context, skillID int) error
 	SetAvailability(ctx context.Context, userID int, available bool) error
 	FindWorkers(ctx context.Context, categoryID int) ([]repository.WorkerSearchResult, error)
-	VerifyWorker(ctx context.Context, workerID int) error
 	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
 	GetWorkerProfile(ctx context.Context, userID int) (*model.WorkerProfile, error)
 	ListVerifiedWorkerSkills(ctx context.Context, userID int) ([]repository.VerifiedWorkerSkill, error)
 	GetCategories(ctx context.Context) ([]repository.ServiceCategory, error)
 	GetAdminOverview(ctx context.Context) (repository.AdminOverview, error)
+	ListUsers(ctx context.Context) ([]repository.UserSummary, error)
+	DeleteUser(ctx context.Context, userID int) error
+	ActivateUser(ctx context.Context, userID int) error
+	CreateAdmin(ctx context.Context, input service.RegisterInput) (model.User, error)
+	CreateManager(ctx context.Context, input service.RegisterInput) (model.User, error)
 }
 
 type AuthHandler struct {
@@ -284,13 +289,66 @@ func (h *AuthHandler) SelectRole(c *gin.Context) {
 func (h *AuthHandler) CreateCustomerProfile(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
-	err := h.auth.CreateCustomerProfile(c.Request.Context(), userID)
+	address, latitude, longitude, bio, photoURL, ok := h.parseCustomerProfileRequest(c)
+	if !ok {
+		return
+	}
+
+	profile, err := h.auth.UpsertCustomerProfile(c.Request.Context(), userID, address, latitude, longitude, bio, photoURL)
 	if err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "customer profile created"})
+	c.JSON(200, gin.H{
+		"customer_profile_id": profile.ID,
+		"user_id":             profile.UserID,
+		"address":             profile.Address,
+		"latitude":            profile.Latitude,
+		"longitude":           profile.Longitude,
+		"bio":                 profile.Bio,
+		"profile_photo_url":   profile.ProfilePhotoURL,
+	})
+}
+
+func (h *AuthHandler) parseCustomerProfileRequest(c *gin.Context) (string, *float64, *float64, string, *string, bool) {
+	contentType := c.GetHeader("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		latitude, err := optionalFloat(c.PostForm("latitude"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid latitude"})
+			return "", nil, nil, "", nil, false
+		}
+		longitude, err := optionalFloat(c.PostForm("longitude"))
+		if err != nil {
+			c.JSON(400, gin.H{"error": "invalid longitude"})
+			return "", nil, nil, "", nil, false
+		}
+		var photoURL *string
+		file, err := c.FormFile("profile_photo")
+		if err == nil && file != nil {
+			storedPath, err := saveProfilePhoto(c.Request.Context(), file)
+			if err != nil {
+				c.JSON(400, gin.H{"error": err.Error()})
+				return "", nil, nil, "", nil, false
+			}
+			photoURL = &storedPath
+		}
+		return c.PostForm("address"), latitude, longitude, c.PostForm("bio"), photoURL, true
+	}
+
+	var req struct {
+		Address         string   `json:"address"`
+		Latitude        *float64 `json:"latitude"`
+		Longitude       *float64 `json:"longitude"`
+		Bio             string   `json:"bio"`
+		ProfilePhotoURL *string  `json:"profile_photo_url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "invalid JSON"})
+		return "", nil, nil, "", nil, false
+	}
+	return req.Address, req.Latitude, req.Longitude, req.Bio, req.ProfilePhotoURL, true
 }
 func (h *AuthHandler) CreateWorkerProfile(c *gin.Context) {
 	userID := c.GetInt("user_id")
@@ -475,10 +533,19 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
+
+func isAdminRole(c *gin.Context) bool {
+	return c.GetString("role") == string(model.RoleAdmin)
+}
+
+func isStaffRole(c *gin.Context) bool {
 	role := c.GetString("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+	return role == string(model.RoleAdmin) || role == string(model.RoleManager)
+}
+
+func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
 		return
 	}
 
@@ -497,7 +564,7 @@ func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "skill verified"})
+	c.JSON(200, gin.H{"message": "skill and worker verified"})
 }
 func (h *AuthHandler) SetAvailability(c *gin.Context) {
 	var req struct {
@@ -540,30 +607,6 @@ func (h *AuthHandler) FindWorkers(c *gin.Context) {
 
 	c.JSON(200, result)
 }
-func (h *AuthHandler) VerifyWorker(c *gin.Context) {
-	role := c.GetString("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
-		return
-	}
-
-	var req struct {
-		WorkerID int `json:"worker_id"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "invalid JSON"})
-		return
-	}
-
-	err := h.auth.VerifyWorker(c.Request.Context(), req.WorkerID)
-	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(200, gin.H{"message": "worker verified"})
-}
 func (h *AuthHandler) GetCustomerProfile(c *gin.Context) {
 	userID := c.GetInt("user_id")
 	if userID == 0 {
@@ -589,6 +632,12 @@ func (h *AuthHandler) GetCustomerProfile(c *gin.Context) {
 
 	c.JSON(200, gin.H{
 		"customer_profile_id": profile.ID,
+		"user_id":             profile.UserID,
+		"address":             profile.Address,
+		"latitude":            profile.Latitude,
+		"longitude":           profile.Longitude,
+		"bio":                 profile.Bio,
+		"profile_photo_url":   profile.ProfilePhotoURL,
 	})
 }
 func (h *AuthHandler) GetWorkerProfile(c *gin.Context) {
@@ -643,9 +692,8 @@ func (h *AuthHandler) GetCategories(c *gin.Context) {
 }
 
 func (h *AuthHandler) AdminOverview(c *gin.Context) {
-	role := c.GetString("role")
-	if role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
 		return
 	}
 
@@ -656,4 +704,126 @@ func (h *AuthHandler) AdminOverview(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+func (h *AuthHandler) AdminUsers(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	users, err := h.auth.ListUsers(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	c.JSON(http.StatusOK, users)
+}
+
+func (h *AuthHandler) AdminDeleteUser(c *gin.Context) {
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+		return
+	}
+
+	userID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		return
+	}
+	if userID == c.GetInt("user_id") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "admin cannot delete own account"})
+		return
+	}
+
+	if err := h.auth.DeleteUser(c.Request.Context(), userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "user deleted"})
+}
+
+func (h *AuthHandler) AdminActivateUser(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	userID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		return
+	}
+
+	if err := h.auth.ActivateUser(c.Request.Context(), userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "user activated"})
+}
+
+func (h *AuthHandler) AdminCreateAdmin(c *gin.Context) {
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+		return
+	}
+
+	var req registerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	user, err := h.auth.CreateAdmin(c.Request.Context(), service.RegisterInput{
+		FullName: req.FullName,
+		Email:    req.Email,
+		Phone:    req.Phone,
+		Password: req.Password,
+		Role:     model.RoleAdmin,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":   user.ID,
+		"full_name": user.FullName,
+		"email":     user.Email,
+		"role":      user.Role,
+		"status":    user.Status,
+	})
+}
+
+func (h *AuthHandler) AdminCreateManager(c *gin.Context) {
+	if !isAdminRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only admins allowed"})
+		return
+	}
+
+	var req registerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	user, err := h.auth.CreateManager(c.Request.Context(), service.RegisterInput{
+		FullName: req.FullName,
+		Email:    req.Email,
+		Phone:    req.Phone,
+		Password: req.Password,
+		Role:     model.RoleManager,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"user_id":   user.ID,
+		"full_name": user.FullName,
+		"email":     user.Email,
+		"role":      user.Role,
+		"status":    user.Status,
+	})
 }

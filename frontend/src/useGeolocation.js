@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const FALLBACK_POSITION = {
-  latitude: 43.238949,
-  longitude: 76.889709,
+  latitude: 51.128207,
+  longitude: 71.430411,
 };
 
 export function useGeolocation() {
@@ -19,28 +19,33 @@ export function useGeolocation() {
       setPosition(FALLBACK_POSITION);
       setGeoStatus("fallback");
       setGeoError("Browser geolocation is unavailable.");
-      return;
+      return Promise.resolve(FALLBACK_POSITION);
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (result) => {
-        setPosition({
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (result) => {
+          const nextPosition = {
           latitude: result.coords.latitude,
           longitude: result.coords.longitude,
-        });
-        setGeoStatus("ready");
-      },
-      () => {
-        setPosition(FALLBACK_POSITION);
-        setGeoStatus("fallback");
-        setGeoError("Location permission was denied. Almaty center is used.");
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 30000,
-      }
-    );
+          };
+          setPosition(nextPosition);
+          setGeoStatus("ready");
+          resolve(nextPosition);
+        },
+        () => {
+          setPosition(FALLBACK_POSITION);
+          setGeoStatus("fallback");
+          setGeoError("Location permission was denied. Astana center is used.");
+          resolve(FALLBACK_POSITION);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 8000,
+          maximumAge: 30000,
+        }
+      );
+    });
   }, []);
 
   const startWatch = useCallback(() => {

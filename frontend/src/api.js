@@ -31,6 +31,14 @@ export async function apiPatch(path, token, body) {
   return parseResponse(response);
 }
 
+export async function apiDelete(path, token) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  return parseResponse(response);
+}
+
 export async function apiMultipart(path, token, body) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",

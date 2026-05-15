@@ -35,6 +35,7 @@ func SetupRouter(
 	api.Use(middleware.AuthMiddleware(tokens, gatewaySharedSecret))
 	{
 		api.POST("/customer/profile", h.CreateCustomerProfile)
+		api.GET("/customer/profile", h.GetCustomerProfile)
 		api.GET("/worker/profile", h.GetWorkerProfile)
 		api.POST("/worker/profile", h.CreateWorkerProfile)
 		api.POST("/worker/skills", h.AddWorkerSkill)
@@ -42,8 +43,12 @@ func SetupRouter(
 		api.PATCH("/worker/availability", h.SetAvailability)
 		api.GET("/categories", h.GetCategories)
 		api.GET("/workers", h.FindWorkers)
-		api.POST("/admin/verify-worker", h.VerifyWorker)
 		api.GET("/admin/overview", h.AdminOverview)
+		api.GET("/admin/users", h.AdminUsers)
+		api.POST("/admin/admins", h.AdminCreateAdmin)
+		api.POST("/admin/managers", h.AdminCreateManager)
+		api.PATCH("/admin/users/:id/activate", h.AdminActivateUser)
+		api.DELETE("/admin/users/:id", h.AdminDeleteUser)
 		api.GET("/internal/customer-profile", h.GetCustomerProfile)
 		api.GET("/internal/worker-profile", h.GetWorkerProfile)
 	}

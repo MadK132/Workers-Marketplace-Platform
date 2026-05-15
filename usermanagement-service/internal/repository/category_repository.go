@@ -55,20 +55,15 @@ func (r *CategoryRepository) List(ctx context.Context) ([]ServiceCategory, error
 }
 
 func (r *CategoryRepository) EnsureDefaults(ctx context.Context) error {
-	var count int
-	if err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM service_categories`).Scan(&count); err != nil {
-		return err
-	}
-	if count > 0 {
-		return nil
-	}
-
 	defaultCategories := []ServiceCategory{
-		{Name: "Plumbing", Description: ptr("Pipes, leaks, bathroom and kitchen fixes.")},
-		{Name: "Electrical", Description: ptr("Wiring, sockets, lights and diagnostics.")},
-		{Name: "Cleaning", Description: ptr("Home and office cleaning services.")},
-		{Name: "Carpentry", Description: ptr("Furniture assembly and wood repairs.")},
-		{Name: "Painting", Description: ptr("Walls, ceilings and decorative painting.")},
+		{Name: "appliance_installation", Description: ptr("Appliance setup and home device installation.")},
+		{Name: "carpenter", Description: ptr("Furniture assembly, doors and small wood repairs.")},
+		{Name: "cleaner", Description: ptr("Apartment, house or office cleaning.")},
+		{Name: "electrician", Description: ptr("Sockets, lighting, wiring and diagnostics.")},
+		{Name: "gardener", Description: ptr("Garden and plant care.")},
+		{Name: "mover", Description: ptr("Loading, carrying and moving help.")},
+		{Name: "plumber", Description: ptr("Pipes, leaks, mixers and plumbing.")},
+		{Name: "renovation", Description: ptr("Finishing and renovation work.")},
 	}
 
 	tx, err := r.db.Begin(ctx)
@@ -80,7 +75,10 @@ func (r *CategoryRepository) EnsureDefaults(ctx context.Context) error {
 	for _, category := range defaultCategories {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO service_categories (name, description)
-			VALUES ($1, $2)
+			SELECT $1, $2
+			WHERE NOT EXISTS (
+				SELECT 1 FROM service_categories WHERE name = $1
+			)
 		`, category.Name, category.Description); err != nil {
 			return err
 		}

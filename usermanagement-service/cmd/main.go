@@ -71,6 +71,9 @@ func main() {
 	categoryRepo := repository.NewCategoryRepository(pool)
 	adminRepo := repository.NewAdminRepository(pool)
 
+	if err := userRepo.EnsureManagerRole(ctx); err != nil {
+		log.Printf("Manager role bootstrap skipped: %v", err)
+	}
 	if err := categoryRepo.EnsureDefaults(ctx); err != nil {
 		log.Printf("Category bootstrap skipped: %v", err)
 	}
@@ -91,6 +94,9 @@ func main() {
 		categoryRepo,
 		adminRepo,
 	)
+	if err := authService.EnsureDefaultAdmin(ctx); err != nil {
+		log.Fatalf("Default admin bootstrap error: %v", err)
+	}
 
 	authHandler := handler.NewAuthHandler(authService)
 

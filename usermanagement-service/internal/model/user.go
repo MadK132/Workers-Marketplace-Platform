@@ -8,6 +8,7 @@ const (
 	RoleCustomer Role = "customer"
 	RoleWorker   Role = "worker"
 	RoleAdmin    Role = "admin"
+	RoleManager  Role = "manager"
 )
 
 func (r Role) CanRegister() bool {
@@ -44,11 +45,13 @@ type WorkerProfile struct {
 	ProfilePhotoURL    *string
 }
 type CustomerProfile struct {
-	ID        int
-	UserID    int
-	Address   *string
-	Latitude  *float64
-	Longitude *float64
+	ID              int
+	UserID          int
+	Address         *string
+	Latitude        *float64
+	Longitude       *float64
+	Bio             string
+	ProfilePhotoURL *string
 }
 type ExperienceLevel string
 

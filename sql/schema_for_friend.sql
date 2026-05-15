@@ -26,7 +26,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
-    CREATE TYPE user_role AS ENUM ('customer', 'worker', 'admin');
+    CREATE TYPE user_role AS ENUM ('customer', 'worker', 'admin', 'manager');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_status') THEN
@@ -37,6 +37,8 @@ BEGIN
     CREATE TYPE verification_status AS ENUM ('unverified', 'pending', 'verified', 'rejected');
   END IF;
 END $$;
+
+ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'manager';
 
 CREATE TABLE IF NOT EXISTS users (
   user_id serial PRIMARY KEY,
@@ -266,5 +268,21 @@ CREATE INDEX IF NOT EXISTS idx_worker_profiles_current_location
 
 CREATE INDEX IF NOT EXISTS idx_worker_skill_evidence_skill_id
   ON worker_skill_evidence(worker_skill_id);
+
+INSERT INTO service_categories (name, description)
+SELECT name, description
+FROM (VALUES
+  ('appliance_installation', 'Appliance setup and home device installation.'),
+  ('carpenter', 'Furniture assembly, doors and small wood repairs.'),
+  ('cleaner', 'Apartment, house or office cleaning.'),
+  ('electrician', 'Sockets, lighting, wiring and diagnostics.'),
+  ('gardener', 'Garden and plant care.'),
+  ('mover', 'Loading, carrying and moving help.'),
+  ('plumber', 'Pipes, leaks, mixers and plumbing.'),
+  ('renovation', 'Finishing and renovation work.')
+) AS defaults(name, description)
+WHERE NOT EXISTS (
+  SELECT 1 FROM service_categories sc WHERE sc.name = defaults.name
+);
 
 COMMIT;

@@ -16,13 +16,25 @@ const MapView = forwardRef(function MapView({
   selectedWorker,
   onSelectWorker,
   userMarker = "default",
+  pickMode = false,
+  pickedPosition = null,
+  onPickPosition,
+  autoCenterOnPosition = true,
 }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const zoomRef = useRef(13);
   const markersRef = useRef([]);
   const userMarkerRef = useRef(null);
+  const pickedMarkerRef = useRef(null);
+  const pickModeRef = useRef(pickMode);
+  const onPickPositionRef = useRef(onPickPosition);
   const [mapError, setMapError] = useState("");
+
+  useEffect(() => {
+    pickModeRef.current = pickMode;
+    onPickPositionRef.current = onPickPosition;
+  }, [onPickPosition, pickMode]);
 
   useImperativeHandle(ref, () => ({
     zoomIn() {
@@ -56,6 +68,21 @@ const MapView = forwardRef(function MapView({
           zoomControl: false,
           controls: [],
         });
+        mapRef.current.on("click", (event) => {
+          const coordinates = event.lngLat || event.coordinates || event.lnglat;
+          if (!coordinates || !pickModeRef.current || !onPickPositionRef.current) {
+            return;
+          }
+          const longitude = Array.isArray(coordinates) ? coordinates[0] : coordinates.lng;
+          const latitude = Array.isArray(coordinates) ? coordinates[1] : coordinates.lat;
+          if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) {
+            return;
+          }
+          onPickPositionRef.current({
+            longitude: Number(longitude),
+            latitude: Number(latitude),
+          });
+        });
         zoomRef.current = 13;
       })
       .catch((error) => setMapError(error.message));
@@ -64,6 +91,28 @@ const MapView = forwardRef(function MapView({
       cancelled = true;
     };
   }, [position]);
+
+  useEffect(() => {
+    if (!mapRef.current || !window.mapgl) {
+      return;
+    }
+
+    pickedMarkerRef.current?.destroy?.();
+    pickedMarkerRef.current = null;
+    if (!pickedPosition) {
+      return;
+    }
+
+    pickedMarkerRef.current = new window.mapgl.Marker(mapRef.current, {
+      coordinates: [pickedPosition.longitude, pickedPosition.latitude],
+      zIndex: 9,
+    });
+
+    return () => {
+      pickedMarkerRef.current?.destroy?.();
+      pickedMarkerRef.current = null;
+    };
+  }, [pickedPosition]);
 
   useEffect(() => {
     if (!mapRef.current || !window.mapgl || !position) {
@@ -86,7 +135,7 @@ const MapView = forwardRef(function MapView({
       markerOptions.size = [44, 54];
       markerOptions.anchor = [22, 27];
       markerOptions.zIndex = 10;
-    } else {
+    } else if (userMarker === "default") {
       markerOptions.label = { text: "You" };
     }
 
@@ -119,11 +168,11 @@ const MapView = forwardRef(function MapView({
       const first = selectedWorker || workers[0];
       mapRef.current.setCenter([first.longitude, first.latitude]);
       setMapZoom(14);
-    } else {
+    } else if (autoCenterOnPosition) {
       mapRef.current.setCenter([position.longitude, position.latitude]);
       setMapZoom(13);
     }
-  }, [workers, selectedWorker, position, onSelectWorker]);
+  }, [workers, selectedWorker, position, onSelectWorker, autoCenterOnPosition]);
 
   return (
     <section className="mapShell" aria-label="2GIS map with nearby workers">

@@ -48,7 +48,7 @@ func (s *GeolocationService) FindNearbyWorkers(
 		return nil, errors.New("service is available only in Astana")
 	}
 	if radiusMeters <= 0 {
-		radiusMeters = 5000
+		radiusMeters = 50000
 	}
 
 	return s.repo.FindNearbyWorkers(ctx, categoryID, latitude, longitude, radiusMeters)
