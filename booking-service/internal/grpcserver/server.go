@@ -15,7 +15,7 @@ import (
 )
 
 type RequestService interface {
-	CreateRequest(ctx context.Context, customerProfileID int, categoryID int, description string, address string, latitude float64, longitude float64) error
+	CreateRequest(ctx context.Context, customerProfileID int, categoryID int, description string, address string, latitude float64, longitude float64) (int, error)
 	ListCustomerRequests(ctx context.Context, customerProfileID int) ([]repository.RequestListItem, error)
 }
 
@@ -51,7 +51,7 @@ func (s *Server) CreateRequest(
 		return nil, status.Error(codes.InvalidArgument, "description is required")
 	}
 
-	err := s.requests.CreateRequest(
+	_, err := s.requests.CreateRequest(
 		ctx,
 		int(req.GetCustomerProfileId()),
 		int(req.GetCategoryId()),

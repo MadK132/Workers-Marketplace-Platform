@@ -71,6 +71,9 @@ async function parseResponse(response) {
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
+    if (response.status === 401) {
+      window.dispatchEvent(new CustomEvent("wm-auth-expired"));
+    }
     throw new Error(data?.error || `Request failed: ${response.status}`);
   }
   return data;

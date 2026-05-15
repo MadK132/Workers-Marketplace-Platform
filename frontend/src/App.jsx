@@ -59,14 +59,68 @@ export default function App() {
     setActiveTab(defaultTabForRole(nextRole));
   }, []);
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async (options = {}) => {
+    const disableWorker = options.disableWorker !== false;
+    const currentToken = localStorage.getItem(TOKEN_KEY) || token;
+    const currentRole = localStorage.getItem(ROLE_KEY) || role;
+    if (disableWorker && currentRole === "worker" && currentToken) {
+      try {
+        await fetch(apiURL("/api/worker/availability"), {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${currentToken}`,
+          },
+          body: JSON.stringify({ is_available: false }),
+        });
+      } catch {
+        // Token may already be expired; local logout must still complete.
+      }
+    }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(ROLE_KEY);
     clearAuthURL();
     setToken("");
     setRole("");
     setActiveTab("find");
-  }, []);
+  }, [role, token]);
+
+  useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+    const expiresAt = Number(session.exp || 0) * 1000;
+    if (!expiresAt) {
+      return undefined;
+    }
+    const now = Date.now();
+    if (expiresAt <= now) {
+      signOut();
+      return undefined;
+    }
+    const disableDelay = Math.max(0, expiresAt - now - 10000);
+    const logoutDelay = Math.max(0, expiresAt - now + 250);
+    const disableTimer = window.setTimeout(() => {
+      if ((localStorage.getItem(ROLE_KEY) || role) === "worker") {
+        apiPatch("/api/worker/availability", localStorage.getItem(TOKEN_KEY) || token, { is_available: false }).catch(() => {});
+      }
+    }, disableDelay);
+    const logoutTimer = window.setTimeout(() => {
+      signOut({ disableWorker: false });
+    }, logoutDelay);
+    return () => {
+      window.clearTimeout(disableTimer);
+      window.clearTimeout(logoutTimer);
+    };
+  }, [role, session.exp, signOut, token]);
+
+  useEffect(() => {
+    const handleExpired = () => {
+      signOut();
+    };
+    window.addEventListener("wm-auth-expired", handleExpired);
+    return () => window.removeEventListener("wm-auth-expired", handleExpired);
+  }, [signOut]);
 
   if (!token) {
     return <AuthScreen onAuth={saveSession} />;

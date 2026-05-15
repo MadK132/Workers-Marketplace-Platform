@@ -32,9 +32,9 @@ func (s *RequestService) CreateRequest(
 	address string,
 	latitude float64,
 	longitude float64,
-) error {
+) (int, error) {
 	if !isInsideAstana(latitude, longitude) {
-		return ErrOutsideAstana
+		return 0, ErrOutsideAstana
 	}
 	return s.repo.Create(ctx, customerProfileID, categoryID, description, address, latitude, longitude)
 }

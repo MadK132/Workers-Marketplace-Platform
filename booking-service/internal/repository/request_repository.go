@@ -32,16 +32,18 @@ func (r *RequestRepository) Create(
 	address string,
 	latitude float64,
 	longitude float64,
-) error {
-	_, err := r.db.Exec(ctx, `
+) (int, error) {
+	var requestID int
+	err := r.db.QueryRow(ctx, `
 		INSERT INTO service_requests
 			(customer_profile_id, category_id, description, address, latitude, longitude, location)
 		VALUES
 			($1, $2, $3, $4, $5::numeric, $6::numeric,
 			 ST_SetSRID(ST_MakePoint($6::double precision, $5::double precision), 4326)::geography)
-	`, customerProfileID, categoryID, description, address, latitude, longitude)
+		RETURNING request_id
+	`, customerProfileID, categoryID, description, address, latitude, longitude).Scan(&requestID)
 
-	return err
+	return requestID, err
 }
 
 func (r *RequestRepository) ListByCustomerProfile(

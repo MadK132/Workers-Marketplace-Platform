@@ -65,7 +65,7 @@ func (h *Handler) CreateRequest(c *gin.Context) {
 		return
 	}
 
-	err = h.requestService.CreateRequest(
+	requestID, err := h.requestService.CreateRequest(
 		c.Request.Context(),
 		customerProfileID,
 		req.CategoryID,
@@ -84,7 +84,8 @@ func (h *Handler) CreateRequest(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message": "request created",
+		"message":    "request created",
+		"request_id": requestID,
 	})
 }
 
