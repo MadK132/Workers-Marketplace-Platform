@@ -9,6 +9,14 @@ import (
 
 func New(target *url.URL) *httputil.ReverseProxy {
 	p := httputil.NewSingleHostReverseProxy(target)
+	p.ModifyResponse = func(resp *http.Response) error {
+		resp.Header.Del("Access-Control-Allow-Origin")
+		resp.Header.Del("Access-Control-Allow-Credentials")
+		resp.Header.Del("Access-Control-Allow-Headers")
+		resp.Header.Del("Access-Control-Allow-Methods")
+		resp.Header.Del("Access-Control-Expose-Headers")
+		return nil
+	}
 	p.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		log.Printf("proxy error to %s: %v", target.String(), err)
 		w.Header().Set("Content-Type", "application/json")
