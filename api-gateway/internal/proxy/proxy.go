@@ -9,6 +9,11 @@ import (
 
 func New(target *url.URL) *httputil.ReverseProxy {
 	p := httputil.NewSingleHostReverseProxy(target)
+	director := p.Director
+	p.Director = func(req *http.Request) {
+		director(req)
+		req.Host = target.Host
+	}
 	p.ModifyResponse = func(resp *http.Response) error {
 		resp.Header.Del("Access-Control-Allow-Origin")
 		resp.Header.Del("Access-Control-Allow-Credentials")
