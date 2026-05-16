@@ -23,6 +23,10 @@ type BookingDetails struct {
 	Status          string
 }
 
+type BookingPaymentData struct {
+	Amount float64
+}
+
 type BookingListItem struct {
 	BookingID          int        `json:"booking_id"`
 	RequestID          int        `json:"request_id"`
@@ -38,6 +42,13 @@ type BookingListItem struct {
 	FinalPrice         *string    `json:"final_price,omitempty"`
 	CounterpartyName   string     `json:"counterparty_name"`
 	CounterpartyRole   string     `json:"counterparty_role"`
+	Address            string     `json:"address"`
+	Latitude           *float64   `json:"latitude,omitempty"`
+	Longitude          *float64   `json:"longitude,omitempty"`
+	WorkerLatitude     *float64   `json:"worker_latitude,omitempty"`
+	WorkerLongitude    *float64   `json:"worker_longitude,omitempty"`
+	CompletionEvidence *string    `json:"completion_evidence,omitempty"`
+	CustomerConfirmed  bool       `json:"customer_confirmed"`
 }
 
 type BookingRepository struct {
@@ -46,6 +57,17 @@ type BookingRepository struct {
 
 func NewBookingRepository(db *pgxpool.Pool) *BookingRepository {
 	return &BookingRepository{db: db}
+}
+
+func (r *BookingRepository) EnsureWorkflowColumns(ctx context.Context) error {
+	_, err := r.db.Exec(ctx, `
+		ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'awaiting_confirmation';
+		ALTER TABLE bookings
+			ADD COLUMN IF NOT EXISTS completion_evidence text,
+			ADD COLUMN IF NOT EXISTS customer_confirmed boolean DEFAULT false,
+			ADD COLUMN IF NOT EXISTS created_at timestamp without time zone DEFAULT NOW();
+	`)
+	return err
 }
 
 func (r *BookingRepository) Create(
@@ -87,6 +109,35 @@ func (r *BookingRepository) Create(
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (r *BookingRepository) ExpirePendingOffers(ctx context.Context) error {
+	_, err := r.db.Exec(ctx, `
+		WITH expired AS (
+			UPDATE bookings
+			SET status = 'cancelled', end_time = NOW()
+			WHERE status = 'scheduled'
+			  AND COALESCE(created_at, scheduled_time, NOW()) <= NOW() - INTERVAL '5 minutes'
+			RETURNING request_id, worker_profile_id
+		),
+		requests AS (
+			UPDATE service_requests sr
+			SET status = 'pending'
+			FROM expired e
+			WHERE sr.request_id = e.request_id
+			RETURNING e.worker_profile_id
+		)
+		UPDATE worker_profiles wp
+		SET is_available = true
+		WHERE wp.worker_profile_id IN (SELECT worker_profile_id FROM requests)
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM bookings b
+			WHERE b.worker_profile_id = wp.worker_profile_id
+			  AND b.status IN ('scheduled', 'in_progress', 'awaiting_confirmation')
+		  )
+	`)
+	return err
 }
 
 func (r *BookingRepository) GetRequestForBooking(
@@ -192,6 +243,81 @@ func (r *BookingRepository) MarkInProgress(
 	return tx.Commit(ctx)
 }
 
+func (r *BookingRepository) MarkAwaitingConfirmation(
+	ctx context.Context,
+	bookingID int,
+	requestID int,
+	evidence string,
+) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		UPDATE bookings
+		SET status = 'awaiting_confirmation', completion_evidence = $2
+		WHERE booking_id = $1
+	`, bookingID, evidence)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE service_requests
+		SET status = 'in_progress'
+		WHERE request_id = $1
+	`, requestID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *BookingRepository) MarkRejected(
+	ctx context.Context,
+	bookingID int,
+	requestID int,
+	workerProfileID int,
+) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		UPDATE bookings
+		SET status = 'cancelled', end_time = NOW()
+		WHERE booking_id = $1
+	`, bookingID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE service_requests
+		SET status = 'pending'
+		WHERE request_id = $1
+	`, requestID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET is_available = true
+		WHERE worker_profile_id = $1
+	`, workerProfileID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *BookingRepository) MarkCompleted(
 	ctx context.Context,
 	bookingID int,
@@ -206,7 +332,7 @@ func (r *BookingRepository) MarkCompleted(
 
 	_, err = tx.Exec(ctx, `
 		UPDATE bookings
-		SET status = 'completed', end_time = NOW()
+		SET status = 'completed', end_time = NOW(), customer_confirmed = true
 		WHERE booking_id = $1
 	`, bookingID)
 	if err != nil {
@@ -232,6 +358,26 @@ func (r *BookingRepository) MarkCompleted(
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (r *BookingRepository) GetPaymentData(ctx context.Context, bookingID int) (BookingPaymentData, error) {
+	var data BookingPaymentData
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(b.final_price, ws.price_base, 0)::float8
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		LEFT JOIN worker_skills ws
+		  ON ws.worker_profile_id = b.worker_profile_id
+		 AND ws.category_id = sr.category_id
+		WHERE b.booking_id = $1
+	`, bookingID).Scan(&data.Amount)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BookingPaymentData{}, ErrBookingNotFound
+		}
+		return BookingPaymentData{}, err
+	}
+	return data, nil
 }
 
 func (r *BookingRepository) IsRequestAvailable(ctx context.Context, requestID int) (bool, error) {
@@ -268,7 +414,14 @@ func (r *BookingRepository) ListByCustomerProfile(
 			b.end_time,
 			b.final_price::text AS final_price,
 			COALESCE(wu.full_name, '') AS counterparty_name,
-			'worker' AS counterparty_role
+			'worker' AS counterparty_role,
+			COALESCE(sr.address, '') AS address,
+			sr.latitude::float8,
+			sr.longitude::float8,
+			wp.current_latitude::float8,
+			wp.current_longitude::float8,
+			b.completion_evidence,
+			COALESCE(b.customer_confirmed, false)
 		FROM bookings b
 		JOIN service_requests sr ON sr.request_id = b.request_id
 		LEFT JOIN service_categories sc ON sc.category_id = sr.category_id
@@ -300,6 +453,13 @@ func (r *BookingRepository) ListByCustomerProfile(
 			&item.FinalPrice,
 			&item.CounterpartyName,
 			&item.CounterpartyRole,
+			&item.Address,
+			&item.Latitude,
+			&item.Longitude,
+			&item.WorkerLatitude,
+			&item.WorkerLongitude,
+			&item.CompletionEvidence,
+			&item.CustomerConfirmed,
 		); err != nil {
 			return nil, err
 		}
@@ -332,12 +492,20 @@ func (r *BookingRepository) ListByWorkerProfile(
 			b.end_time,
 			b.final_price::text AS final_price,
 			COALESCE(cu.full_name, '') AS counterparty_name,
-			'customer' AS counterparty_role
+			'customer' AS counterparty_role,
+			COALESCE(sr.address, '') AS address,
+			sr.latitude::float8,
+			sr.longitude::float8,
+			wp.current_latitude::float8,
+			wp.current_longitude::float8,
+			b.completion_evidence,
+			COALESCE(b.customer_confirmed, false)
 		FROM bookings b
 		JOIN service_requests sr ON sr.request_id = b.request_id
 		LEFT JOIN service_categories sc ON sc.category_id = sr.category_id
 		LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
 		LEFT JOIN users cu ON cu.user_id = cp.user_id
+		LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
 		WHERE b.worker_profile_id = $1
 		ORDER BY COALESCE(b.scheduled_time, sr.created_at) DESC, b.booking_id DESC
 	`, workerProfileID)
@@ -364,6 +532,13 @@ func (r *BookingRepository) ListByWorkerProfile(
 			&item.FinalPrice,
 			&item.CounterpartyName,
 			&item.CounterpartyRole,
+			&item.Address,
+			&item.Latitude,
+			&item.Longitude,
+			&item.WorkerLatitude,
+			&item.WorkerLongitude,
+			&item.CompletionEvidence,
+			&item.CustomerConfirmed,
 		); err != nil {
 			return nil, err
 		}

@@ -23,7 +23,9 @@ func SetupRouter(
 		api.POST("/bookings", h.CreateBooking)
 		api.GET("/bookings/my", h.ListMyBookings)
 		api.PATCH("/bookings/:booking_id/start", h.StartBooking)
+		api.PATCH("/bookings/:booking_id/reject", h.RejectBooking)
 		api.PATCH("/bookings/:booking_id/complete", h.CompleteBooking)
+		api.PATCH("/bookings/:booking_id/confirm", h.ConfirmCompletion)
 	}
 
 	return r

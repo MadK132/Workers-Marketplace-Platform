@@ -35,6 +35,7 @@ type AuthService struct {
 	workerSkills     *repository.WorkerSkillRepository
 	categories       *repository.CategoryRepository
 	admin            *repository.AdminRepository
+	paymentMethods   *repository.PaymentMethodRepository
 }
 
 func NewAuthService(
@@ -48,6 +49,7 @@ func NewAuthService(
 	workerSkills *repository.WorkerSkillRepository,
 	categories *repository.CategoryRepository,
 	admin *repository.AdminRepository,
+	paymentMethods *repository.PaymentMethodRepository,
 ) *AuthService {
 	return &AuthService{
 		users:            users,
@@ -60,6 +62,7 @@ func NewAuthService(
 		workerSkills:     workerSkills,
 		categories:       categories,
 		admin:            admin,
+		paymentMethods:   paymentMethods,
 	}
 }
 
@@ -468,12 +471,58 @@ func (s *AuthService) SetAvailability(ctx context.Context, userID int, available
 		return err
 	}
 
+	if available {
+		hasPaymentMethod, err := s.paymentMethods.Exists(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if !hasPaymentMethod {
+			return errors.New("payment method is required")
+		}
+	}
+
 	if worker.VerificationStatus != "verified" {
 		return errors.New("worker not verified")
 	}
 
+	if available {
+		hasActiveJob, err := s.workerProfiles.HasInProgressBooking(ctx, worker.ID)
+		if err != nil {
+			return err
+		}
+		if hasActiveJob {
+			return errors.New("worker has a job in progress")
+		}
+	}
+
 	return s.workerProfiles.UpdateAvailability(ctx, worker.ID, available)
 }
+
+func (s *AuthService) UpsertPaymentMethod(ctx context.Context, userID int, provider string, last4 string) (repository.PaymentMethod, error) {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		provider = "stripe"
+	}
+	last4 = strings.TrimSpace(last4)
+	if len(last4) != 4 {
+		return repository.PaymentMethod{}, errors.New("card last4 must contain 4 digits")
+	}
+	for _, char := range last4 {
+		if char < '0' || char > '9' {
+			return repository.PaymentMethod{}, errors.New("card last4 must contain only digits")
+		}
+	}
+	return s.paymentMethods.Upsert(ctx, userID, provider, last4)
+}
+
+func (s *AuthService) GetPaymentMethod(ctx context.Context, userID int) (repository.PaymentMethod, error) {
+	return s.paymentMethods.Get(ctx, userID)
+}
+
+func (s *AuthService) HasPaymentMethod(ctx context.Context, userID int) (bool, error) {
+	return s.paymentMethods.Exists(ctx, userID)
+}
+
 func isValidExperience(level string) bool {
 	switch level {
 	case "junior", "middle", "senior":

@@ -13,6 +13,7 @@ type Config struct {
 	JWT     JWTConfig
 	Gateway GatewayConfig
 	User    UserServiceConfig
+	Payment PaymentServiceConfig
 }
 
 type HTTPConfig struct {
@@ -25,6 +26,12 @@ type GRPCConfig struct {
 
 type UserServiceConfig struct {
 	URL string
+}
+
+type PaymentServiceConfig struct {
+	GRPCAddress string
+	Provider    string
+	Currency    string
 }
 
 type JWTConfig struct {
@@ -63,6 +70,11 @@ func Load() Config {
 		},
 		User: UserServiceConfig{
 			URL: getEnv("USER_SERVICE_URL", "http://localhost:8081"),
+		},
+		Payment: PaymentServiceConfig{
+			GRPCAddress: getEnv("PAYMENT_GRPC_ADDR", "localhost:9096"),
+			Provider:    getEnv("PAYMENT_PROVIDER", "stripe"),
+			Currency:    getEnv("PAYMENT_CURRENCY", "KZT"),
 		},
 	}
 }

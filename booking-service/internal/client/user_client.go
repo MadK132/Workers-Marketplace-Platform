@@ -100,3 +100,34 @@ func (c *UserClient) GetWorkerProfile(
 
 	return result.WorkerProfileID, nil
 }
+
+func (c *UserClient) HasPaymentMethod(
+	ctx context.Context,
+	token string,
+) (bool, error) {
+	url := fmt.Sprintf("%s/api/internal/payment-method", c.baseURL)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Authorization", token)
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("user-service error: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		HasPaymentMethod bool `json:"has_payment_method"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, err
+	}
+	return result.HasPaymentMethod, nil
+}

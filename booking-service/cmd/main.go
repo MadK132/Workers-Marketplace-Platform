@@ -46,11 +46,20 @@ func main() {
 	requestRepo := repository.NewRequestRepository(pool)
 	requestService := service.NewRequestService(requestRepo)
 	bookingRepo := repository.NewBookingRepository(pool)
+	if err := bookingRepo.EnsureWorkflowColumns(ctx); err != nil {
+		log.Printf("Booking workflow bootstrap skipped: %v", err)
+	}
 	bookingService := service.NewBookingService(bookingRepo)
 
 	userClient := client.NewUserClient(cfg.User.URL)
+	paymentClient := client.NewPaymentClient(
+		cfg.Payment.GRPCAddress,
+		cfg.Gateway.SharedSecret,
+		cfg.Payment.Provider,
+		cfg.Payment.Currency,
+	)
 
-	h := handler.NewHandler(requestService, bookingService, userClient)
+	h := handler.NewHandler(requestService, bookingService, userClient, paymentClient)
 	r := router.SetupRouter(h, tokenManager, cfg.Gateway.SharedSecret)
 
 	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPC.Port)

@@ -46,6 +46,9 @@ type AuthService interface {
 	ActivateUser(ctx context.Context, userID int) error
 	CreateAdmin(ctx context.Context, input service.RegisterInput) (model.User, error)
 	CreateManager(ctx context.Context, input service.RegisterInput) (model.User, error)
+	UpsertPaymentMethod(ctx context.Context, userID int, provider string, last4 string) (repository.PaymentMethod, error)
+	GetPaymentMethod(ctx context.Context, userID int) (repository.PaymentMethod, error)
+	HasPaymentMethod(ctx context.Context, userID int) (bool, error)
 }
 
 type AuthHandler struct {
@@ -586,6 +589,51 @@ func (h *AuthHandler) SetAvailability(c *gin.Context) {
 
 	c.JSON(200, gin.H{"message": "availability updated"})
 }
+
+func (h *AuthHandler) UpsertPaymentMethod(c *gin.Context) {
+	var req struct {
+		Provider string `json:"provider"`
+		Last4    string `json:"last4"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	method, err := h.auth.UpsertPaymentMethod(c.Request.Context(), c.GetInt("user_id"), req.Provider, req.Last4)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, method)
+}
+
+func (h *AuthHandler) GetPaymentMethod(c *gin.Context) {
+	method, err := h.auth.GetPaymentMethod(c.Request.Context(), c.GetInt("user_id"))
+	if err != nil {
+		if errors.Is(err, repository.ErrPaymentMethodNotFound) {
+			c.JSON(http.StatusOK, gin.H{"has_payment_method": false})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"has_payment_method": true,
+		"provider":           method.Provider,
+		"last4":              method.Last4,
+	})
+}
+
+func (h *AuthHandler) HasPaymentMethod(c *gin.Context) {
+	hasPaymentMethod, err := h.auth.HasPaymentMethod(c.Request.Context(), c.GetInt("user_id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"has_payment_method": hasPaymentMethod})
+}
+
 func (h *AuthHandler) FindWorkers(c *gin.Context) {
 	categoryIDStr := c.Query("category_id")
 	if categoryIDStr == "" {

@@ -41,6 +41,8 @@ func SetupRouter(
 		api.POST("/worker/skills", h.AddWorkerSkill)
 		api.POST("/admin/verify-skill", h.VerifyWorkerSkill)
 		api.PATCH("/worker/availability", h.SetAvailability)
+		api.GET("/payment-method", h.GetPaymentMethod)
+		api.POST("/payment-method", h.UpsertPaymentMethod)
 		api.GET("/categories", h.GetCategories)
 		api.GET("/workers", h.FindWorkers)
 		api.GET("/admin/overview", h.AdminOverview)
@@ -51,6 +53,7 @@ func SetupRouter(
 		api.DELETE("/admin/users/:id", h.AdminDeleteUser)
 		api.GET("/internal/customer-profile", h.GetCustomerProfile)
 		api.GET("/internal/worker-profile", h.GetWorkerProfile)
+		api.GET("/internal/payment-method", h.HasPaymentMethod)
 	}
 
 	return r

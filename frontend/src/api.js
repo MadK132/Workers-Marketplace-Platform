@@ -48,6 +48,15 @@ export async function apiMultipart(path, token, body) {
   return parseResponse(response);
 }
 
+export async function apiMultipartPatch(path, token, body) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body,
+  });
+  return parseResponse(response);
+}
+
 export function wsURL(path, token) {
   const base = new URL(API_BASE_URL);
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";

@@ -41,6 +41,9 @@ func main() {
 	defer pool.Close()
 
 	paymentRepo := repository.NewPaymentRepository(pool)
+	if err := paymentRepo.EnsureTable(ctx); err != nil {
+		log.Fatalf("Payment schema bootstrap error: %v", err)
+	}
 	paymentProvider := provider.New(provider.Config{
 		DefaultProvider:      cfg.Provider.DefaultProvider,
 		StripeSecretKey:      cfg.Provider.StripeSecretKey,

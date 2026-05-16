@@ -110,6 +110,21 @@ func (r *WorkerProfileRepository) UpdateAvailability(ctx context.Context, worker
 	)
 	return err
 }
+
+func (r *WorkerProfileRepository) HasInProgressBooking(ctx context.Context, workerID int) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM bookings
+			WHERE worker_profile_id = $1
+			  AND status = 'in_progress'
+		)`,
+		workerID,
+	).Scan(&exists)
+	return exists, err
+}
+
 func (r *WorkerProfileRepository) GetByUserIDFull(ctx context.Context, userID int) (model.WorkerProfile, error) {
 	if err := r.EnsureProfileColumns(ctx); err != nil {
 		return model.WorkerProfile{}, err

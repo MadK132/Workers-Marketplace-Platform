@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiDelete, apiGet, apiMultipart, apiPatch, apiPost, apiURL } from "./api.js";
+import { apiDelete, apiGet, apiMultipart, apiMultipartPatch, apiPatch, apiPost, apiURL } from "./api.js";
 import MapView from "./MapView.jsx";
 import WorkerList from "./WorkerList.jsx";
 import { useGeolocation } from "./useGeolocation.js";
@@ -48,6 +48,9 @@ export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
   const [activeTab, setActiveTab] = useState(defaultTabForRole(role));
+  const [paymentReady, setPaymentReady] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
   const session = useMemo(() => decodeToken(token), [token]);
 
   const saveSession = useCallback((nextToken, fallbackRole) => {
@@ -57,6 +60,7 @@ export default function App() {
     setToken(nextToken);
     setRole(nextRole);
     setActiveTab(defaultTabForRole(nextRole));
+    setPaymentReady(false);
   }, []);
 
   const signOut = useCallback(async (options = {}) => {
@@ -83,6 +87,39 @@ export default function App() {
     setToken("");
     setRole("");
     setActiveTab("find");
+    setPaymentReady(false);
+  }, [role, token]);
+
+  useEffect(() => {
+    if (!token || (role !== "customer" && role !== "worker")) {
+      setPaymentReady(role !== "customer" && role !== "worker");
+      setPaymentError("");
+      setPaymentLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setPaymentLoading(true);
+    setPaymentError("");
+    apiGet("/api/payment-method", token)
+      .then((method) => {
+        if (!cancelled) {
+          setPaymentReady(Boolean(method?.has_payment_method));
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setPaymentReady(false);
+          setPaymentError(err.message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPaymentLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [role, token]);
 
   useEffect(() => {
@@ -124,6 +161,19 @@ export default function App() {
 
   if (!token) {
     return <AuthScreen onAuth={saveSession} />;
+  }
+
+  if ((role === "customer" || role === "worker") && (!paymentReady || paymentLoading)) {
+    return (
+      <PaymentSetupScreen
+        token={token}
+        role={role}
+        loading={paymentLoading}
+        error={paymentError}
+        onReady={() => setPaymentReady(true)}
+        onSignOut={signOut}
+      />
+    );
   }
 
   if (role === "customer") {
@@ -353,6 +403,24 @@ function AuthTitle({ title, text }) {
   );
 }
 
+function PaymentSetupScreen({ token, role, loading, error, onReady, onSignOut }) {
+  return (
+    <main className="authLayout">
+      <section className="authHero">
+        <div className="appIcon">WM</div>
+        <h1>Workers Marketplace</h1>
+        <p>{role === "worker" ? "Link a card before going online." : "Link a card before booking workers."}</p>
+      </section>
+      <section className="authCard">
+        <AuthTitle title="Payment card required" text="Add your card once, then continue to the marketplace." />
+        {loading ? <p className="muted">Checking payment method...</p> : <PaymentMethodPanel token={token} onLinked={onReady} compact />}
+        <Messages error={error} />
+        <button className="secondaryButton fullWidthButton" onClick={onSignOut}>Sign out</button>
+      </section>
+    </main>
+  );
+}
+
 function initialAuthMode() {
   const path = window.location.pathname.toLowerCase();
   const params = new URLSearchParams(window.location.search);
@@ -477,6 +545,178 @@ async function reverseGeocode(position) {
   return exact || "No exact street or building found. Pick closer to a road or building.";
 }
 
+async function forwardGeocode(address) {
+  const query = String(address || "").trim();
+  if (!query || !GIS_API_KEY) {
+    return null;
+  }
+  const params = new URLSearchParams({
+    q: `${query}, Астана`,
+    fields: "items.point,items.address,items.full_address_name,items.adm_div",
+    key: GIS_API_KEY,
+  });
+  const response = await fetch(`https://catalog.api.2gis.com/3.0/items/geocode?${params}`);
+  if (!response.ok) {
+    return null;
+  }
+  const data = await response.json();
+  const item = (data?.result?.items || []).find((nextItem) => {
+    const point = nextItem?.point;
+    return point && Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lon));
+  });
+  if (!item?.point) {
+    return null;
+  }
+  return {
+    latitude: Number(item.point.lat),
+    longitude: Number(item.point.lon),
+    label: formatGeocoderItem(item) || query,
+  };
+}
+
+async function buildDrivingRoute(start, end) {
+  if (!start || !end || !GIS_API_KEY) {
+    return directRoute(start, end);
+  }
+  const payloads = [
+    {
+      points: [
+        { type: "stop", lon: start.longitude, lat: start.latitude },
+        { type: "stop", lon: end.longitude, lat: end.latitude },
+      ],
+      transport: "driving",
+      route_mode: "fastest",
+      traffic_mode: "jam",
+      locale: "en",
+    },
+    {
+      points: [
+        { type: "walking", x: start.longitude, y: start.latitude },
+        { type: "walking", x: end.longitude, y: end.latitude },
+      ],
+      transport: "car",
+      route_mode: "fastest",
+      traffic_mode: "jam",
+      locale: "en",
+    },
+  ];
+  try {
+    for (const payload of payloads) {
+      const response = await fetch(`https://routing.api.2gis.com/routing/7.0.0/global?key=${encodeURIComponent(GIS_API_KEY)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        continue;
+      }
+      const data = await response.json();
+      const points = collectRoutePoints(data?.result?.[0] || data?.result || data);
+      if (points.length >= 2) {
+        return points;
+      }
+    }
+    return directRoute(start, end);
+  } catch {
+    return directRoute(start, end);
+  }
+}
+
+function collectRoutePoints(route) {
+  const points = [];
+  const add = (value) => {
+    const nextPoints = parseLineString(value);
+    if (nextPoints.length > 0) {
+      points.push(...nextPoints);
+    }
+  };
+
+  add(route?.begin_pedestrian_path?.geometry?.selection);
+  for (const maneuver of route?.maneuvers || []) {
+    add(maneuver?.outcoming_path?.geometry?.selection);
+    for (const part of maneuver?.outcoming_path?.geometry || []) {
+      add(part?.selection);
+      add(part);
+    }
+    add(maneuver?.geometry?.selection);
+    for (const part of maneuver?.geometry || []) {
+      add(part?.selection);
+      add(part);
+    }
+  }
+  add(route?.end_pedestrian_path?.geometry?.selection);
+  if (points.length === 0) {
+    collectRouteGeometry(route, add);
+  }
+
+  return dedupeRoutePoints(points);
+}
+
+function collectRouteGeometry(value, add) {
+  if (!value) {
+    return;
+  }
+  if (typeof value === "string") {
+    add(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectRouteGeometry(item, add));
+    return;
+  }
+  if (typeof value === "object") {
+    Object.values(value).forEach((item) => collectRouteGeometry(item, add));
+  }
+}
+
+function parseLineString(value) {
+  const match = String(value || "").match(/LINESTRING\s*\(([^)]+)\)/i);
+  if (!match) {
+    return [];
+  }
+  return match[1]
+    .split(",")
+    .map((pair) => {
+      const [longitude, latitude] = pair.trim().split(/\s+/).map(Number);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return null;
+      }
+      return { latitude, longitude };
+    })
+    .filter(Boolean);
+}
+
+function dedupeRoutePoints(points) {
+  const result = [];
+  for (const point of points) {
+    const prev = result[result.length - 1];
+    if (!prev || Math.abs(prev.latitude - point.latitude) > 0.000001 || Math.abs(prev.longitude - point.longitude) > 0.000001) {
+      result.push(point);
+    }
+  }
+  return result;
+}
+
+function directRoute(start, end) {
+  if (!start || !end) {
+    return null;
+  }
+  return [
+    { latitude: start.latitude, longitude: start.longitude },
+    { latitude: end.latitude, longitude: end.longitude },
+  ];
+}
+
+function pickCompletionPhoto() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/jpeg,image/png,image/webp";
+    input.onchange = () => resolve(input.files?.[0] || null);
+    input.click();
+  });
+}
+
 function formatGeocoderItem(item) {
   if (!item || String(item.type || "").startsWith("adm_div")) {
     return "";
@@ -508,6 +748,26 @@ function isBroadAddress(value) {
     normalized === "astana, esil" ||
     normalized === "астана" ||
     normalized === "astana";
+}
+
+function workerRouteLine(position, bookings) {
+  const active = (bookings || []).find((booking) => String(booking.status || "").toLowerCase() === "in_progress" && booking.latitude && booking.longitude);
+  if (!position || !active) {
+    return null;
+  }
+  return [
+    { latitude: position.latitude, longitude: position.longitude },
+    { latitude: active.latitude, longitude: active.longitude },
+  ];
+}
+
+function activeInProgressBooking(bookings) {
+  return (bookings || []).find((booking) => String(booking.status || booking.booking_status || "").toLowerCase() === "in_progress");
+}
+
+function isOpenBooking(booking) {
+  const status = String(booking?.status || booking?.booking_status || "").toLowerCase();
+  return status === "scheduled" || status === "in_progress" || status === "awaiting_confirmation";
 }
 
 async function ensureWorkerProfile(token, position) {
@@ -575,15 +835,30 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
   const [pickedPosition, setPickedPosition] = useState(null);
   const [workers, setWorkers] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
+  const [bookings, setBookings] = useState([]);
   const [description, setDescription] = useState("");
   const [address, setAddress] = useState("");
+  const [addressDraft, setAddressDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [routePoints, setRoutePoints] = useState(null);
 
   useEffect(() => {
     apiGet("/api/categories", token).then(setCategories).catch((err) => setError(err.message));
   }, [token]);
+
+  const loadCustomerBookings = useCallback(() => {
+    apiGet("/api/bookings/my", token)
+      .then((data) => setBookings(Array.isArray(data) ? data : data.bookings || []))
+      .catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    loadCustomerBookings();
+    const intervalID = window.setInterval(loadCustomerBookings, 2000);
+    return () => window.clearInterval(intervalID);
+  }, [loadCustomerBookings]);
 
   useEffect(() => {
     let cancelled = false;
@@ -591,6 +866,7 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
       reverseGeocode(position).then((nextAddress) => {
         if (!cancelled) {
           setAddress(nextAddress);
+          setAddressDraft(nextAddress);
         }
       });
     }
@@ -599,14 +875,84 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
     };
   }, [address, locationMode, position]);
 
-  const searchPosition = locationMode === "map" ? pickedPosition : position;
+  useEffect(() => {
+    const query = addressDraft.trim();
+    if (activeTab !== "find" || locationMode !== "address" || query.length < 3) {
+      return undefined;
+    }
+    let cancelled = false;
+    const timerID = window.setTimeout(async () => {
+      const result = await forwardGeocode(query);
+      if (cancelled || !result) {
+        return;
+      }
+      const nextPosition = { latitude: result.latitude, longitude: result.longitude };
+      setPickedPosition(nextPosition);
+      setAddress(result.label);
+    }, 650);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timerID);
+    };
+  }, [activeTab, addressDraft, locationMode]);
+
+  const activeCustomerBooking = bookings.find((item) => {
+    const status = String(item.status || "").toLowerCase();
+    return status === "in_progress" && item.worker_latitude && item.worker_longitude && item.latitude && item.longitude;
+  }) || bookings.find((item) => {
+    const status = String(item.status || "").toLowerCase();
+    return (status === "scheduled" || status === "awaiting_confirmation") && item.worker_latitude && item.worker_longitude;
+  });
+  const trackingWorker = activeCustomerBooking ? [{
+    worker_id: activeCustomerBooking.worker_profile_id,
+    full_name: activeCustomerBooking.counterparty_name || "Worker",
+    latitude: activeCustomerBooking.worker_latitude,
+    longitude: activeCustomerBooking.worker_longitude,
+    distance_meters: 0,
+  }] : null;
+  const customerDestination = activeCustomerBooking?.latitude && activeCustomerBooking?.longitude
+    ? { latitude: activeCustomerBooking.latitude, longitude: activeCustomerBooking.longitude }
+    : null;
+  const searchPosition = locationMode === "map" || locationMode === "address" ? pickedPosition : position;
+
+  useEffect(() => {
+    let cancelled = false;
+    const bookingStatus = String(activeCustomerBooking?.status || "").toLowerCase();
+    if (!activeCustomerBooking || !customerDestination || bookingStatus === "scheduled") {
+      setRoutePoints(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const workerPosition = {
+      latitude: activeCustomerBooking.worker_latitude,
+      longitude: activeCustomerBooking.worker_longitude,
+    };
+    buildDrivingRoute(workerPosition, customerDestination).then((points) => {
+      if (!cancelled) {
+        setRoutePoints(points);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeCustomerBooking?.booking_id,
+    activeCustomerBooking?.status,
+    activeCustomerBooking?.worker_latitude,
+    activeCustomerBooking?.worker_longitude,
+    customerDestination?.latitude,
+    customerDestination?.longitude,
+  ]);
 
   const useCurrentLocation = async () => {
     const nextPosition = await locate();
     setLocationMode("current");
     setPickedPosition(null);
     if (nextPosition) {
-      setAddress(await reverseGeocode(nextPosition));
+      const nextAddress = await reverseGeocode(nextPosition);
+      setAddress(nextAddress);
+      setAddressDraft(nextAddress);
       mapRef.current?.recenter();
     }
   };
@@ -615,7 +961,9 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
     setPickedPosition(nextPosition);
     setLocationMode("map");
     setAddress("Resolving address...");
-    setAddress(await reverseGeocode(nextPosition));
+    const nextAddress = await reverseGeocode(nextPosition);
+    setAddress(nextAddress);
+    setAddressDraft(nextAddress);
   };
 
   const searchWorkers = async () => {
@@ -668,13 +1016,14 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
         worker_profile_id: Number(worker.worker_id || worker.worker_profile_id),
       });
       setMessage(`Booking request sent to ${worker.full_name}.`);
+      loadCustomerBookings();
     } catch (err) {
       setError(err.message);
     }
   };
 
   if (activeTab === "requests") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><RequestsPanel token={token} /></CustomerPhonePage>;
-  if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} /></CustomerPhonePage>;
+  if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm /></CustomerPhonePage>;
   if (activeTab === "profile") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><CustomerProfilePanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
   if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} /></CustomerPhonePage>;
 
@@ -687,15 +1036,16 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
       <section className="proPhone customerProPhone" aria-label="Customer map workspace">
         <MapView
           ref={mapRef}
-          position={searchPosition || position}
-          workers={workers}
-          selectedWorker={selectedWorker}
+          position={customerDestination || searchPosition || position}
+          workers={trackingWorker || workers}
+          selectedWorker={trackingWorker?.[0] || selectedWorker}
           onSelectWorker={setSelectedWorker}
-          userMarker={locationMode === "map" ? "none" : "default"}
+          userMarker={locationMode === "map" || locationMode === "address" ? "none" : "default"}
           pickMode={locationMode === "map"}
           pickedPosition={pickedPosition}
           onPickPosition={pickMapPosition}
           autoCenterOnPosition={false}
+          routeLine={routePoints}
         />
         <CustomerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
@@ -722,7 +1072,11 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
                 ))}
               </select>
             </Field>
-            <Field label="Address" light><input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Arrival address" /></Field>
+            <Field label="Address" light><input value={addressDraft} onChange={(e) => {
+              setAddressDraft(e.target.value);
+              setAddress(e.target.value);
+              setLocationMode("address");
+            }} placeholder="Arrival address" /></Field>
             <Field label="Task" light><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe task" /></Field>
           </div>
           {locationMode === "map" && <p className="muted">Click on the map to choose the arrival point.</p>}
@@ -782,6 +1136,7 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
   const [bookings, setBookings] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [routePoints, setRoutePoints] = useState(null);
 
   const loadBookings = useCallback(async () => {
     setError("");
@@ -789,7 +1144,10 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
       const data = await apiGet("/api/bookings/my", token);
       const nextBookings = Array.isArray(data) ? data : data.bookings || [];
       setBookings(nextBookings);
-      if (nextBookings.length > 0) {
+      if (activeInProgressBooking(nextBookings)) {
+        setAvailable(false);
+        setSearching(false);
+      } else if (nextBookings.length > 0) {
         setSearching(false);
       }
     } catch (err) {
@@ -801,6 +1159,11 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
 
   useEffect(() => {
     loadBookings();
+  }, [loadBookings]);
+
+  useEffect(() => {
+    const intervalID = window.setInterval(loadBookings, 2000);
+    return () => window.clearInterval(intervalID);
   }, [loadBookings]);
 
   const syncLocation = useCallback(async () => {
@@ -820,8 +1183,38 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
     }
   }, [position, token]);
 
+  const currentInProgressBooking = activeInProgressBooking(bookings);
+
   useEffect(() => {
-    if (!available || !position) {
+    let cancelled = false;
+    if (!position || !currentInProgressBooking?.latitude || !currentInProgressBooking?.longitude) {
+      setRoutePoints(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const destination = {
+      latitude: currentInProgressBooking.latitude,
+      longitude: currentInProgressBooking.longitude,
+    };
+    buildDrivingRoute(position, destination).then((points) => {
+      if (!cancelled) {
+        setRoutePoints(points);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    position?.latitude,
+    position?.longitude,
+    currentInProgressBooking?.booking_id,
+    currentInProgressBooking?.latitude,
+    currentInProgressBooking?.longitude,
+  ]);
+
+  useEffect(() => {
+    if ((!available && !currentInProgressBooking) || !position) {
       return undefined;
     }
     syncLocation();
@@ -830,14 +1223,33 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
       if (searching) {
         loadBookings();
       }
-    }, 15000);
+    }, 4000);
     return () => window.clearInterval(intervalID);
-  }, [available, loadBookings, position, searching, syncLocation]);
+  }, [available, currentInProgressBooking, loadBookings, position, searching, syncLocation]);
 
   const toggleAvailability = async () => {
     setError("");
     try {
       const next = !available;
+      if (next) {
+        let nextBookings = [];
+        try {
+          const data = await apiGet("/api/bookings/my", token);
+          nextBookings = Array.isArray(data) ? data : data.bookings || [];
+        } catch (err) {
+          if (!isEmptyResultError(err)) {
+            throw err;
+          }
+        }
+        setBookings(nextBookings);
+        if (activeInProgressBooking(nextBookings)) {
+          setAvailable(false);
+          setSearching(false);
+          setMessage("Offline.");
+          setError("You already have a job in progress. Finish it before going online.");
+          return;
+        }
+      }
       try {
         await apiPatch("/api/worker/availability", token, { is_available: next });
       } catch (err) {
@@ -862,8 +1274,25 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
   const updateBooking = async (bookingID, action) => {
     setError("");
     try {
-      await apiPatch(`/api/bookings/${bookingID}/${action}`, token, {});
-      setMessage(`Booking ${action}ed.`);
+      if (action === "complete") {
+        const file = await pickCompletionPhoto();
+        if (!file) {
+          setError("Completion photo is required.");
+          return;
+        }
+        const body = new FormData();
+        body.append("evidence_file", file);
+        await apiMultipartPatch(`/api/bookings/${bookingID}/complete`, token, body);
+        setMessage("Proof photo sent. Waiting for customer confirmation.");
+      } else {
+        await apiPatch(`/api/bookings/${bookingID}/${action}`, token, {});
+        setMessage(action === "reject" ? "Booking rejected." : `Booking ${action}ed.`);
+        if (action === "start") {
+          setSearching(false);
+          setAvailable(false);
+          onNavigate("pro");
+        }
+      }
       loadBookings();
     } catch (err) {
       setError(err.message);
@@ -890,7 +1319,15 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
   return (
     <div className="proPhoneShell">
       <section className="proPhone" aria-label="Worker Pro map workspace">
-        <MapView ref={mapRef} position={position} workers={[]} selectedWorker={null} onSelectWorker={() => {}} userMarker="driver" />
+        <MapView
+          ref={mapRef}
+          position={position}
+          workers={[]}
+          selectedWorker={null}
+          onSelectWorker={() => {}}
+          userMarker="driver"
+          routeLine={routePoints}
+        />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         {available && searching && bookings.length === 0 && (
           <div className="searchPulse" aria-hidden="true">
@@ -911,7 +1348,7 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
             <button className="walletButton" onClick={() => onNavigate("jobs")}>Jobs</button>
           </div>
           <Messages message={message} error={error} />
-          <JobBoard bookings={bookings.slice(0, 2)} onProgress={updateBooking} compact />
+          <JobBoard bookings={bookings.filter(isOpenBooking).slice(0, 2)} onProgress={updateBooking} compact />
         </div>
       </section>
     </div>
@@ -1189,7 +1626,35 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
 }
 
 function RequestsPanel({ token }) {
-  return <ListPanel title="My requests" endpoint="/api/requests/my" token={token} empty="No service requests yet." />;
+  const [items, setItems] = useState([]);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    apiGet("/api/requests/my", token)
+      .then((data) => setItems(Array.isArray(data) ? data : data.requests || []))
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  return (
+    <section className="pagePanel">
+      <SectionHeader title="My requests" text="Track created service requests." />
+      <Messages error={error} />
+      <div className="requestGrid">
+        {items.length === 0 && <EmptyState title="No service requests yet" text="Requests appear here after you choose a worker." />}
+        {items.map((item) => (
+          <article className="requestCard" key={item.request_id}>
+            <div className="requestCardTop">
+              <strong>{categoryTitle(item.category_name) || `Request #${item.request_id}`}</strong>
+              <span className={`statusPill ${String(item.status || "").toLowerCase()}`}>{item.status || "pending"}</span>
+            </div>
+            <p>{item.description || "No task description"}</p>
+            {item.address && <span>{item.address}</span>}
+            <small>{formatDateTime(item.created_at)}</small>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function AdminVerificationPanel({
@@ -1234,18 +1699,37 @@ function EvidenceLinks({ value }) {
   );
 }
 
-function BookingsPanel({ token, canProgress, onProgress }) {
+function BookingsPanel({ token, canProgress, canConfirm, onProgress }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
     apiGet("/api/bookings/my", token).then((data) => setItems(Array.isArray(data) ? data : data.bookings || [])).catch((err) => setError(err.message));
   }, [token]);
+
+  useEffect(() => load(), [load]);
+
+  const confirmCompletion = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiPatch(`/api/bookings/${id}/confirm`, token, {});
+      if (result?.payment_url) {
+        window.location.href = result.payment_url;
+        return;
+      }
+      setMessage("Booking completed. Payment was created.");
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   return (
     <section className="pagePanel">
       <SectionHeader title="Bookings" text="Current and past bookings." />
-      <Messages error={error} />
+      <Messages message={message} error={error} />
       <div className="dataList">
         {items.length === 0 && <EmptyState title="No bookings" text="Bookings will appear here after customer selects a worker." />}
         {items.map((item) => (
@@ -1253,10 +1737,17 @@ function BookingsPanel({ token, canProgress, onProgress }) {
             <strong>Booking #{item.booking_id || item.id}</strong>
             <span>Status: {item.status || item.booking_status || "unknown"}</span>
             <small>{item.description || item.address || ""}</small>
+            {item.completion_evidence && <EvidenceLinks value={item.completion_evidence} />}
             {canProgress && (
               <div className="rowActions">
-                <button onClick={() => onProgress(item.booking_id || item.id, "start")}>Start</button>
-                <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "complete")}>Complete</button>
+                {String(item.status).toLowerCase() === "scheduled" && <button onClick={() => onProgress(item.booking_id || item.id, "start")}>Start</button>}
+                {String(item.status).toLowerCase() === "scheduled" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "reject")}>Reject</button>}
+                {String(item.status).toLowerCase() === "in_progress" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "complete")}>Send proof</button>}
+              </div>
+            )}
+            {canConfirm && String(item.status).toLowerCase() === "awaiting_confirmation" && (
+              <div className="rowActions">
+                <button onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
               </div>
             )}
           </article>
@@ -1404,6 +1895,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
           <span>Back to map search</span>
         </button>
       </div>
+      <PaymentMethodPanel token={token} />
       <Messages message={message} error={error} />
     </section>
   );
@@ -1530,6 +2022,64 @@ function WorkerProfilePanel({ token, onNavigate }) {
           <span>Manage skills and prices</span>
         </button>
       </div>
+      <PaymentMethodPanel token={token} />
+      <Messages message={message} error={error} />
+    </section>
+  );
+}
+
+function PaymentMethodPanel({ token, onLinked, compact = false }) {
+  const [method, setMethod] = useState(null);
+  const [last4, setLast4] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  const load = useCallback(() => {
+    apiGet("/api/payment-method", token)
+      .then((nextMethod) => setMethod({
+        ...nextMethod,
+        last4: nextMethod?.last4 || nextMethod?.card_last4 || "",
+      }))
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  useEffect(() => load(), [load]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      const updated = await apiPost("/api/payment-method", token, {
+        provider: "stripe",
+        last4,
+      });
+      setMethod({
+        has_payment_method: true,
+        ...updated,
+        last4: updated.last4 || updated.card_last4 || last4,
+      });
+      setLast4("");
+      setMessage("Card linked.");
+      onLinked?.();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <section className={compact ? "paymentGateSection" : "profileSection"}>
+      <div className="sectionTitleRow">
+        <h3>Payment card</h3>
+        {method?.has_payment_method && <span>Stripe •••• {method.last4}</span>}
+      </div>
+      <p className="muted">Required before booking or going online. Only the last 4 digits are stored here.</p>
+      <form className="inlineForm" onSubmit={submit}>
+        <Field label="Last 4 digits" light>
+          <input value={last4} onChange={(event) => setLast4(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4242" />
+        </Field>
+        <button>Link card</button>
+      </form>
       <Messages message={message} error={error} />
     </section>
   );
@@ -1695,6 +2245,22 @@ function formatMoney(value) {
   return Math.round(value).toLocaleString("ru-RU");
 }
 
+function formatDateTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function ProfileForm({ title, text, form, setForm, onSubmit, links = [], onNavigate }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -1760,6 +2326,7 @@ function JobBoard({ bookings, onProgress, compact }) {
       {bookings.length === 0 && <EmptyState title="No active jobs" text="When a customer books you, the job card appears here." />}
       {bookings.map((booking) => {
         const id = booking.booking_id || booking.id;
+        const status = String(booking.status || booking.booking_status || "pending").toLowerCase();
         return (
           <article className="jobCard" key={id}>
             <div>
@@ -1767,9 +2334,12 @@ function JobBoard({ bookings, onProgress, compact }) {
               <span>{booking.status || booking.booking_status || "pending"}</span>
             </div>
             <p>{booking.address || booking.description || "Customer task"}</p>
+            {booking.completion_evidence && <p>Proof sent: {booking.completion_evidence}</p>}
             <div className="rowActions">
-              <button onClick={() => onProgress(id, "start")}>Start</button>
-              <button className="secondaryButton" onClick={() => onProgress(id, "complete")}>Complete</button>
+              {status === "scheduled" && <button onClick={() => onProgress(id, "start")}>Start</button>}
+              {status === "scheduled" && <button className="secondaryButton" onClick={() => onProgress(id, "reject")}>Reject</button>}
+              {status === "in_progress" && <button className="secondaryButton" onClick={() => onProgress(id, "complete")}>Send proof</button>}
+              {status === "awaiting_confirmation" && <span className="lightStatus">Waiting for customer confirmation</span>}
             </div>
           </article>
         );

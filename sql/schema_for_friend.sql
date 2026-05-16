@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'booking_status') THEN
-    CREATE TYPE booking_status AS ENUM ('scheduled', 'in_progress', 'completed', 'cancelled');
+    CREATE TYPE booking_status AS ENUM ('scheduled', 'in_progress', 'completed', 'cancelled', 'awaiting_confirmation');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'experience_level') THEN
@@ -39,6 +39,7 @@ BEGIN
 END $$;
 
 ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'manager';
+ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'awaiting_confirmation';
 
 CREATE TABLE IF NOT EXISTS users (
   user_id serial PRIMARY KEY,
@@ -120,7 +121,10 @@ CREATE TABLE IF NOT EXISTS bookings (
   start_time timestamp without time zone,
   end_time timestamp without time zone,
   status booking_status DEFAULT 'scheduled',
-  final_price numeric(10, 2)
+  final_price numeric(10, 2),
+  completion_evidence text,
+  customer_confirmed boolean DEFAULT false,
+  created_at timestamp without time zone DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS payments (
@@ -225,6 +229,14 @@ CREATE TABLE IF NOT EXISTS password_resets (
   user_id integer REFERENCES users(user_id) ON DELETE CASCADE,
   token text NOT NULL UNIQUE,
   expires_at timestamp without time zone NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_payment_methods (
+  user_id integer PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  provider varchar(50) NOT NULL DEFAULT 'stripe',
+  card_last4 varchar(4) NOT NULL,
+  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_bookings_worker

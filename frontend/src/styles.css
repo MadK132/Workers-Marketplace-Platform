@@ -1130,6 +1130,13 @@ textarea {
   gap: 14px;
 }
 
+.inlineForm {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
 .sectionTitleRow {
   display: flex;
   align-items: center;
@@ -1692,6 +1699,69 @@ textarea {
 .dataRow span,
 .muted {
   color: #6f716b;
+}
+
+.requestGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.requestCard {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-height: 156px;
+  border: 1px solid #ddd4c2;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fffaf2;
+  box-shadow: 0 16px 34px rgba(16, 35, 31, 0.06);
+}
+
+.requestCardTop {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.requestCardTop strong {
+  font-size: 18px;
+}
+
+.requestCard p {
+  margin: 0;
+  color: #39413d;
+}
+
+.requestCard span,
+.requestCard small {
+  color: #6f716b;
+}
+
+.statusPill {
+  display: inline-grid;
+  min-height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #f0eadc;
+  color: #17221f;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.statusPill.accepted,
+.statusPill.in_progress {
+  background: #2e8979;
+  color: #fffaf2;
+}
+
+.statusPill.completed {
+  background: #10231f;
+  color: #fffaf2;
 }
 
 .rowActions {

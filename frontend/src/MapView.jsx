@@ -36,6 +36,7 @@ const MapView = forwardRef(function MapView({
   pickedPosition = null,
   onPickPosition,
   autoCenterOnPosition = true,
+  routeLine = null,
 }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -43,8 +44,11 @@ const MapView = forwardRef(function MapView({
   const markersRef = useRef([]);
   const userMarkerRef = useRef(null);
   const pickedMarkerRef = useRef(null);
+  const routeLineRef = useRef(null);
   const pickModeRef = useRef(pickMode);
   const onPickPositionRef = useRef(onPickPosition);
+  const userAdjustedMapRef = useRef(false);
+  const centeredWorkersRef = useRef("");
   const [mapError, setMapError] = useState("");
 
   useEffect(() => {
@@ -54,13 +58,16 @@ const MapView = forwardRef(function MapView({
 
   useImperativeHandle(ref, () => ({
     zoomIn() {
+      userAdjustedMapRef.current = true;
       setMapZoom(zoomRef.current + 1);
     },
     zoomOut() {
+      userAdjustedMapRef.current = true;
       setMapZoom(zoomRef.current - 1);
     },
     recenter() {
       if (mapRef.current && position) {
+        userAdjustedMapRef.current = false;
         mapRef.current.setCenter([position.longitude, position.latitude]);
       }
     },
@@ -123,12 +130,40 @@ const MapView = forwardRef(function MapView({
       coordinates: [pickedPosition.longitude, pickedPosition.latitude],
       zIndex: 9,
     });
+    if (!userAdjustedMapRef.current) {
+      mapRef.current.setCenter([pickedPosition.longitude, pickedPosition.latitude]);
+    }
 
     return () => {
       pickedMarkerRef.current?.destroy?.();
       pickedMarkerRef.current = null;
     };
   }, [pickedPosition]);
+
+  useEffect(() => {
+    if (!mapRef.current || !window.mapgl) {
+      return;
+    }
+    routeLineRef.current?.destroy?.();
+    routeLineRef.current = null;
+
+    const points = Array.isArray(routeLine) ? routeLine : [];
+    if (points.length < 2 || !window.mapgl.Polyline) {
+      return;
+    }
+
+    routeLineRef.current = new window.mapgl.Polyline(mapRef.current, {
+      coordinates: points.map((point) => [point.longitude, point.latitude]),
+      width: 5,
+      color: "#2e8979",
+      zIndex: 7,
+    });
+
+    return () => {
+      routeLineRef.current?.destroy?.();
+      routeLineRef.current = null;
+    };
+  }, [routeLine]);
 
   useEffect(() => {
     if (!mapRef.current || !window.mapgl || !position) {
@@ -184,11 +219,17 @@ const MapView = forwardRef(function MapView({
 
     if (workers.length > 0) {
       const first = selectedWorker || workers[0];
-      mapRef.current.setCenter([first.longitude, first.latitude]);
-      setMapZoom(14);
+      const workerKey = `${first.worker_id || ""}:${first.latitude}:${first.longitude}`;
+      if (!userAdjustedMapRef.current && centeredWorkersRef.current !== workerKey) {
+        mapRef.current.setCenter([first.longitude, first.latitude]);
+        setMapZoom(Math.max(zoomRef.current, 14));
+        centeredWorkersRef.current = workerKey;
+      }
     } else if (autoCenterOnPosition) {
-      mapRef.current.setCenter([position.longitude, position.latitude]);
-      setMapZoom(13);
+      if (!userAdjustedMapRef.current) {
+        mapRef.current.setCenter([position.longitude, position.latitude]);
+        setMapZoom(zoomRef.current || 13);
+      }
     }
   }, [workers, selectedWorker, position, onSelectWorker, autoCenterOnPosition]);
 

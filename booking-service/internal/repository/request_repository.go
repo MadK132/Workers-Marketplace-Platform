@@ -16,6 +16,7 @@ type RequestListItem struct {
 	CategoryID   int       `json:"category_id"`
 	CategoryName string    `json:"category_name"`
 	Description  string    `json:"description"`
+	Address      string    `json:"address"`
 	Status       string    `json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 }
@@ -56,6 +57,7 @@ func (r *RequestRepository) ListByCustomerProfile(
 			sr.category_id,
 			COALESCE(sc.name, '') AS category_name,
 			COALESCE(sr.description, '') AS description,
+			COALESCE(sr.address, '') AS address,
 			sr.status,
 			sr.created_at
 		FROM service_requests sr
@@ -76,6 +78,7 @@ func (r *RequestRepository) ListByCustomerProfile(
 			&item.CategoryID,
 			&item.CategoryName,
 			&item.Description,
+			&item.Address,
 			&item.Status,
 			&item.CreatedAt,
 		); err != nil {

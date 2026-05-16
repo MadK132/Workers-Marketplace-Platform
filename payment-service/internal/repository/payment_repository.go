@@ -30,6 +30,29 @@ func NewPaymentRepository(db *pgxpool.Pool) *PaymentRepository {
 	return &PaymentRepository{db: db}
 }
 
+func (r *PaymentRepository) EnsureTable(ctx context.Context) error {
+	_, err := r.db.Exec(ctx, `
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_status') THEN
+				CREATE TYPE payment_status AS ENUM ('pending', 'completed', 'failed', 'refunded');
+			END IF;
+		END $$;
+
+		CREATE TABLE IF NOT EXISTS payments (
+			payment_id serial PRIMARY KEY,
+			booking_id integer UNIQUE REFERENCES bookings(booking_id) ON DELETE RESTRICT,
+			amount numeric(10, 2),
+			currency character(3) DEFAULT 'KZT',
+			payment_status payment_status DEFAULT 'pending',
+			payment_method varchar(50),
+			transaction_reference varchar(255),
+			paid_at timestamp without time zone
+		)
+	`)
+	return err
+}
+
 func (r *PaymentRepository) Create(
 	ctx context.Context,
 	bookingID int,

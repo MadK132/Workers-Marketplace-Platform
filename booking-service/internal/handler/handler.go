@@ -14,18 +14,21 @@ type Handler struct {
 	requestService *service.RequestService
 	bookingService *service.BookingService
 	userClient     *client.UserClient
+	paymentClient  *client.PaymentClient
 }
 
 func NewHandler(
 	requestService *service.RequestService,
 	bookingService *service.BookingService,
 	userClient *client.UserClient,
+	paymentClient *client.PaymentClient,
 
 ) *Handler {
 	return &Handler{
 		requestService: requestService,
 		bookingService: bookingService,
 		userClient:     userClient,
+		paymentClient:  paymentClient,
 	}
 }
 

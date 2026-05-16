@@ -24,7 +24,7 @@ type BookingService interface {
 	ListCustomerBookings(ctx context.Context, customerProfileID int) ([]repository.BookingListItem, error)
 	ListWorkerBookings(ctx context.Context, workerProfileID int) ([]repository.BookingListItem, error)
 	StartBooking(ctx context.Context, bookingID int, workerProfileID int) error
-	CompleteBooking(ctx context.Context, bookingID int, workerProfileID int) error
+	CompleteBooking(ctx context.Context, bookingID int, workerProfileID int, evidence string) error
 }
 
 type Server struct {
@@ -165,7 +165,7 @@ func (s *Server) CompleteBooking(
 		return nil, status.Error(codes.InvalidArgument, "booking_id and worker_profile_id must be positive")
 	}
 
-	err := s.bookings.CompleteBooking(ctx, int(req.GetBookingId()), int(req.GetWorkerProfileId()))
+	err := s.bookings.CompleteBooking(ctx, int(req.GetBookingId()), int(req.GetWorkerProfileId()), "Completed via gRPC")
 	if err != nil {
 		return nil, bookingError(err)
 	}
