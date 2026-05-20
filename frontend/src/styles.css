@@ -1047,6 +1047,24 @@ textarea {
   align-content: start;
 }
 
+.profileRating {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  color: #10231f;
+}
+
+.profileRating strong {
+  color: #ffd900;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 0 #10231f;
+}
+
+.profileRating span {
+  color: #6f716b;
+  font-weight: 750;
+}
+
 .profilePhoto {
   position: relative;
   display: grid;
@@ -1104,7 +1122,7 @@ textarea {
 
 .profileStatsGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
 
@@ -1774,13 +1792,53 @@ textarea {
   min-height: 38px;
 }
 
+.reviewForm {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  border-top: 1px solid #eee3d2;
+  padding-top: 10px;
+}
+
+.starPicker {
+  display: flex;
+  gap: 4px;
+}
+
+.starPicker button {
+  min-width: 34px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: #f0eadc;
+  color: #6f716b;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.starPicker button.active {
+  background: #ffd900;
+  color: #10231f;
+}
+
+.reviewForm textarea {
+  min-height: 86px;
+}
+
+.readOnlyReview p {
+  margin: 0;
+  color: #1d2924;
+  white-space: pre-wrap;
+}
+
 .messageList {
   display: grid;
   align-content: start;
   gap: 8px;
   min-height: 260px;
   max-height: 54vh;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 10px;
   border: 1px solid #e2d9c8;
   border-radius: 8px;
@@ -1795,10 +1853,163 @@ textarea {
   border-radius: 8px;
   padding: 10px 12px;
   background: #fffaf2;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chatBubble.own {
+  justify-self: end;
+  background: #e9f5ef;
+}
+
+.chatBubble small {
+  color: #6f716b;
+  font-weight: 800;
+}
+
+.chatBubble a {
+  color: #2e7d6f;
+  font-weight: 850;
 }
 
 .chatBubble span {
   color: #39413d;
+}
+
+.chatMeta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  color: #8a8d87;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.chatMeta span {
+  color: #8a8d87;
+  font-size: 13px;
+  letter-spacing: -2px;
+}
+
+.chatMeta span.read {
+  color: #2b9de8;
+}
+
+.chatAttachment.media,
+.chatAttachment.file {
+  display: inline-grid;
+}
+
+.chatAttachment.media img,
+.chatAttachment.video {
+  display: block;
+  width: min(340px, 100%);
+  max-height: 260px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #10231f;
+}
+
+.chatAttachment.file {
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f0eadc;
+}
+
+.chatPage {
+  min-height: 72vh;
+}
+
+.chatLayout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.34fr) minmax(0, 1fr);
+  gap: 14px;
+  min-height: 520px;
+}
+
+.chatList {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  overflow: auto;
+}
+
+.chatList button {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  border: 1px solid #ddd4c2;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffaf2;
+  color: #10231f;
+  text-align: left;
+}
+
+.chatList button.active {
+  border-color: #2e7d6f;
+  box-shadow: 0 12px 26px rgba(16, 35, 31, 0.08);
+}
+
+.chatList span {
+  color: #6f716b;
+  font-size: 13px;
+}
+
+.chatConversation {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  min-width: 0;
+}
+
+.priceComposer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid #e2d9c8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fffaf2;
+}
+
+.priceDecision {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #e2d9c8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffaf2;
+}
+
+.priceDecision > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.priceDecision span {
+  color: #6f716b;
+}
+
+.chatComposer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.chatComposer textarea {
+  min-height: 54px;
+  max-height: 120px;
+}
+
+.chatFileButton {
+  min-height: 54px;
 }
 
 .jsonBox,
@@ -1885,6 +2096,20 @@ textarea {
   color: #6f716b;
 }
 
+.ratingLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  color: #10231f;
+  font-weight: 850;
+}
+
+.ratingLine small {
+  color: #6f716b;
+  font-weight: 700;
+}
+
 .workerMeta {
   display: flex;
   flex-wrap: wrap;
@@ -1898,6 +2123,90 @@ textarea {
   color: #39413d;
   font-size: 13px;
   font-weight: 700;
+}
+
+.reviewPreviewList {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #eee3d2;
+  padding-top: 8px;
+}
+
+.reviewPreview {
+  display: grid;
+  gap: 3px;
+  border-radius: 8px;
+  padding: 8px;
+  background: #f8f1e6;
+}
+
+.reviewPreview span {
+  color: #6f716b;
+  font-size: 13px;
+}
+
+.reviewPreview p {
+  margin: 0;
+}
+
+.notificationToastStack {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 10000;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.notificationToast {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding: 14px 42px 14px 16px;
+  border: 1px solid #d4c7b4;
+  border-radius: 8px;
+  background: rgba(255, 250, 242, 0.96);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.16);
+  pointer-events: auto;
+}
+
+.notificationToast strong {
+  color: #061f1a;
+}
+
+.notificationToast span {
+  color: #58615b;
+  line-height: 1.35;
+}
+
+.notificationToast button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #efe7d8;
+  color: #061f1a;
+  font-size: 14px;
+}
+
+.notificationToast .notificationToastAction {
+  position: static;
+  width: auto;
+  height: auto;
+  justify-self: start;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #2e7d6f;
+  color: #fffaf2;
+  font-size: 14px;
+  font-weight: 850;
 }
 
 .emptyState {
@@ -1939,6 +2248,7 @@ textarea {
   .dashboardShell,
   .customerGrid,
   .customerSearchGrid,
+  .chatLayout,
   .adminActionGrid,
   .adminTwoColumn,
   .proLayout,
@@ -2081,6 +2391,14 @@ textarea {
   }
 
   .workerList {
+    grid-template-columns: 1fr;
+  }
+
+  .chatComposer {
+    grid-template-columns: 1fr;
+  }
+
+  .priceComposer {
     grid-template-columns: 1fr;
   }
 }

@@ -15,7 +15,7 @@ var (
 )
 
 type NotificationRepository interface {
-	Create(ctx context.Context, userID int, notificationType string, title string, message string) (model.Notification, error)
+	Create(ctx context.Context, userID int, notificationType string, title string, message string, actionType string, actionRef string, actionLabel string) (model.Notification, error)
 	ListByUser(ctx context.Context, userID int, limit int, onlyUnread bool) ([]model.Notification, error)
 	MarkRead(ctx context.Context, notificationID int, userID int) (model.Notification, error)
 	MarkAllRead(ctx context.Context, userID int) (int64, error)
@@ -35,19 +35,25 @@ func (s *NotificationService) Create(
 	notificationType string,
 	title string,
 	message string,
+	actionType string,
+	actionRef string,
+	actionLabel string,
 ) (model.Notification, error) {
 	notificationType = strings.TrimSpace(notificationType)
 	title = strings.TrimSpace(title)
 	message = strings.TrimSpace(message)
+	actionType = strings.TrimSpace(actionType)
+	actionRef = strings.TrimSpace(actionRef)
+	actionLabel = strings.TrimSpace(actionLabel)
 
 	if userID <= 0 || title == "" || message == "" {
 		return model.Notification{}, ErrInvalidInput
 	}
-	if len(notificationType) > 50 || len(title) > 255 {
+	if len(notificationType) > 50 || len(title) > 255 || len(actionType) > 50 || len(actionRef) > 255 || len(actionLabel) > 100 {
 		return model.Notification{}, ErrInvalidInput
 	}
 
-	return s.repo.Create(ctx, userID, notificationType, title, message)
+	return s.repo.Create(ctx, userID, notificationType, title, message, actionType, actionRef, actionLabel)
 }
 
 func (s *NotificationService) ListByUser(

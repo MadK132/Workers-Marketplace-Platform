@@ -74,7 +74,9 @@ func Setup(
 }
 
 func isBookingPath(path string) bool {
-	return strings.HasPrefix(path, "/requests") || strings.HasPrefix(path, "/bookings")
+	return strings.HasPrefix(path, "/requests") ||
+		strings.HasPrefix(path, "/bookings") ||
+		strings.HasPrefix(path, "/reviews")
 }
 
 func isChatPath(path string) bool {

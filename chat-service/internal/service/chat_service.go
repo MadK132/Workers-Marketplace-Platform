@@ -86,15 +86,31 @@ func (s *ChatService) SendMessage(
 	senderUserID int64,
 	content string,
 ) (model.Message, error) {
+	return s.SendMessageWithAttachment(ctx, chatID, senderUserID, content, "", "", "")
+}
+
+func (s *ChatService) SendMessageWithAttachment(
+	ctx context.Context,
+	chatID int64,
+	senderUserID int64,
+	content string,
+	attachmentURL string,
+	attachmentName string,
+	attachmentType string,
+) (model.Message, error) {
 	content = strings.TrimSpace(content)
-	if chatID <= 0 || senderUserID <= 0 || content == "" {
+	attachmentURL = strings.TrimSpace(attachmentURL)
+	if chatID <= 0 || senderUserID <= 0 || (content == "" && attachmentURL == "") {
 		return model.Message{}, ErrInvalidInput
+	}
+	if content == "" {
+		content = "Attachment"
 	}
 	if len([]rune(content)) > 4000 {
 		return model.Message{}, ErrMessageTooLong
 	}
 
-	return s.repo.CreateMessage(ctx, chatID, senderUserID, content)
+	return s.repo.CreateMessage(ctx, chatID, senderUserID, content, attachmentURL, attachmentName, attachmentType)
 }
 
 func (s *ChatService) ListMessages(
@@ -123,4 +139,8 @@ func (s *ChatService) MarkRead(ctx context.Context, chatID int64, userID int64) 
 	}
 
 	return s.repo.MarkRead(ctx, chatID, userID)
+}
+
+func (s *ChatService) GetChatForUser(ctx context.Context, chatID int64, userID int64) (model.Chat, error) {
+	return s.GetChat(ctx, chatID, userID)
 }

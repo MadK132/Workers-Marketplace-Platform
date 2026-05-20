@@ -15,6 +15,8 @@ type NearbyWorker struct {
 	Latitude        float64 `json:"latitude"`
 	Longitude       float64 `json:"longitude"`
 	DistanceMeters  float64 `json:"distance_meters"`
+	AverageRating   float64 `json:"average_rating"`
+	ReviewCount     int     `json:"review_count"`
 }
 
 type GeolocationRepository struct {
@@ -39,16 +41,23 @@ func (r *GeolocationRepository) FindNearbyWorkers(
 		SELECT
 			wp.worker_profile_id,
 			u.full_name,
-			ws.price_base,
+			COALESCE(ws.price_base, 0)::int,
 			ws.experience_level,
 			sc.name,
 			wp.current_latitude::float8,
 			wp.current_longitude::float8,
-			ST_Distance(wp.current_location, origin.point)::float8 AS distance_meters
+			ST_Distance(wp.current_location, origin.point)::float8 AS distance_meters,
+			COALESCE(review_stats.average_rating, 0)::float8 AS average_rating,
+			COALESCE(review_stats.review_count, 0)::int AS review_count
 		FROM worker_profiles wp
 		JOIN users u ON u.user_id = wp.user_id
 		JOIN worker_skills ws ON ws.worker_profile_id = wp.worker_profile_id
 		JOIN service_categories sc ON sc.category_id = ws.category_id
+		LEFT JOIN (
+			SELECT worker_profile_id, ROUND(AVG(rating)::numeric, 2) AS average_rating, COUNT(*) AS review_count
+			FROM reviews
+			GROUP BY worker_profile_id
+		) review_stats ON review_stats.worker_profile_id = wp.worker_profile_id
 		CROSS JOIN origin
 		WHERE ws.category_id = $1
 		  AND ws.is_verified = true
@@ -56,7 +65,7 @@ func (r *GeolocationRepository) FindNearbyWorkers(
 		  AND wp.is_available = true
 		  AND wp.current_location IS NOT NULL
 		  AND ST_DWithin(wp.current_location, origin.point, $4)
-		ORDER BY distance_meters ASC, ws.price_base ASC
+		ORDER BY distance_meters ASC, review_stats.average_rating DESC NULLS LAST
 	`, categoryID, latitude, longitude, radiusMeters)
 	if err != nil {
 		return nil, err
@@ -75,6 +84,8 @@ func (r *GeolocationRepository) FindNearbyWorkers(
 			&worker.Latitude,
 			&worker.Longitude,
 			&worker.DistanceMeters,
+			&worker.AverageRating,
+			&worker.ReviewCount,
 		); err != nil {
 			return nil, err
 		}

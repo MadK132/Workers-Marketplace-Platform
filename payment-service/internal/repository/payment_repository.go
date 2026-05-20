@@ -187,9 +187,9 @@ func (r *PaymentRepository) UpdateStatus(
 	err := r.db.QueryRow(ctx, `
 		UPDATE payments
 		SET
-			payment_status = $2,
+			payment_status = $2::payment_status,
 			transaction_reference = COALESCE(NULLIF($3, ''), transaction_reference),
-			paid_at = CASE WHEN $2 = 'completed' THEN NOW() ELSE paid_at END
+			paid_at = CASE WHEN $2::text = 'completed' THEN NOW() ELSE paid_at END
 		WHERE payment_id = $1
 		RETURNING
 			payment_id,
@@ -232,8 +232,8 @@ func (r *PaymentRepository) UpdateStatusByTransactionReference(
 	err := r.db.QueryRow(ctx, `
 		UPDATE payments
 		SET
-			payment_status = $2,
-			paid_at = CASE WHEN $2 = 'completed' THEN NOW() ELSE paid_at END
+			payment_status = $2::payment_status,
+			paid_at = CASE WHEN $2::text = 'completed' THEN NOW() ELSE paid_at END
 		WHERE transaction_reference = $1
 		RETURNING
 			payment_id,

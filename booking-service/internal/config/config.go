@@ -7,13 +7,14 @@ import (
 )
 
 type Config struct {
-	DB      DBConfig
-	HTTP    HTTPConfig
-	GRPC    GRPCConfig
-	JWT     JWTConfig
-	Gateway GatewayConfig
-	User    UserServiceConfig
-	Payment PaymentServiceConfig
+	DB           DBConfig
+	HTTP         HTTPConfig
+	GRPC         GRPCConfig
+	JWT          JWTConfig
+	Gateway      GatewayConfig
+	User         UserServiceConfig
+	Payment      PaymentServiceConfig
+	Notification NotificationServiceConfig
 }
 
 type HTTPConfig struct {
@@ -32,6 +33,10 @@ type PaymentServiceConfig struct {
 	GRPCAddress string
 	Provider    string
 	Currency    string
+}
+
+type NotificationServiceConfig struct {
+	URL string
 }
 
 type JWTConfig struct {
@@ -75,6 +80,9 @@ func Load() Config {
 			GRPCAddress: getEnv("PAYMENT_GRPC_ADDR", "localhost:9096"),
 			Provider:    getEnv("PAYMENT_PROVIDER", "stripe"),
 			Currency:    getEnv("PAYMENT_CURRENCY", "KZT"),
+		},
+		Notification: NotificationServiceConfig{
+			URL: getEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8085"),
 		},
 	}
 }

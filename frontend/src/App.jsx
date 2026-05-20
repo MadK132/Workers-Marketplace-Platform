@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { apiDelete, apiGet, apiMultipart, apiMultipartPatch, apiPatch, apiPost, apiURL } from "./api.js";
+import { apiDelete, apiGet, apiMultipart, apiMultipartPatch, apiPatch, apiPost, apiURL, wsURL } from "./api.js";
 import MapView from "./MapView.jsx";
 import WorkerList from "./WorkerList.jsx";
 import { useGeolocation } from "./useGeolocation.js";
@@ -20,12 +20,14 @@ const roleTabs = {
     ["find", "Search"],
     ["requests", "Requests"],
     ["bookings", "Bookings"],
+    ["chats", "Chat"],
     ["profile", "Profile"],
     ["notifications", "Alerts"],
   ],
   worker: [
     ["pro", "Map"],
     ["jobs", "Jobs"],
+    ["chats", "Chat"],
     ["skills", "Services"],
     ["profile", "Profile"],
     ["notifications", "Alerts"],
@@ -53,6 +55,29 @@ export default function App() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
   const session = useMemo(() => decodeToken(token), [token]);
+  const { toastNotifications, dismissToastNotification } = useNotificationFeed(token);
+
+  const openToastAction = useCallback(async (item) => {
+    if (!token) {
+      return;
+    }
+    if (item.action_type === "booking_chat" && item.action_ref) {
+      const chat = await apiPost("/api/chats", token, { booking_id: Number(item.action_ref) });
+      if (chat?.chat_id) {
+        localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
+      }
+      setActiveTab("chats");
+    } else if (item.action_type === "chat" && item.action_ref) {
+      localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
+      setActiveTab("chats");
+    }
+    const id = item.notification_id || item.id;
+    if (id) {
+      await apiPatch(`/api/notifications/${id}/read`, token, {}).catch(() => {});
+      dismissToastNotification(notificationID(item));
+      window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
+    }
+  }, [dismissToastNotification, token]);
 
   const saveSession = useCallback((nextToken, fallbackRole) => {
     const nextRole = readRole(nextToken) || fallbackRole || "";
@@ -219,45 +244,54 @@ export default function App() {
 
   if (role === "customer") {
     return (
-      <main className="workerFullscreen">
-        <CustomerApp
-          token={token}
-          activeTab={activeTab}
-          onNavigate={setActiveTab}
-          onSignOut={signOut}
-          paymentReady={paymentReady}
-          paymentLoading={paymentLoading}
-          paymentError={paymentError}
-          onStartPaymentSetup={startPaymentSetup}
-        />
-      </main>
+      <>
+        <main className="workerFullscreen">
+          <CustomerApp
+            token={token}
+            activeTab={activeTab}
+            onNavigate={setActiveTab}
+            onSignOut={signOut}
+            paymentReady={paymentReady}
+            paymentLoading={paymentLoading}
+            paymentError={paymentError}
+            onStartPaymentSetup={startPaymentSetup}
+          />
+        </main>
+        <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+      </>
     );
   }
 
   if (role === "worker") {
     return (
-      <main className="workerFullscreen">
-        <WorkerApp
-          token={token}
-          activeTab={activeTab}
-          onNavigate={setActiveTab}
-          onSignOut={signOut}
-          paymentReady={paymentReady}
-          paymentLoading={paymentLoading}
-          paymentError={paymentError}
-          onStartPaymentSetup={startPaymentSetup}
-        />
-      </main>
+      <>
+        <main className="workerFullscreen">
+          <WorkerApp
+            token={token}
+            activeTab={activeTab}
+            onNavigate={setActiveTab}
+            onSignOut={signOut}
+            paymentReady={paymentReady}
+            paymentLoading={paymentLoading}
+            paymentError={paymentError}
+            onStartPaymentSetup={startPaymentSetup}
+          />
+        </main>
+        <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+      </>
     );
   }
 
   return (
-    <AppFrame role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
-      {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={setActiveTab} />}
-      {!["customer", "worker", "admin", "manager"].includes(role) && (
-        <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
-      )}
-    </AppFrame>
+    <>
+      <AppFrame role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
+        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={setActiveTab} />}
+        {!["customer", "worker", "admin", "manager"].includes(role) && (
+          <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
+        )}
+      </AppFrame>
+      <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+    </>
   );
 }
 
@@ -829,6 +863,11 @@ function isOpenBooking(booking) {
   return status === "scheduled" || status === "in_progress" || status === "awaiting_confirmation";
 }
 
+function canChatBooking(booking) {
+  const status = String(booking?.status || booking?.booking_status || "").toLowerCase();
+  return status === "price_pending" || status === "scheduled" || status === "in_progress" || status === "awaiting_confirmation";
+}
+
 async function ensureWorkerProfile(token, position) {
   await apiPost("/api/worker/profile", token, {
     bio: "",
@@ -1111,11 +1150,19 @@ function CustomerApp({
         latitude: searchPosition.latitude,
         longitude: searchPosition.longitude,
       });
-      await apiPost("/api/bookings", token, {
+      const booking = await apiPost("/api/bookings", token, {
         request_id: Number(request.request_id || request.id),
         worker_profile_id: Number(worker.worker_id || worker.worker_profile_id),
       });
-      setMessage(`Booking request sent to ${worker.full_name}.`);
+      const bookingID = booking.booking_id || booking.id;
+      if (bookingID) {
+        const chat = await apiPost("/api/chats", token, { booking_id: Number(bookingID) });
+        if (chat?.chat_id) {
+          localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
+        }
+        onNavigate("chats");
+      }
+      setMessage(`Chat opened with ${worker.full_name}. Agree on the price before booking starts.`);
       loadCustomerBookings();
     } catch (err) {
       setError(err.message);
@@ -1134,9 +1181,10 @@ function CustomerApp({
   }, [activeTab, paymentReady]);
 
   if (activeTab === "requests") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><RequestsPanel token={token} /></CustomerPhonePage>;
-  if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm /></CustomerPhonePage>;
+  if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} /></CustomerPhonePage>;
+  if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" /></CustomerPhonePage>;
   if (activeTab === "profile") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><CustomerProfilePanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
-  if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} /></CustomerPhonePage>;
+  if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
 
   if (!position) {
     return <CustomerLocationGate geoStatus={geoStatus} geoError={geoError} onAllow={startWatch} onSignOut={onSignOut} />;
@@ -1193,7 +1241,7 @@ function CustomerApp({
           {locationMode === "map" && <p className="muted">Click on the map to choose the arrival point.</p>}
           <StatusLine geoStatus={geoStatus} geoError={geoError} />
           <Messages message={message} error={error} />
-          <WorkerList workers={workers} selectedWorker={selectedWorker} onSelectWorker={setSelectedWorker} onHireWorker={hireWorker} loading={loading} />
+          <WorkerList workers={workers} selectedWorker={selectedWorker} onSelectWorker={setSelectedWorker} onHireWorker={hireWorker} loading={loading} token={token} />
         </div>
       </section>
     </div>
@@ -1429,7 +1477,10 @@ function WorkerApp({
   };
 
   if (activeTab === "jobs") {
-    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canProgress onProgress={updateBooking} /></WorkerPhonePage>;
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canProgress onProgress={updateBooking} onNavigate={onNavigate} /></WorkerPhonePage>;
+  }
+  if (activeTab === "chats") {
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="worker" /></WorkerPhonePage>;
   }
   if (activeTab === "skills") {
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><WorkerSkillsPanel token={token} /></WorkerPhonePage>;
@@ -1438,7 +1489,7 @@ function WorkerApp({
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><WorkerProfilePanel token={token} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
   if (activeTab === "notifications") {
-    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} /></WorkerPhonePage>;
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
 
   if (!position) {
@@ -1548,7 +1599,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     }
   }, [activeTab, loadOverview, loadUsers]);
 
-  if (activeTab === "notifications") return <NotificationsPanel token={token} />;
+  if (activeTab === "notifications") return <NotificationsPanel token={token} onNavigate={onNavigate} />;
 
   const verifySkill = async (id) => {
     setError("");
@@ -1828,7 +1879,7 @@ function EvidenceLinks({ value }) {
   );
 }
 
-function BookingsPanel({ token, canProgress, canConfirm, onProgress }) {
+function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -1855,6 +1906,21 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress }) {
     }
   };
 
+  const openChat = async (bookingID) => {
+    setError("");
+    setMessage("");
+    try {
+      const chat = await apiPost("/api/chats", token, { booking_id: Number(bookingID) });
+      if (chat?.chat_id) {
+        localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
+      }
+      setMessage("Chat opened.");
+      onNavigate?.("chats");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
     <section className="pagePanel">
       <SectionHeader title="Bookings" text="Current and past bookings." />
@@ -1865,19 +1931,29 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress }) {
           <article className="dataRow" key={item.booking_id || item.id}>
             <strong>Booking #{item.booking_id || item.id}</strong>
             <span>Status: {item.status || item.booking_status || "unknown"}</span>
+            <span>Price: {item.final_price ? `${formatMoney(parseMoney(item.final_price))} KZT` : "set in chat"}</span>
             <small>{item.description || item.address || ""}</small>
             {item.completion_evidence && <EvidenceLinks value={item.completion_evidence} />}
             {canProgress && (
               <div className="rowActions">
+                <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
                 {String(item.status).toLowerCase() === "scheduled" && <button onClick={() => onProgress(item.booking_id || item.id, "start")}>Start</button>}
                 {String(item.status).toLowerCase() === "scheduled" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "reject")}>Reject</button>}
                 {String(item.status).toLowerCase() === "in_progress" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "complete")}>Send proof</button>}
+              </div>
+            )}
+            {canConfirm && canChatBooking(item) && (
+              <div className="rowActions">
+                <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
               </div>
             )}
             {canConfirm && String(item.status).toLowerCase() === "awaiting_confirmation" && (
               <div className="rowActions">
                 <button onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
               </div>
+            )}
+            {canConfirm && String(item.status).toLowerCase() === "completed" && (
+              <BookingReviewBlock item={item} token={token} onSaved={load} />
             )}
           </article>
         ))}
@@ -1886,7 +1962,368 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress }) {
   );
 }
 
-function NotificationsPanel({ token }) {
+function BookingReviewBlock({ item, token, onSaved }) {
+  const [rating, setRating] = useState(item.review_rating || 5);
+  const [comment, setComment] = useState(item.review_comment || "");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const saveReview = async () => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost(`/api/bookings/${item.booking_id || item.id}/review`, token, {
+        rating: Number(rating),
+        comment,
+      });
+      setMessage("Review saved.");
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  if (item.review_id) {
+    return (
+      <div className="reviewForm readOnlyReview">
+        <div className="sectionTitleRow">
+          <strong>Your review</strong>
+          <span>{renderStars(item.review_rating || rating)}</span>
+        </div>
+        <p>{item.review_comment || comment || "No comment."}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="reviewForm">
+      <div className="sectionTitleRow">
+        <strong>Rate the worker</strong>
+        <span>{renderStars(rating)}</span>
+      </div>
+      <div className="starPicker" role="group" aria-label="Worker rating">
+        {[1, 2, 3, 4, 5].map((value) => (
+          <button
+            key={value}
+            type="button"
+            className={value <= rating ? "active" : ""}
+            onClick={() => setRating(value)}
+            aria-label={`${value} stars`}
+          >
+            ★
+          </button>
+        ))}
+      </div>
+      <textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Write what went well and what could be better..." />
+      <button className="secondaryButton" type="button" onClick={saveReview}>
+        Send review
+      </button>
+      <Messages message={message} error={error} />
+    </div>
+  );
+}
+
+function ChatPanel({ token, role }) {
+  const [chats, setChats] = useState([]);
+  const [activeChatID, setActiveChatID] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [bookings, setBookings] = useState([]);
+  const [content, setContent] = useState("");
+  const [attachment, setAttachment] = useState(null);
+  const [priceDraft, setPriceDraft] = useState("");
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const currentUserID = useMemo(() => tokenUserID(token), [token]);
+  const activeChat = useMemo(
+    () => chats.find((chat) => String(chat.chat_id) === String(activeChatID)),
+    [activeChatID, chats],
+  );
+  const activeBooking = useMemo(
+    () => bookings.find((booking) => String(booking.booking_id || booking.id) === String(activeChat?.booking_id)),
+    [activeChat?.booking_id, bookings],
+  );
+  const activeBookingStatus = String(activeBooking?.status || activeBooking?.booking_status || "").toLowerCase();
+  const activeBookingPrice = parseMoney(activeBooking?.final_price || 0);
+  const messagesEndRef = useRef(null);
+
+  const loadChats = useCallback(() => {
+    setError("");
+    apiGet("/api/chats", token)
+      .then((data) => {
+        const next = Array.isArray(data) ? data : data.chats || [];
+        setChats(next);
+        const storedID = localStorage.getItem("workers_marketplace_active_chat");
+        const selectedID = storedID && next.some((chat) => String(chat.chat_id) === storedID)
+          ? storedID
+          : String(next[0]?.chat_id || "");
+        setActiveChatID((current) => current || selectedID);
+      })
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  const loadBookings = useCallback(() => {
+    apiGet("/api/bookings/my", token)
+      .then((data) => setBookings(Array.isArray(data) ? data : data.bookings || []))
+      .catch(() => setBookings([]));
+  }, [token]);
+
+  const loadMessages = useCallback((chatID) => {
+    if (!chatID) {
+      setMessages([]);
+      return;
+    }
+    apiGet(`/api/chats/${chatID}/messages`, token)
+      .then((data) => setMessages(Array.isArray(data) ? data : data.messages || []))
+      .then(() => apiPatch(`/api/chats/${chatID}/read`, token, {}))
+      .then(() => loadChats())
+      .catch((err) => setError(err.message));
+  }, [loadChats, token]);
+
+  useEffect(() => {
+    loadChats();
+    loadBookings();
+  }, [loadBookings, loadChats]);
+
+  useEffect(() => {
+    loadMessages(activeChatID);
+    if (activeChatID) {
+      localStorage.setItem("workers_marketplace_active_chat", String(activeChatID));
+    }
+  }, [activeChatID, loadMessages]);
+
+  useEffect(() => {
+    if (!activeChatID) return undefined;
+    const socket = new WebSocket(wsURL(`/api/chats/${activeChatID}/ws`, token));
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        if (payload.type === "message.created" && payload.message) {
+          setMessages((current) => [...current.filter((msg) => msg.message_id !== payload.message.message_id), payload.message]);
+          loadBookings();
+          loadChats();
+        }
+      } catch {
+        // Ignore malformed realtime payloads; REST refresh still keeps chat usable.
+      }
+    };
+    socket.onerror = () => {
+      // REST polling below keeps chat usable when WebSocket is unavailable on deploy.
+    };
+    return () => socket.close();
+  }, [activeChatID, loadBookings, loadChats, token]);
+
+  useEffect(() => {
+    if (!activeChatID) return undefined;
+    const intervalID = window.setInterval(() => {
+      loadMessages(activeChatID);
+      loadChats();
+      loadBookings();
+    }, 4000);
+    return () => window.clearInterval(intervalID);
+  }, [activeChatID, loadBookings, loadChats, loadMessages]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
+
+  const postChatText = async (text) => {
+    if (!activeChatID) return null;
+    const sent = await apiPost(`/api/chats/${activeChatID}/messages`, token, { content: text });
+    setMessages((current) => [...current.filter((msg) => msg.message_id !== sent.message_id), sent]);
+    return sent;
+  };
+
+  const send = async (event) => {
+    event.preventDefault();
+    if (!activeChatID) return;
+    setError("");
+    setMessage("");
+    try {
+      let sent;
+      if (attachment) {
+        const body = new FormData();
+        body.append("content", content);
+        body.append("attachment", attachment);
+        sent = await apiMultipart(`/api/chats/${activeChatID}/messages`, token, body);
+      } else {
+        sent = await apiPost(`/api/chats/${activeChatID}/messages`, token, { content });
+      }
+      setMessages((current) => [...current.filter((msg) => msg.message_id !== sent.message_id), sent]);
+      setContent("");
+      setAttachment(null);
+      setMessage("Message sent.");
+      loadChats();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const setBookingPrice = async (event) => {
+    event.preventDefault();
+    if (!activeChat?.booking_id) return;
+    const amount = Number(String(priceDraft).replace(/\s/g, "").replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a positive booking price.");
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/bookings/${activeChat.booking_id}/price`, token, { final_price: amount });
+      const priceText = `Booking price set: ${Math.round(amount).toLocaleString("ru-RU")} KZT`;
+      await postChatText(priceText);
+      loadBookings();
+      setPriceDraft("");
+      setMessage("Price sent. Waiting for customer confirmation.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const acceptPrice = async () => {
+    if (!activeChat?.booking_id) return;
+    const priceText = activeBookingPrice > 0 ? `${formatMoney(activeBookingPrice)} KZT` : "this price";
+    if (!window.confirm(`Are you sure you want to accept ${priceText}?`)) {
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/bookings/${activeChat.booking_id}/price/accept`, token, {});
+      await postChatText(`Price accepted: ${priceText}`);
+      loadBookings();
+      loadChats();
+      setMessage("Price accepted. Worker selected and booking is active.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const rejectPrice = async () => {
+    if (!activeChat?.booking_id) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/bookings/${activeChat.booking_id}/price/reject`, token, {});
+      await postChatText("Price rejected.");
+      loadBookings();
+      loadChats();
+      setMessage("Price rejected. The worker can send a new price in this chat.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const canWorkerSetPrice = role === "worker" && (activeBookingStatus === "price_pending" || activeBookingStatus === "scheduled");
+  const canCustomerDecidePrice = role === "customer" && activeBookingStatus === "price_pending";
+
+  return (
+    <section className="pagePanel chatPage">
+      <SectionHeader title="Chat" text="Talk about details, timing and proof files." />
+      <Messages message={message} error={error} />
+      <div className="chatLayout">
+        <aside className="chatList">
+          {chats.length === 0 && <EmptyState title="No chats yet" text="Open a chat from a booking card." />}
+          {chats.map((chat) => (
+            <button
+              key={chat.chat_id}
+              className={String(activeChatID) === String(chat.chat_id) ? "active" : ""}
+              type="button"
+              onClick={() => setActiveChatID(String(chat.chat_id))}
+            >
+              <strong>Booking #{chat.booking_id}</strong>
+              <span>{chat.unread_count ? `${chat.unread_count} unread` : chat.status}</span>
+            </button>
+          ))}
+        </aside>
+        <div className="chatConversation">
+          {canWorkerSetPrice && (
+            <form className="priceComposer" onSubmit={setBookingPrice}>
+              <Field label="Booking price, KZT" light>
+                <input value={priceDraft} onChange={(event) => setPriceDraft(event.target.value)} inputMode="numeric" placeholder="Set price in this chat" />
+              </Field>
+              <button disabled={!activeChatID}>Set price</button>
+            </form>
+          )}
+          {canCustomerDecidePrice && (
+            <div className="priceDecision">
+              <div>
+                <strong>{activeBookingPrice > 0 ? `${formatMoney(activeBookingPrice)} KZT` : "Waiting for worker price"}</strong>
+                <span>{activeBookingPrice > 0 ? "Accept the price to select this worker and activate the booking." : "Discuss details in chat first."}</span>
+              </div>
+              {activeBookingPrice > 0 && (
+                <div className="rowActions">
+                  <button type="button" onClick={acceptPrice}>Accept price</button>
+                  <button className="secondaryButton" type="button" onClick={rejectPrice}>Reject</button>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="messageList">
+            {!activeChatID && <EmptyState title="Choose chat" text="Select a booking chat on the left." />}
+            {messages.map((msg) => (
+              <ChatBubble key={msg.message_id} msg={msg} own={Number(msg.sender_user_id) === Number(currentUserID)} />
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+          <form className="chatComposer" onSubmit={send}>
+            <textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write a message..." />
+            <label className="fileButton chatFileButton">
+              Attach
+              <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
+            </label>
+            <button disabled={!activeChatID || (!content.trim() && !attachment)}>Send</button>
+            {attachment && <span className="muted">{attachment.name}</span>}
+          </form>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ChatBubble({ msg, own }) {
+  return (
+    <article className={own ? "chatBubble own" : "chatBubble"}>
+      <small>{own ? "You" : "Partner"}</small>
+      {msg.content && !(msg.attachment_url && msg.content === "Attachment") && <span>{msg.content}</span>}
+      {msg.attachment_url && (
+        <AttachmentPreview msg={msg} />
+      )}
+      <footer className="chatMeta">
+        <time dateTime={msg.created_at || msg.createdAt || ""}>{formatChatTime(msg.created_at || msg.createdAt)}</time>
+        {own && <span className={msg.read_at || msg.readAt ? "read" : ""}>{msg.read_at || msg.readAt ? "✓✓" : "✓"}</span>}
+      </footer>
+    </article>
+  );
+}
+
+function AttachmentPreview({ msg }) {
+  const url = apiURL(msg.attachment_url);
+  const type = String(msg.attachment_type || "").toLowerCase();
+  const name = msg.attachment_name || "Open attachment";
+  const lowerURL = url.toLowerCase();
+  if (type.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/i.test(lowerURL)) {
+    return (
+      <a className="chatAttachment media" href={url} target="_blank" rel="noreferrer">
+        <img src={url} alt={name} />
+      </a>
+    );
+  }
+  if (type.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(lowerURL)) {
+    return (
+      <video className="chatAttachment video" controls preload="metadata">
+        <source src={url} type={msg.attachment_type || undefined} />
+      </video>
+    );
+  }
+  return (
+    <a className="chatAttachment file" href={url} target="_blank" rel="noreferrer">
+      {name}
+    </a>
+  );
+}
+
+function NotificationsPanel({ token, onNavigate }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
 
@@ -1894,11 +2331,42 @@ function NotificationsPanel({ token }) {
     apiGet("/api/notifications", token).then((data) => setItems(Array.isArray(data) ? data : data.notifications || [])).catch((err) => setError(err.message));
   }, [token]);
 
-  useEffect(() => load(), [load]);
+  useEffect(() => {
+    load();
+    const intervalID = window.setInterval(load, 5000);
+    window.addEventListener("wm-notifications-updated", load);
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener("wm-notifications-updated", load);
+    };
+  }, [load]);
 
   const markAll = async () => {
     await apiPatch("/api/notifications/read-all", token, {});
     load();
+  };
+
+  const openAction = async (item) => {
+    setError("");
+    try {
+      if (item.action_type === "booking_chat" && item.action_ref) {
+        const chat = await apiPost("/api/chats", token, { booking_id: Number(item.action_ref) });
+        if (chat?.chat_id) {
+          localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
+        }
+        onNavigate?.("chats");
+      } else if (item.action_type === "chat" && item.action_ref) {
+        localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
+        onNavigate?.("chats");
+      }
+      const id = item.notification_id || item.id;
+      if (id) {
+        await apiPatch(`/api/notifications/${id}/read`, token, {}).catch(() => {});
+      }
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
   };
 
   return (
@@ -1912,11 +2380,93 @@ function NotificationsPanel({ token }) {
           <article className="dataRow" key={item.notification_id || item.id}>
             <strong>{item.title || item.type || "Notification"}</strong>
             <span>{item.message || item.body || ""}</span>
+            {item.action_type && (
+              <button className="secondaryButton fitButton" type="button" onClick={() => openAction(item)}>
+                {item.action_label || "Open"}
+              </button>
+            )}
           </article>
         ))}
       </div>
     </section>
   );
+}
+
+function useNotificationFeed(token) {
+  const [toastNotifications, setToastNotifications] = useState([]);
+  const seenRef = useRef(new Set());
+
+  const dismissToastNotification = useCallback((id) => {
+    setToastNotifications((current) => current.filter((item) => notificationID(item) !== id));
+  }, []);
+
+  useEffect(() => {
+    if (!token) {
+      seenRef.current = new Set();
+      setToastNotifications([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await apiGet("/api/notifications?limit=10&unread=true", token);
+        const items = Array.isArray(data) ? data : data.notifications || [];
+        const fresh = items.filter((item) => {
+          const id = notificationID(item);
+          if (!id || seenRef.current.has(id)) {
+            return false;
+          }
+          seenRef.current.add(id);
+          return true;
+        });
+        if (!cancelled && fresh.length > 0) {
+          setToastNotifications((current) => [...fresh, ...current].slice(0, 5));
+          window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
+        }
+      } catch {
+        // Toast polling must never break the main interface.
+      }
+    };
+
+    load();
+    const intervalID = window.setInterval(load, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalID);
+    };
+  }, [token]);
+
+  return { toastNotifications, dismissToastNotification };
+}
+
+function NotificationToasts({ items, onDismiss, onAction }) {
+  if (!items.length) {
+    return null;
+  }
+  return (
+    <div className="notificationToastStack" aria-live="polite">
+      {items.map((item) => {
+        const id = notificationID(item);
+        return (
+          <article className="notificationToast" key={id}>
+            <button type="button" aria-label="Dismiss notification" onClick={() => onDismiss(id)}>x</button>
+            <strong>{item.title || item.type || "Notification"}</strong>
+            <span>{item.message || item.body || ""}</span>
+            {item.action_type && (
+              <button className="notificationToastAction" type="button" onClick={() => onAction?.(item)}>
+                {item.action_label || "Open"}
+              </button>
+            )}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function notificationID(item) {
+  return item?.notification_id || item?.id || `${item?.type || "notification"}-${item?.created_at || item?.title || ""}`;
 }
 
 function CustomerProfilePanel({ token, onNavigate }) {
@@ -2105,6 +2655,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
       <div className="profileStatsGrid">
         <StatCard title="This week" value={formatMoney(stats.weekTotal) + " KZT"} text={stats.weekCompleted + " completed jobs"} />
         <StatCard title="This month" value={formatMoney(stats.monthTotal) + " KZT"} text={stats.monthCompleted + " completed jobs"} />
+        <StatCard title="Rating" value={renderStars(profile?.rating || 0)} text={`${Number(profile?.rating || 0).toFixed(1)} average from customer reviews`} />
         <StatCard title="Average check" value={formatMoney(stats.average) + " KZT"} text="Completed jobs this month" />
       </div>
       <section className="profileSection">
@@ -2132,7 +2683,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
           {(profile?.verified_skills || []).map((skill) => (
             <article className="verifiedSkillCard" key={skill.worker_skill_id}>
               <strong>{categoryTitle(skill.category_name)}</strong>
-              <span>{skill.experience_level} - from {skill.price_base} KZT</span>
+              <span>{skill.experience_level} - price agreed in chat</span>
             </article>
           ))}
         </div>
@@ -2148,7 +2699,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
         </button>
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("skills")}>
           <strong>Services</strong>
-          <span>Manage skills and prices</span>
+          <span>Manage verified skills</span>
         </button>
       </div>
       <PaymentMethodPanel token={token} />
@@ -2257,7 +2808,7 @@ function WorkerSkillsPanel({ token }) {
       const body = new FormData();
       body.append("category_id", form.category_id);
       body.append("experience_level", form.experience_level);
-      body.append("price_base", form.price);
+      body.append("price_base", form.price || "0");
       body.append("evidence_note", form.evidence_note);
       files.forEach((file) => body.append("evidence_files", file));
       await apiMultipart("/api/worker/skills", token, body);
@@ -2270,7 +2821,7 @@ function WorkerSkillsPanel({ token }) {
 
   return (
     <section className="pagePanel skillsPage">
-      <SectionHeader title="Services" text="Choose a category, level, base price and attach qualification evidence." />
+      <SectionHeader title="Services" text="Choose a category, level and attach qualification evidence. Price is agreed in chat for each booking." />
       <div className="skillStatusGrid">
         <article className="skillStatusCard">
           <span>Verification</span>
@@ -2292,9 +2843,6 @@ function WorkerSkillsPanel({ token }) {
             ))}
           </div>
         </div>
-        <Field label="Price from, KZT" light>
-          <input value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} inputMode="numeric" placeholder="15000" required />
-        </Field>
         <button>Add service</button>
         <Field label="Qualification evidence" light>
           <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
@@ -2380,6 +2928,34 @@ function parseMoney(value) {
 
 function formatMoney(value) {
   return Math.round(value).toLocaleString("ru-RU");
+}
+
+function formatChatTime(value) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderStars(value) {
+  const rating = Math.round(Number(value) || 0);
+  return "★★★★★".split("").map((star, index) => index < rating ? star : "☆").join("");
+}
+
+function tokenUserID(token) {
+  try {
+    const payload = token?.split(".")?.[1];
+    if (!payload) return 0;
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")));
+    return Number(decoded.user_id || decoded.userId || decoded.sub || 0);
+  } catch {
+    return 0;
+  }
 }
 
 function formatDateTime(value) {

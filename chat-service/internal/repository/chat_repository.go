@@ -46,6 +46,9 @@ func (r *ChatRepository) EnsureSchema(ctx context.Context) error {
 			chat_id BIGINT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
 			sender_user_id BIGINT NOT NULL,
 			content TEXT NOT NULL CHECK (char_length(content) BETWEEN 1 AND 4000),
+			attachment_url TEXT,
+			attachment_name TEXT,
+			attachment_type TEXT,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			read_at TIMESTAMPTZ
 		)`,
@@ -78,6 +81,9 @@ func (r *ChatRepository) EnsureSchema(ctx context.Context) error {
 		END $$`,
 		`UPDATE chat_messages SET content = '[migrated empty message]' WHERE content IS NULL`,
 		`ALTER TABLE chat_messages ALTER COLUMN content SET NOT NULL`,
+		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_url TEXT`,
+		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_name TEXT`,
+		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_type TEXT`,
 		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
 		`ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ`,
 		`CREATE INDEX IF NOT EXISTS idx_chats_customer_user_id ON chats(customer_user_id)`,
@@ -154,6 +160,10 @@ func (r *ChatRepository) UpsertChat(
 }
 
 func (r *ChatRepository) ListByUser(ctx context.Context, userID int64) ([]model.Chat, error) {
+	if err := r.deleteCancelledChats(ctx); err != nil {
+		return nil, err
+	}
+
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			c.chat_id,
@@ -171,7 +181,9 @@ func (r *ChatRepository) ListByUser(ctx context.Context, userID int64) ([]model.
 				  AND m.read_at IS NULL
 			) AS unread_count
 		FROM chats c
-		WHERE c.customer_user_id = $1 OR c.worker_user_id = $1
+		JOIN bookings b ON b.booking_id = c.booking_id
+		WHERE (c.customer_user_id = $1 OR c.worker_user_id = $1)
+		  AND b.status <> 'cancelled'
 		ORDER BY c.updated_at DESC, c.chat_id DESC
 	`, userID)
 	if err != nil {
@@ -210,11 +222,13 @@ func (r *ChatRepository) GetByIDForUser(
 ) (model.Chat, error) {
 	var chat model.Chat
 	err := r.db.QueryRow(ctx, `
-		SELECT chat_id, booking_id, customer_user_id, worker_user_id,
-			status, created_at, updated_at
-		FROM chats
-		WHERE chat_id = $1
-		  AND (customer_user_id = $2 OR worker_user_id = $2)
+		SELECT c.chat_id, c.booking_id, c.customer_user_id, c.worker_user_id,
+			c.status, c.created_at, c.updated_at
+		FROM chats c
+		JOIN bookings b ON b.booking_id = c.booking_id
+		WHERE c.chat_id = $1
+		  AND (c.customer_user_id = $2 OR c.worker_user_id = $2)
+		  AND b.status <> 'cancelled'
 	`, chatID, userID).Scan(
 		&chat.ChatID,
 		&chat.BookingID,
@@ -239,32 +253,42 @@ func (r *ChatRepository) CreateMessage(
 	chatID int64,
 	senderUserID int64,
 	content string,
+	attachmentURL string,
+	attachmentName string,
+	attachmentType string,
 ) (model.Message, error) {
 	var msg model.Message
 	err := r.db.QueryRow(ctx, `
 		WITH allowed_chat AS (
-			SELECT chat_id
-			FROM chats
-			WHERE chat_id = $1
-			  AND status = 'active'
-			  AND (customer_user_id = $2 OR worker_user_id = $2)
+			SELECT c.chat_id
+			FROM chats c
+			JOIN bookings b ON b.booking_id = c.booking_id
+			WHERE c.chat_id = $1
+			  AND c.status = 'active'
+			  AND (c.customer_user_id = $2 OR c.worker_user_id = $2)
+			  AND b.status <> 'cancelled'
 		), inserted AS (
-			INSERT INTO chat_messages (chat_id, sender_user_id, content)
-			SELECT chat_id, $2, $3
+			INSERT INTO chat_messages (chat_id, sender_user_id, content, attachment_url, attachment_name, attachment_type)
+			SELECT chat_id, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, '')
 			FROM allowed_chat
-			RETURNING message_id, chat_id, sender_user_id, content, created_at, read_at
+			RETURNING message_id, chat_id, sender_user_id, content, attachment_url, attachment_name, attachment_type, created_at, read_at
 		), touched AS (
 			UPDATE chats
 			SET updated_at = NOW()
 			WHERE chat_id IN (SELECT chat_id FROM inserted)
 		)
-		SELECT message_id, chat_id, sender_user_id, content, created_at, read_at
+		SELECT message_id, chat_id, sender_user_id, content,
+			COALESCE(attachment_url, ''), COALESCE(attachment_name, ''), COALESCE(attachment_type, ''),
+			created_at, read_at
 		FROM inserted
-	`, chatID, senderUserID, content).Scan(
+	`, chatID, senderUserID, content, attachmentURL, attachmentName, attachmentType).Scan(
 		&msg.MessageID,
 		&msg.ChatID,
 		&msg.SenderUserID,
 		&msg.Content,
+		&msg.AttachmentURL,
+		&msg.AttachmentName,
+		&msg.AttachmentType,
 		&msg.CreatedAt,
 		&msg.ReadAt,
 	)
@@ -287,11 +311,14 @@ func (r *ChatRepository) ListMessages(
 ) ([]model.Message, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT m.message_id, m.chat_id, m.sender_user_id, m.content,
+			COALESCE(m.attachment_url, ''), COALESCE(m.attachment_name, ''), COALESCE(m.attachment_type, ''),
 			m.created_at, m.read_at
 		FROM chat_messages m
 		JOIN chats c ON c.chat_id = m.chat_id
+		JOIN bookings b ON b.booking_id = c.booking_id
 		WHERE m.chat_id = $1
 		  AND (c.customer_user_id = $2 OR c.worker_user_id = $2)
+		  AND b.status <> 'cancelled'
 		  AND ($3::BIGINT = 0 OR m.message_id < $3)
 		ORDER BY m.message_id DESC
 		LIMIT $4
@@ -309,6 +336,9 @@ func (r *ChatRepository) ListMessages(
 			&msg.ChatID,
 			&msg.SenderUserID,
 			&msg.Content,
+			&msg.AttachmentURL,
+			&msg.AttachmentName,
+			&msg.AttachmentType,
 			&msg.CreatedAt,
 			&msg.ReadAt,
 		); err != nil {
@@ -348,4 +378,14 @@ func (r *ChatRepository) MarkRead(
 	}
 
 	return tag.RowsAffected(), nil
+}
+
+func (r *ChatRepository) deleteCancelledChats(ctx context.Context) error {
+	_, err := r.db.Exec(ctx, `
+		DELETE FROM chats c
+		USING bookings b
+		WHERE c.booking_id = b.booking_id
+		  AND b.status = 'cancelled'
+	`)
+	return err
 }

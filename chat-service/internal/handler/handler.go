@@ -7,8 +7,11 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"diploma/chat-service/internal/client"
+	"diploma/chat-service/internal/filestorage"
 	"diploma/chat-service/internal/model"
 	"diploma/chat-service/internal/realtime"
 	"diploma/chat-service/internal/repository"
@@ -19,21 +22,24 @@ import (
 )
 
 type Handler struct {
-	service   *chatservice.ChatService
-	hub       *realtime.Hub
-	publisher realtime.Publisher
-	upgrader  websocket.Upgrader
+	service       *chatservice.ChatService
+	hub           *realtime.Hub
+	publisher     realtime.Publisher
+	notifications *client.NotificationClient
+	upgrader      websocket.Upgrader
 }
 
 func NewHandler(
 	service *chatservice.ChatService,
 	hub *realtime.Hub,
 	publisher realtime.Publisher,
+	notifications *client.NotificationClient,
 ) *Handler {
 	return &Handler{
-		service:   service,
-		hub:       hub,
-		publisher: publisher,
+		service:       service,
+		hub:           hub,
+		publisher:     publisher,
+		notifications: notifications,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -115,19 +121,51 @@ func (h *Handler) SendMessage(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Content string `json:"content"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
-		return
+	content := ""
+	attachmentURL := ""
+	attachmentName := ""
+	attachmentType := ""
+
+	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
+		content = strings.TrimSpace(c.PostForm("content"))
+		file, err := c.FormFile("attachment")
+		if err == nil {
+			url, err := filestorage.SaveUploadedFile(c.Request.Context(), file, filestorage.SaveOptions{
+				Prefix:  "chat-attachments",
+				MaxSize: 12 * 1024 * 1024,
+				AllowedExts: map[string]bool{
+					".jpg": true, ".jpeg": true, ".png": true, ".webp": true,
+					".mp4": true, ".mov": true, ".webm": true,
+					".pdf": true, ".doc": true, ".docx": true, ".txt": true,
+				},
+			})
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			attachmentURL = url
+			attachmentName = file.Filename
+			attachmentType = file.Header.Get("Content-Type")
+		}
+	} else {
+		var req struct {
+			Content string `json:"content"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+			return
+		}
+		content = req.Content
 	}
 
-	msg, err := h.service.SendMessage(
+	msg, err := h.service.SendMessageWithAttachment(
 		c.Request.Context(),
 		chatID,
 		currentUserID(c),
-		req.Content,
+		content,
+		attachmentURL,
+		attachmentName,
+		attachmentType,
 	)
 	if err != nil {
 		respondError(c, err)
@@ -135,6 +173,7 @@ func (h *Handler) SendMessage(c *gin.Context) {
 	}
 
 	h.publishMessage(c.Request.Context(), msg.ChatID, msg)
+	h.notifyChatRecipient(c.Request.Context(), chatID, currentUserID(c), msg)
 	c.JSON(http.StatusCreated, msg)
 }
 
@@ -211,6 +250,7 @@ func (h *Handler) readPump(conn *websocket.Conn, client *realtime.Client) {
 				continue
 			}
 			h.publishMessage(context.Background(), msg.ChatID, msg)
+			h.notifyChatRecipient(context.Background(), client.ChatID, client.UserID, msg)
 		default:
 			sendClientEvent(client, realtime.Event{
 				Type:   "error",
@@ -219,6 +259,29 @@ func (h *Handler) readPump(conn *websocket.Conn, client *realtime.Client) {
 			})
 		}
 	}
+}
+
+func (h *Handler) notifyChatRecipient(ctx context.Context, chatID int64, senderUserID int64, msg model.Message) {
+	if h.notifications == nil {
+		return
+	}
+	chat, err := h.service.GetChatForUser(ctx, chatID, senderUserID)
+	if err != nil {
+		log.Printf("chat notification skipped for chat %d: %v", chatID, err)
+		return
+	}
+	recipientID := chat.CustomerUserID
+	if recipientID == senderUserID {
+		recipientID = chat.WorkerUserID
+	}
+	text := strings.TrimSpace(msg.Content)
+	if msg.AttachmentURL != "" {
+		text = "New file in chat"
+	}
+	if text == "" {
+		text = "New message"
+	}
+	h.notifications.CreateAction(ctx, recipientID, "chat_message", "New chat message", text, "chat", strconv.FormatInt(chatID, 10), "Open chat")
 }
 
 func (h *Handler) writePump(conn *websocket.Conn, client *realtime.Client) {

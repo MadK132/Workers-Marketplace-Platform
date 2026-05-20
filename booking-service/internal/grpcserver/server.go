@@ -20,7 +20,7 @@ type RequestService interface {
 }
 
 type BookingService interface {
-	CreateBooking(ctx context.Context, requestID int, workerProfileID int, customerProfileID int) error
+	CreateBooking(ctx context.Context, requestID int, workerProfileID int, customerProfileID int) (int, error)
 	ListCustomerBookings(ctx context.Context, customerProfileID int) ([]repository.BookingListItem, error)
 	ListWorkerBookings(ctx context.Context, workerProfileID int) ([]repository.BookingListItem, error)
 	StartBooking(ctx context.Context, bookingID int, workerProfileID int) error
@@ -96,7 +96,7 @@ func (s *Server) CreateBooking(
 		return nil, status.Error(codes.InvalidArgument, "request_id, worker_profile_id and customer_profile_id must be positive")
 	}
 
-	err := s.bookings.CreateBooking(
+	_, err := s.bookings.CreateBooking(
 		ctx,
 		int(req.GetRequestId()),
 		int(req.GetWorkerProfileId()),

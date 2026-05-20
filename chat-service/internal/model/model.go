@@ -14,10 +14,13 @@ type Chat struct {
 }
 
 type Message struct {
-	MessageID    int64      `json:"message_id"`
-	ChatID       int64      `json:"chat_id"`
-	SenderUserID int64      `json:"sender_user_id"`
-	Content      string     `json:"content"`
-	CreatedAt    time.Time  `json:"created_at"`
-	ReadAt       *time.Time `json:"read_at,omitempty"`
+	MessageID      int64      `json:"message_id"`
+	ChatID         int64      `json:"chat_id"`
+	SenderUserID   int64      `json:"sender_user_id"`
+	Content        string     `json:"content"`
+	AttachmentURL  string     `json:"attachment_url,omitempty"`
+	AttachmentName string     `json:"attachment_name,omitempty"`
+	AttachmentType string     `json:"attachment_type,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	ReadAt         *time.Time `json:"read_at,omitempty"`
 }

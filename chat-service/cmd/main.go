@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"diploma/chat-service/internal/auth"
+	"diploma/chat-service/internal/client"
 	"diploma/chat-service/internal/config"
 	"diploma/chat-service/internal/db"
 	"diploma/chat-service/internal/handler"
@@ -76,7 +77,8 @@ func main() {
 
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret)
 	chatService := chatservice.NewChatService(chatRepo)
-	chatHandler := handler.NewHandler(chatService, hub, publisher)
+	notificationClient := client.NewNotificationClient(cfg.Notification.URL, cfg.Gateway.SharedSecret)
+	chatHandler := handler.NewHandler(chatService, hub, publisher, notificationClient)
 	r := router.SetupRouter(chatHandler, tokenManager, cfg.Gateway.SharedSecret)
 
 	server := &http.Server{

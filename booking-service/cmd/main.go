@@ -58,8 +58,12 @@ func main() {
 		cfg.Payment.Provider,
 		cfg.Payment.Currency,
 	)
+	notificationClient := client.NewNotificationClient(
+		cfg.Notification.URL,
+		cfg.Gateway.SharedSecret,
+	)
 
-	h := handler.NewHandler(requestService, bookingService, userClient, paymentClient)
+	h := handler.NewHandler(requestService, bookingService, userClient, paymentClient, notificationClient)
 	r := router.SetupRouter(h, tokenManager, cfg.Gateway.SharedSecret)
 
 	grpcListener, err := net.Listen("tcp", ":"+cfg.GRPC.Port)

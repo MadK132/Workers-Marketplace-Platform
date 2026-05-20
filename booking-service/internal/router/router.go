@@ -26,6 +26,11 @@ func SetupRouter(
 		api.PATCH("/bookings/:booking_id/reject", h.RejectBooking)
 		api.PATCH("/bookings/:booking_id/complete", h.CompleteBooking)
 		api.PATCH("/bookings/:booking_id/confirm", h.ConfirmCompletion)
+		api.PATCH("/bookings/:booking_id/price", h.SetBookingPrice)
+		api.PATCH("/bookings/:booking_id/price/accept", h.AcceptBookingPrice)
+		api.PATCH("/bookings/:booking_id/price/reject", h.RejectBookingPrice)
+		api.POST("/bookings/:booking_id/review", h.CreateReview)
+		api.GET("/reviews/workers/:worker_profile_id", h.ListWorkerReviews)
 	}
 
 	return r

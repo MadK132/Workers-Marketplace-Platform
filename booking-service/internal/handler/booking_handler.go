@@ -60,7 +60,7 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		return
 	}
 
-	err = h.bookingService.CreateBooking(
+	bookingID, err := h.bookingService.CreateBooking(
 		c.Request.Context(),
 		req.RequestID,
 		req.WorkerProfileID,
@@ -81,8 +81,11 @@ func (h *Handler) CreateBooking(c *gin.Context) {
 		return
 	}
 
+	h.notifyWorkerChatAction(c.Request.Context(), bookingID, "booking_created", "New request", "A customer opened a chat and is waiting for your price.")
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "booking created",
+		"message":    "booking created",
+		"booking_id": bookingID,
 	})
 }
 
@@ -120,6 +123,7 @@ func (h *Handler) StartBooking(c *gin.Context) {
 		}
 		return
 	}
+	h.notifyCustomer(c.Request.Context(), bookingID, "booking_started", "Booking started", "The worker has started the job and is on the way.")
 	c.JSON(http.StatusOK, gin.H{"message": "booking started"})
 }
 
@@ -189,6 +193,8 @@ func (h *Handler) CompleteBooking(c *gin.Context) {
 		return
 	}
 
+	h.notifyCustomer(c.Request.Context(), bookingID, "completion_evidence", "Completion evidence sent", "The worker sent completion evidence. Please review and confirm if everything is done.")
+
 	c.JSON(http.StatusOK, gin.H{"message": "completion evidence sent; waiting for customer confirmation"})
 }
 
@@ -226,6 +232,8 @@ func (h *Handler) RejectBooking(c *gin.Context) {
 		}
 		return
 	}
+
+	h.notifyCustomer(c.Request.Context(), bookingID, "booking_rejected", "Booking rejected", "The worker declined the booking. You can choose another worker.")
 
 	c.JSON(http.StatusOK, gin.H{"message": "booking rejected"})
 }
@@ -278,10 +286,232 @@ func (h *Handler) ConfirmCompletion(c *gin.Context) {
 		return
 	}
 
+	h.notifyWorker(c.Request.Context(), bookingID, "booking_completed", "Booking completed", "The customer confirmed completion and payment was created.")
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":        "booking completed; payment created",
 		"payment_id":     payment.PaymentID,
 		"payment_status": payment.Status,
 		"payment_url":    payment.URL,
 	})
+}
+
+func (h *Handler) SetBookingPrice(c *gin.Context) {
+	bookingID, err := strconv.Atoi(c.Param("booking_id"))
+	if err != nil || bookingID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking_id"})
+		return
+	}
+
+	var req struct {
+		FinalPrice float64 `json:"final_price"`
+		Amount     float64 `json:"amount"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	amount := req.FinalPrice
+	if amount == 0 {
+		amount = req.Amount
+	}
+
+	role := c.GetString("role")
+	token := c.GetHeader("Authorization")
+	switch role {
+	case "customer":
+		customerProfileID, err := h.userClient.GetCustomerProfile(c.Request.Context(), token)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		err = h.bookingService.SetFinalPriceForCustomer(c.Request.Context(), bookingID, customerProfileID, amount)
+	case "worker":
+		workerProfileID, err := h.userClient.GetWorkerProfile(c.Request.Context(), token)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		err = h.bookingService.SetFinalPriceForWorker(c.Request.Context(), bookingID, workerProfileID, amount)
+	default:
+		c.JSON(http.StatusForbidden, gin.H{"error": "only customers and workers allowed"})
+		return
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBookingNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrBookingNotCustomer),
+			errors.Is(err, service.ErrBookingNotOwned):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrInvalidTransition),
+			errors.Is(err, service.ErrPriceInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	if role == "worker" {
+		h.notifyCustomer(c.Request.Context(), bookingID, "price_set", "Price offered", "The worker sent a price. Open chat to accept or reject it.")
+	} else if role == "customer" {
+		h.notifyWorker(c.Request.Context(), bookingID, "price_updated", "Price updated", "The customer updated the booking price.")
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":     "booking price updated",
+		"final_price": amount,
+	})
+}
+
+func (h *Handler) AcceptBookingPrice(c *gin.Context) {
+	bookingID, err := strconv.Atoi(c.Param("booking_id"))
+	if err != nil || bookingID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking_id"})
+		return
+	}
+	if c.GetString("role") != "customer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only customers allowed"})
+		return
+	}
+
+	token := c.GetHeader("Authorization")
+	customerProfileID, err := h.userClient.GetCustomerProfile(c.Request.Context(), token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err = h.bookingService.AcceptBookingPrice(c.Request.Context(), bookingID, customerProfileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBookingNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrBookingNotCustomer):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrInvalidTransition),
+			errors.Is(err, service.ErrPaymentAmountInvalid):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	h.notifyWorker(c.Request.Context(), bookingID, "price_accepted", "Price accepted", "The customer accepted your price. You can start the booking.")
+
+	c.JSON(http.StatusOK, gin.H{"message": "booking price accepted"})
+}
+
+func (h *Handler) RejectBookingPrice(c *gin.Context) {
+	bookingID, err := strconv.Atoi(c.Param("booking_id"))
+	if err != nil || bookingID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking_id"})
+		return
+	}
+	if c.GetString("role") != "customer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only customers allowed"})
+		return
+	}
+
+	token := c.GetHeader("Authorization")
+	customerProfileID, err := h.userClient.GetCustomerProfile(c.Request.Context(), token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err = h.bookingService.RejectBookingPrice(c.Request.Context(), bookingID, customerProfileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBookingNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrBookingNotCustomer):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrInvalidTransition):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	h.notifyWorker(c.Request.Context(), bookingID, "price_rejected", "Price rejected", "The customer rejected your price. You can send a new price in the same chat.")
+
+	c.JSON(http.StatusOK, gin.H{"message": "booking price rejected"})
+}
+
+func (h *Handler) CreateReview(c *gin.Context) {
+	bookingID, err := strconv.Atoi(c.Param("booking_id"))
+	if err != nil || bookingID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking_id"})
+		return
+	}
+
+	if c.GetString("role") != "customer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only customers allowed"})
+		return
+	}
+
+	var req struct {
+		Rating  int    `json:"rating"`
+		Comment string `json:"comment"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	token := c.GetHeader("Authorization")
+	customerProfileID, err := h.userClient.GetCustomerProfile(c.Request.Context(), token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	reviewID, err := h.bookingService.CreateReview(
+		c.Request.Context(),
+		bookingID,
+		customerProfileID,
+		req.Rating,
+		strings.TrimSpace(req.Comment),
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBookingNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrBookingNotCustomer):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrInvalidTransition),
+			errors.Is(err, service.ErrReviewInvalidRating):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	h.notifyWorker(c.Request.Context(), bookingID, "review_created", "New review", "The customer left a review for this booking.")
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "review saved",
+		"review_id": reviewID,
+	})
+}
+
+func (h *Handler) ListWorkerReviews(c *gin.Context) {
+	workerProfileID, err := strconv.Atoi(c.Param("worker_profile_id"))
+	if err != nil || workerProfileID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid worker_profile_id"})
+		return
+	}
+
+	reviews, err := h.bookingService.ListWorkerReviews(c.Request.Context(), workerProfileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, reviews)
 }

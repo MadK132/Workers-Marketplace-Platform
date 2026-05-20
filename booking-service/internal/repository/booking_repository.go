@@ -21,10 +21,16 @@ type BookingDetails struct {
 	RequestID       int
 	WorkerProfileID int
 	Status          string
+	FinalPrice      *float64
 }
 
 type BookingPaymentData struct {
 	Amount float64
+}
+
+type BookingUsers struct {
+	CustomerUserID int
+	WorkerUserID   int
 }
 
 type BookingListItem struct {
@@ -49,6 +55,28 @@ type BookingListItem struct {
 	WorkerLongitude    *float64   `json:"worker_longitude,omitempty"`
 	CompletionEvidence *string    `json:"completion_evidence,omitempty"`
 	CustomerConfirmed  bool       `json:"customer_confirmed"`
+	ReviewID           *int       `json:"review_id,omitempty"`
+	ReviewRating       *int       `json:"review_rating,omitempty"`
+	ReviewComment      *string    `json:"review_comment,omitempty"`
+	ReviewCreatedAt    *time.Time `json:"review_created_at,omitempty"`
+}
+
+type WorkerReview struct {
+	ReviewID        int       `json:"review_id"`
+	BookingID       int       `json:"booking_id"`
+	WorkerProfileID int       `json:"worker_profile_id"`
+	CustomerName    string    `json:"customer_name"`
+	CategoryName    string    `json:"category_name"`
+	Rating          int       `json:"rating"`
+	Comment         string    `json:"comment"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type WorkerReviewSummary struct {
+	WorkerProfileID int            `json:"worker_profile_id"`
+	AverageRating   float64        `json:"average_rating"`
+	ReviewCount     int            `json:"review_count"`
+	Reviews         []WorkerReview `json:"reviews"`
 }
 
 type BookingRepository struct {
@@ -62,10 +90,20 @@ func NewBookingRepository(db *pgxpool.Pool) *BookingRepository {
 func (r *BookingRepository) EnsureWorkflowColumns(ctx context.Context) error {
 	_, err := r.db.Exec(ctx, `
 		ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'awaiting_confirmation';
+		ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'price_pending';
 		ALTER TABLE bookings
 			ADD COLUMN IF NOT EXISTS completion_evidence text,
 			ADD COLUMN IF NOT EXISTS customer_confirmed boolean DEFAULT false,
 			ADD COLUMN IF NOT EXISTS created_at timestamp without time zone DEFAULT NOW();
+		CREATE TABLE IF NOT EXISTS reviews (
+			review_id serial PRIMARY KEY,
+			booking_id integer UNIQUE REFERENCES bookings(booking_id) ON DELETE CASCADE,
+			customer_profile_id integer REFERENCES customer_profiles(customer_profile_id) ON DELETE SET NULL,
+			worker_profile_id integer REFERENCES worker_profiles(worker_profile_id) ON DELETE SET NULL,
+			rating integer CHECK (rating >= 1 AND rating <= 5),
+			comment text,
+			created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+		);
 	`)
 	return err
 }
@@ -74,20 +112,22 @@ func (r *BookingRepository) Create(
 	ctx context.Context,
 	requestID int,
 	workerProfileID int,
-) error {
+) (int, error) {
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `
-		INSERT INTO bookings (request_id, worker_profile_id)
-		VALUES ($1, $2)
-	`, requestID, workerProfileID)
+	var bookingID int
+	err = tx.QueryRow(ctx, `
+		INSERT INTO bookings (request_id, worker_profile_id, status)
+		VALUES ($1, $2, 'price_pending')
+		RETURNING booking_id
+	`, requestID, workerProfileID).Scan(&bookingID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -96,7 +136,7 @@ func (r *BookingRepository) Create(
 		WHERE request_id = $1
 	`, requestID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	_, err = tx.Exec(ctx, `
@@ -105,10 +145,10 @@ func (r *BookingRepository) Create(
 		WHERE worker_profile_id = $1
 	`, workerProfileID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
-	return tx.Commit(ctx)
+	return bookingID, tx.Commit(ctx)
 }
 
 func (r *BookingRepository) ExpirePendingOffers(ctx context.Context) error {
@@ -116,7 +156,7 @@ func (r *BookingRepository) ExpirePendingOffers(ctx context.Context) error {
 		WITH expired AS (
 			UPDATE bookings
 			SET status = 'cancelled', end_time = NOW()
-			WHERE status = 'scheduled'
+			WHERE status = 'price_pending'
 			  AND COALESCE(created_at, scheduled_time, NOW()) <= NOW() - INTERVAL '5 minutes'
 			RETURNING request_id, worker_profile_id
 		),
@@ -134,7 +174,7 @@ func (r *BookingRepository) ExpirePendingOffers(ctx context.Context) error {
 			SELECT 1
 			FROM bookings b
 			WHERE b.worker_profile_id = wp.worker_profile_id
-			  AND b.status IN ('scheduled', 'in_progress', 'awaiting_confirmation')
+			  AND b.status IN ('scheduled', 'price_pending', 'in_progress', 'awaiting_confirmation')
 		  )
 	`)
 	return err
@@ -198,10 +238,10 @@ func (r *BookingRepository) GetBookingDetails(
 ) (BookingDetails, error) {
 	var b BookingDetails
 	err := r.db.QueryRow(ctx, `
-		SELECT request_id, worker_profile_id, status
+		SELECT request_id, worker_profile_id, status, final_price::float8
 		FROM bookings
 		WHERE booking_id = $1
-	`, bookingID).Scan(&b.RequestID, &b.WorkerProfileID, &b.Status)
+	`, bookingID).Scan(&b.RequestID, &b.WorkerProfileID, &b.Status, &b.FinalPrice)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return BookingDetails{}, ErrBookingNotFound
@@ -209,6 +249,57 @@ func (r *BookingRepository) GetBookingDetails(
 		return BookingDetails{}, err
 	}
 	return b, nil
+}
+
+func (r *BookingRepository) MarkPriceAccepted(
+	ctx context.Context,
+	bookingID int,
+	requestID int,
+) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		UPDATE bookings
+		SET status = 'scheduled'
+		WHERE booking_id = $1
+	`, bookingID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE service_requests
+		SET status = 'accepted'
+		WHERE request_id = $1
+	`, requestID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *BookingRepository) MarkPriceRejected(
+	ctx context.Context,
+	bookingID int,
+) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE bookings
+		SET final_price = NULL,
+		    status = 'price_pending'
+		WHERE booking_id = $1
+	`, bookingID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrBookingNotFound
+	}
+	return nil
 }
 
 func (r *BookingRepository) MarkInProgress(
@@ -363,12 +454,8 @@ func (r *BookingRepository) MarkCompleted(
 func (r *BookingRepository) GetPaymentData(ctx context.Context, bookingID int) (BookingPaymentData, error) {
 	var data BookingPaymentData
 	err := r.db.QueryRow(ctx, `
-		SELECT COALESCE(b.final_price, ws.price_base, 0)::float8
+		SELECT COALESCE(b.final_price, 0)::float8
 		FROM bookings b
-		JOIN service_requests sr ON sr.request_id = b.request_id
-		LEFT JOIN worker_skills ws
-		  ON ws.worker_profile_id = b.worker_profile_id
-		 AND ws.category_id = sr.category_id
 		WHERE b.booking_id = $1
 	`, bookingID).Scan(&data.Amount)
 	if err != nil {
@@ -378,6 +465,40 @@ func (r *BookingRepository) GetPaymentData(ctx context.Context, bookingID int) (
 		return BookingPaymentData{}, err
 	}
 	return data, nil
+}
+
+func (r *BookingRepository) GetBookingUsers(ctx context.Context, bookingID int) (BookingUsers, error) {
+	var users BookingUsers
+	err := r.db.QueryRow(ctx, `
+		SELECT cp.user_id, wp.user_id
+		FROM bookings b
+		JOIN service_requests sr ON sr.request_id = b.request_id
+		JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+		JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+		WHERE b.booking_id = $1
+	`, bookingID).Scan(&users.CustomerUserID, &users.WorkerUserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return BookingUsers{}, ErrBookingNotFound
+		}
+		return BookingUsers{}, err
+	}
+	return users, nil
+}
+
+func (r *BookingRepository) SetFinalPrice(ctx context.Context, bookingID int, amount float64) error {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE bookings
+		SET final_price = $2
+		WHERE booking_id = $1
+	`, bookingID, amount)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrBookingNotFound
+	}
+	return nil
 }
 
 func (r *BookingRepository) IsRequestAvailable(ctx context.Context, requestID int) (bool, error) {
@@ -421,12 +542,17 @@ func (r *BookingRepository) ListByCustomerProfile(
 			wp.current_latitude::float8,
 			wp.current_longitude::float8,
 			b.completion_evidence,
-			COALESCE(b.customer_confirmed, false)
+			COALESCE(b.customer_confirmed, false),
+			r.review_id,
+			r.rating,
+			r.comment,
+			r.created_at
 		FROM bookings b
 		JOIN service_requests sr ON sr.request_id = b.request_id
 		LEFT JOIN service_categories sc ON sc.category_id = sr.category_id
 		LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
 		LEFT JOIN users wu ON wu.user_id = wp.user_id
+		LEFT JOIN reviews r ON r.booking_id = b.booking_id
 		WHERE sr.customer_profile_id = $1
 		ORDER BY COALESCE(b.scheduled_time, sr.created_at) DESC, b.booking_id DESC
 	`, customerProfileID)
@@ -460,6 +586,10 @@ func (r *BookingRepository) ListByCustomerProfile(
 			&item.WorkerLongitude,
 			&item.CompletionEvidence,
 			&item.CustomerConfirmed,
+			&item.ReviewID,
+			&item.ReviewRating,
+			&item.ReviewComment,
+			&item.ReviewCreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -499,13 +629,18 @@ func (r *BookingRepository) ListByWorkerProfile(
 			wp.current_latitude::float8,
 			wp.current_longitude::float8,
 			b.completion_evidence,
-			COALESCE(b.customer_confirmed, false)
+			COALESCE(b.customer_confirmed, false),
+			r.review_id,
+			r.rating,
+			r.comment,
+			r.created_at
 		FROM bookings b
 		JOIN service_requests sr ON sr.request_id = b.request_id
 		LEFT JOIN service_categories sc ON sc.category_id = sr.category_id
 		LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
 		LEFT JOIN users cu ON cu.user_id = cp.user_id
 		LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+		LEFT JOIN reviews r ON r.booking_id = b.booking_id
 		WHERE b.worker_profile_id = $1
 		ORDER BY COALESCE(b.scheduled_time, sr.created_at) DESC, b.booking_id DESC
 	`, workerProfileID)
@@ -539,6 +674,10 @@ func (r *BookingRepository) ListByWorkerProfile(
 			&item.WorkerLongitude,
 			&item.CompletionEvidence,
 			&item.CustomerConfirmed,
+			&item.ReviewID,
+			&item.ReviewRating,
+			&item.ReviewComment,
+			&item.ReviewCreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -550,4 +689,107 @@ func (r *BookingRepository) ListByWorkerProfile(
 	}
 
 	return items, nil
+}
+
+func (r *BookingRepository) SaveReview(
+	ctx context.Context,
+	bookingID int,
+	customerProfileID int,
+	workerProfileID int,
+	rating int,
+	comment string,
+) (int, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	var reviewID int
+	err = tx.QueryRow(ctx, `
+		INSERT INTO reviews (booking_id, customer_profile_id, worker_profile_id, rating, comment)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (booking_id) DO UPDATE
+		SET rating = EXCLUDED.rating,
+		    comment = EXCLUDED.comment,
+		    created_at = CURRENT_TIMESTAMP
+		RETURNING review_id
+	`, bookingID, customerProfileID, workerProfileID, rating, comment).Scan(&reviewID)
+	if err != nil {
+		return 0, err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE worker_profiles wp
+		SET rating = stats.average_rating
+		FROM (
+			SELECT worker_profile_id, ROUND(AVG(rating)::numeric, 2) AS average_rating
+			FROM reviews
+			WHERE worker_profile_id = $1
+			GROUP BY worker_profile_id
+		) stats
+		WHERE wp.worker_profile_id = stats.worker_profile_id
+	`, workerProfileID)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return reviewID, nil
+}
+
+func (r *BookingRepository) ListWorkerReviews(ctx context.Context, workerProfileID int) (WorkerReviewSummary, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT
+			r.review_id,
+			r.booking_id,
+			r.worker_profile_id,
+			COALESCE(u.full_name, 'Customer') AS customer_name,
+			COALESCE(sc.name, '') AS category_name,
+			r.rating,
+			COALESCE(r.comment, '') AS comment,
+			r.created_at
+		FROM reviews r
+		LEFT JOIN customer_profiles cp ON cp.customer_profile_id = r.customer_profile_id
+		LEFT JOIN users u ON u.user_id = cp.user_id
+		LEFT JOIN bookings b ON b.booking_id = r.booking_id
+		LEFT JOIN service_requests sr ON sr.request_id = b.request_id
+		LEFT JOIN service_categories sc ON sc.category_id = sr.category_id
+		WHERE r.worker_profile_id = $1
+		ORDER BY r.created_at DESC, r.review_id DESC
+	`, workerProfileID)
+	if err != nil {
+		return WorkerReviewSummary{}, err
+	}
+	defer rows.Close()
+
+	summary := WorkerReviewSummary{WorkerProfileID: workerProfileID, Reviews: make([]WorkerReview, 0)}
+	total := 0
+	for rows.Next() {
+		var item WorkerReview
+		if err := rows.Scan(
+			&item.ReviewID,
+			&item.BookingID,
+			&item.WorkerProfileID,
+			&item.CustomerName,
+			&item.CategoryName,
+			&item.Rating,
+			&item.Comment,
+			&item.CreatedAt,
+		); err != nil {
+			return WorkerReviewSummary{}, err
+		}
+		total += item.Rating
+		summary.Reviews = append(summary.Reviews, item)
+	}
+	if err := rows.Err(); err != nil {
+		return WorkerReviewSummary{}, err
+	}
+	summary.ReviewCount = len(summary.Reviews)
+	if summary.ReviewCount > 0 {
+		summary.AverageRating = float64(total) / float64(summary.ReviewCount)
+	}
+	return summary, nil
 }

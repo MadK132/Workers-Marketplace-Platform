@@ -13,7 +13,7 @@ import (
 )
 
 type NotificationService interface {
-	Create(ctx context.Context, userID int, notificationType string, title string, message string) (model.Notification, error)
+	Create(ctx context.Context, userID int, notificationType string, title string, message string, actionType string, actionRef string, actionLabel string) (model.Notification, error)
 	ListByUser(ctx context.Context, userID int, limit int, onlyUnread bool) ([]model.Notification, error)
 	MarkRead(ctx context.Context, notificationID int, userID int) (model.Notification, error)
 	MarkAllRead(ctx context.Context, userID int) (int64, error)
@@ -33,10 +33,13 @@ func (h *Handler) Health(c *gin.Context) {
 
 func (h *Handler) CreateInternal(c *gin.Context) {
 	var req struct {
-		UserID  int    `json:"user_id"`
-		Type    string `json:"type"`
-		Title   string `json:"title"`
-		Message string `json:"message"`
+		UserID      int    `json:"user_id"`
+		Type        string `json:"type"`
+		Title       string `json:"title"`
+		Message     string `json:"message"`
+		ActionType  string `json:"action_type"`
+		ActionRef   string `json:"action_ref"`
+		ActionLabel string `json:"action_label"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
@@ -49,6 +52,9 @@ func (h *Handler) CreateInternal(c *gin.Context) {
 		req.Type,
 		req.Title,
 		req.Message,
+		req.ActionType,
+		req.ActionRef,
+		req.ActionLabel,
 	)
 	if err != nil {
 		respondError(c, err)

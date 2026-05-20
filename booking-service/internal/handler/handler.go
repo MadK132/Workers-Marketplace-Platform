@@ -11,10 +11,11 @@ import (
 )
 
 type Handler struct {
-	requestService *service.RequestService
-	bookingService *service.BookingService
-	userClient     *client.UserClient
-	paymentClient  *client.PaymentClient
+	requestService     *service.RequestService
+	bookingService     *service.BookingService
+	userClient         *client.UserClient
+	paymentClient      *client.PaymentClient
+	notificationClient *client.NotificationClient
 }
 
 func NewHandler(
@@ -22,13 +23,14 @@ func NewHandler(
 	bookingService *service.BookingService,
 	userClient *client.UserClient,
 	paymentClient *client.PaymentClient,
-
+	notificationClient *client.NotificationClient,
 ) *Handler {
 	return &Handler{
-		requestService: requestService,
-		bookingService: bookingService,
-		userClient:     userClient,
-		paymentClient:  paymentClient,
+		requestService:     requestService,
+		bookingService:     bookingService,
+		userClient:         userClient,
+		paymentClient:      paymentClient,
+		notificationClient: notificationClient,
 	}
 }
 
@@ -85,6 +87,8 @@ func (h *Handler) CreateRequest(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	h.notificationClient.Create(c.Request.Context(), c.GetInt("user_id"), "request_created", "Request created", "Your request was created. Choose a worker to open chat.")
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":    "request created",

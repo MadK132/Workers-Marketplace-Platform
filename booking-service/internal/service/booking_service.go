@@ -19,6 +19,8 @@ var (
 	ErrEvidenceRequired      = errors.New("completion evidence is required")
 	ErrPaymentMethodRequired = errors.New("payment method is required")
 	ErrPaymentAmountInvalid  = errors.New("payment amount is invalid")
+	ErrReviewInvalidRating   = errors.New("review rating must be from 1 to 5")
+	ErrPriceInvalid          = errors.New("booking price must be positive")
 )
 
 type BookingService struct {
@@ -34,33 +36,33 @@ func (s *BookingService) CreateBooking(
 	requestID int,
 	workerProfileID int,
 	customerProfileID int,
-) error {
+) (int, error) {
 	if err := s.repo.ExpirePendingOffers(ctx); err != nil {
-		return err
+		return 0, err
 	}
 
 	req, err := s.repo.GetRequestForBooking(ctx, requestID)
 	if err != nil {
 		if errors.Is(err, repository.ErrRequestNotFound) {
-			return ErrRequestNotFound
+			return 0, ErrRequestNotFound
 		}
-		return err
+		return 0, err
 	}
 
 	if req.CustomerProfileID != customerProfileID {
-		return ErrRequestNotOwned
+		return 0, ErrRequestNotOwned
 	}
 
 	if req.Status != "pending" {
-		return ErrRequestUnavailable
+		return 0, ErrRequestUnavailable
 	}
 
 	ok, err := s.repo.IsWorkerEligible(ctx, workerProfileID, req.CategoryID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if !ok {
-		return ErrWorkerNotSelectable
+		return 0, ErrWorkerNotSelectable
 	}
 
 	return s.repo.Create(ctx, requestID, workerProfileID)
@@ -220,6 +222,122 @@ func (s *BookingService) MarkCompletionPaid(
 	return s.repo.MarkCompleted(ctx, bookingID, b.RequestID, b.WorkerProfileID)
 }
 
+func (s *BookingService) SetFinalPriceForCustomer(
+	ctx context.Context,
+	bookingID int,
+	customerProfileID int,
+	amount float64,
+) error {
+	if amount <= 0 {
+		return ErrPriceInvalid
+	}
+	b, err := s.repo.GetBookingDetails(ctx, bookingID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return ErrBookingNotFound
+		}
+		return err
+	}
+	req, err := s.repo.GetRequestForBooking(ctx, b.RequestID)
+	if err != nil {
+		if errors.Is(err, repository.ErrRequestNotFound) {
+			return ErrRequestNotFound
+		}
+		return err
+	}
+	if req.CustomerProfileID != customerProfileID {
+		return ErrBookingNotCustomer
+	}
+	if b.Status != "price_pending" && b.Status != "scheduled" && b.Status != "in_progress" {
+		return ErrInvalidTransition
+	}
+	return s.repo.SetFinalPrice(ctx, bookingID, amount)
+}
+
+func (s *BookingService) SetFinalPriceForWorker(
+	ctx context.Context,
+	bookingID int,
+	workerProfileID int,
+	amount float64,
+) error {
+	if amount <= 0 {
+		return ErrPriceInvalid
+	}
+	b, err := s.repo.GetBookingDetails(ctx, bookingID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return ErrBookingNotFound
+		}
+		return err
+	}
+	if b.WorkerProfileID != workerProfileID {
+		return ErrBookingNotOwned
+	}
+	if b.Status != "price_pending" && b.Status != "scheduled" && b.Status != "in_progress" {
+		return ErrInvalidTransition
+	}
+	return s.repo.SetFinalPrice(ctx, bookingID, amount)
+}
+
+func (s *BookingService) AcceptBookingPrice(
+	ctx context.Context,
+	bookingID int,
+	customerProfileID int,
+) error {
+	b, err := s.repo.GetBookingDetails(ctx, bookingID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return ErrBookingNotFound
+		}
+		return err
+	}
+	req, err := s.repo.GetRequestForBooking(ctx, b.RequestID)
+	if err != nil {
+		if errors.Is(err, repository.ErrRequestNotFound) {
+			return ErrRequestNotFound
+		}
+		return err
+	}
+	if req.CustomerProfileID != customerProfileID {
+		return ErrBookingNotCustomer
+	}
+	if b.Status != "price_pending" {
+		return ErrInvalidTransition
+	}
+	if b.FinalPrice == nil || *b.FinalPrice <= 0 {
+		return ErrPaymentAmountInvalid
+	}
+	return s.repo.MarkPriceAccepted(ctx, bookingID, b.RequestID)
+}
+
+func (s *BookingService) RejectBookingPrice(
+	ctx context.Context,
+	bookingID int,
+	customerProfileID int,
+) error {
+	b, err := s.repo.GetBookingDetails(ctx, bookingID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return ErrBookingNotFound
+		}
+		return err
+	}
+	req, err := s.repo.GetRequestForBooking(ctx, b.RequestID)
+	if err != nil {
+		if errors.Is(err, repository.ErrRequestNotFound) {
+			return ErrRequestNotFound
+		}
+		return err
+	}
+	if req.CustomerProfileID != customerProfileID {
+		return ErrBookingNotCustomer
+	}
+	if b.Status != "price_pending" {
+		return ErrInvalidTransition
+	}
+	return s.repo.MarkPriceRejected(ctx, bookingID)
+}
+
 func (s *BookingService) ListCustomerBookings(
 	ctx context.Context,
 	customerProfileID int,
@@ -238,4 +356,51 @@ func (s *BookingService) ListWorkerBookings(
 		return nil, err
 	}
 	return s.repo.ListByWorkerProfile(ctx, workerProfileID)
+}
+
+func (s *BookingService) CreateReview(
+	ctx context.Context,
+	bookingID int,
+	customerProfileID int,
+	rating int,
+	comment string,
+) (int, error) {
+	if rating < 1 || rating > 5 {
+		return 0, ErrReviewInvalidRating
+	}
+
+	b, err := s.repo.GetBookingDetails(ctx, bookingID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return 0, ErrBookingNotFound
+		}
+		return 0, err
+	}
+	if b.Status != "completed" {
+		return 0, ErrInvalidTransition
+	}
+
+	req, err := s.repo.GetRequestForBooking(ctx, b.RequestID)
+	if err != nil {
+		if errors.Is(err, repository.ErrRequestNotFound) {
+			return 0, ErrRequestNotFound
+		}
+		return 0, err
+	}
+	if req.CustomerProfileID != customerProfileID {
+		return 0, ErrBookingNotCustomer
+	}
+
+	return s.repo.SaveReview(ctx, bookingID, customerProfileID, b.WorkerProfileID, rating, comment)
+}
+
+func (s *BookingService) ListWorkerReviews(
+	ctx context.Context,
+	workerProfileID int,
+) (repository.WorkerReviewSummary, error) {
+	return s.repo.ListWorkerReviews(ctx, workerProfileID)
+}
+
+func (s *BookingService) BookingUsers(ctx context.Context, bookingID int) (repository.BookingUsers, error) {
+	return s.repo.GetBookingUsers(ctx, bookingID)
 }
