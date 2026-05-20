@@ -43,6 +43,8 @@ func SetupRouter(
 		api.PATCH("/worker/availability", h.SetAvailability)
 		api.GET("/payment-method", h.GetPaymentMethod)
 		api.POST("/payment-method", h.UpsertPaymentMethod)
+		api.POST("/payment-method/stripe/setup-session", h.CreatePaymentSetupSession)
+		api.POST("/payment-method/stripe/confirm", h.ConfirmPaymentSetupSession)
 		api.GET("/categories", h.GetCategories)
 		api.GET("/workers", h.FindWorkers)
 		api.GET("/admin/overview", h.AdminOverview)

@@ -188,6 +188,21 @@ func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
 		return err
 	}
 
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	switch user.Role {
+	case model.RoleCustomer:
+		if err := s.customerProfiles.Create(ctx, userID); err != nil {
+			return err
+		}
+	case model.RoleWorker:
+		if err := s.workerProfiles.Create(ctx, userID); err != nil {
+			return err
+		}
+	}
+
 	return s.verifications.Delete(ctx, token)
 }
 
@@ -545,6 +560,18 @@ func (s *AuthService) GetCustomerProfile(
 	userID int,
 ) (*model.CustomerProfile, error) {
 
+	profile, err := s.customerProfiles.GetByUserID(ctx, userID)
+	if err == nil {
+		return profile, nil
+	}
+
+	user, userErr := s.users.GetByID(ctx, userID)
+	if userErr != nil || user.Role != model.RoleCustomer {
+		return nil, err
+	}
+	if createErr := s.customerProfiles.Create(ctx, userID); createErr != nil {
+		return nil, createErr
+	}
 	return s.customerProfiles.GetByUserID(ctx, userID)
 }
 func (s *AuthService) GetWorkerProfile(

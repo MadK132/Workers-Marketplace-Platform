@@ -6,6 +6,7 @@ import { useGeolocation } from "./useGeolocation.js";
 
 const TOKEN_KEY = "workers_marketplace_token";
 const ROLE_KEY = "workers_marketplace_role";
+const PAYMENT_SETUP_INTENT_KEY = "workers_marketplace_payment_setup_intent";
 const ASTANA_BOUNDS = {
   minLatitude: 50.95,
   maxLatitude: 51.35,
@@ -123,6 +124,23 @@ export default function App() {
   }, [role, token]);
 
   useEffect(() => {
+    if (!token || !window.location.pathname.toLowerCase().includes("/payment/setup-success")) {
+      return;
+    }
+    const sessionID = new URLSearchParams(window.location.search).get("session_id");
+    if (!sessionID) {
+      return;
+    }
+    apiPost("/api/payment-method/stripe/confirm", token, { session_id: sessionID })
+      .then(() => {
+        setPaymentReady(true);
+        clearAuthURL();
+        window.dispatchEvent(new CustomEvent("wm-payment-method-linked"));
+      })
+      .catch((err) => setPaymentError(err.message));
+  }, [token]);
+
+  useEffect(() => {
     if (!token) {
       return undefined;
     }
@@ -152,6 +170,32 @@ export default function App() {
   }, [role, session.exp, signOut, token]);
 
   useEffect(() => {
+    if (!token) {
+      return undefined;
+    }
+
+    const checkSession = () => {
+      const currentToken = localStorage.getItem(TOKEN_KEY) || "";
+      if (isTokenExpired(currentToken)) {
+        signOut();
+      }
+    };
+
+    checkSession();
+    const intervalID = window.setInterval(checkSession, 30000);
+    window.addEventListener("focus", checkSession);
+    document.addEventListener("visibilitychange", checkSession);
+    window.addEventListener("pageshow", checkSession);
+
+    return () => {
+      window.clearInterval(intervalID);
+      window.removeEventListener("focus", checkSession);
+      document.removeEventListener("visibilitychange", checkSession);
+      window.removeEventListener("pageshow", checkSession);
+    };
+  }, [signOut, token]);
+
+  useEffect(() => {
     const handleExpired = () => {
       signOut();
     };
@@ -163,23 +207,29 @@ export default function App() {
     return <AuthScreen onAuth={saveSession} />;
   }
 
-  if ((role === "customer" || role === "worker") && (!paymentReady || paymentLoading)) {
-    return (
-      <PaymentSetupScreen
-        token={token}
-        role={role}
-        loading={paymentLoading}
-        error={paymentError}
-        onReady={() => setPaymentReady(true)}
-        onSignOut={signOut}
-      />
-    );
-  }
+  const startPaymentSetup = async () => {
+    setPaymentError("");
+    const result = await apiPost("/api/payment-method/stripe/setup-session", token, {});
+    const setupURL = result?.payment_setup_url || result?.url;
+    if (!setupURL) {
+      throw new Error("Payment setup URL is missing.");
+    }
+    window.location.href = setupURL;
+  };
 
   if (role === "customer") {
     return (
       <main className="workerFullscreen">
-        <CustomerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} onSignOut={signOut} />
+        <CustomerApp
+          token={token}
+          activeTab={activeTab}
+          onNavigate={setActiveTab}
+          onSignOut={signOut}
+          paymentReady={paymentReady}
+          paymentLoading={paymentLoading}
+          paymentError={paymentError}
+          onStartPaymentSetup={startPaymentSetup}
+        />
       </main>
     );
   }
@@ -187,7 +237,16 @@ export default function App() {
   if (role === "worker") {
     return (
       <main className="workerFullscreen">
-        <WorkerApp token={token} activeTab={activeTab} onNavigate={setActiveTab} onSignOut={signOut} />
+        <WorkerApp
+          token={token}
+          activeTab={activeTab}
+          onNavigate={setActiveTab}
+          onSignOut={signOut}
+          paymentReady={paymentReady}
+          paymentLoading={paymentLoading}
+          paymentError={paymentError}
+          onStartPaymentSetup={startPaymentSetup}
+        />
       </main>
     );
   }
@@ -784,6 +843,15 @@ function clearAuthURL() {
   }
 }
 
+function readPaymentSetupIntent() {
+  try {
+    const raw = localStorage.getItem(PAYMENT_SETUP_INTENT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 function defaultTabForRole(role) {
   if (role === "worker") {
     return "pro";
@@ -826,19 +894,29 @@ function AppFrame({ role, session, activeTab, onTab, onSignOut, children }) {
   );
 }
 
-function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
+function CustomerApp({
+  token,
+  activeTab,
+  onNavigate,
+  onSignOut,
+  paymentReady,
+  paymentLoading,
+  paymentError,
+  onStartPaymentSetup,
+}) {
   const { position, geoStatus, geoError, locate, startWatch } = useGeolocation();
   const mapRef = useRef(null);
   const [categories, setCategories] = useState([]);
-  const [categoryID, setCategoryID] = useState("");
-  const [locationMode, setLocationMode] = useState("current");
-  const [pickedPosition, setPickedPosition] = useState(null);
+  const pendingPaymentIntent = useMemo(() => readPaymentSetupIntent(), []);
+  const [categoryID, setCategoryID] = useState(pendingPaymentIntent?.categoryID || "");
+  const [locationMode, setLocationMode] = useState(pendingPaymentIntent?.locationMode || "current");
+  const [pickedPosition, setPickedPosition] = useState(pendingPaymentIntent?.pickedPosition || null);
   const [workers, setWorkers] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
   const [bookings, setBookings] = useState([]);
-  const [description, setDescription] = useState("");
-  const [address, setAddress] = useState("");
-  const [addressDraft, setAddressDraft] = useState("");
+  const [description, setDescription] = useState(pendingPaymentIntent?.description || "");
+  const [address, setAddress] = useState(pendingPaymentIntent?.address || "");
+  const [addressDraft, setAddressDraft] = useState(pendingPaymentIntent?.address || "");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -967,6 +1045,27 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
   };
 
   const searchWorkers = async () => {
+    if (paymentLoading) {
+      setError("Checking payment method. Try again in a moment.");
+      return;
+    }
+    if (!paymentReady) {
+      setError(paymentError || "Link a payment card before searching workers.");
+      localStorage.setItem(PAYMENT_SETUP_INTENT_KEY, JSON.stringify({
+        action: "search",
+        categoryID,
+        locationMode,
+        pickedPosition,
+        address,
+        description,
+      }));
+      try {
+        await onStartPaymentSetup?.();
+      } catch (err) {
+        setError(err.message);
+      }
+      return;
+    }
     if (!searchPosition || !categoryID) {
       setError("Choose category and location first.");
       return;
@@ -986,6 +1085,7 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
       });
       const data = await apiGet(`/api/geo/workers/nearby?${query}`, token);
       setWorkers(Array.isArray(data) ? data : data.workers || []);
+      localStorage.removeItem(PAYMENT_SETUP_INTENT_KEY);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -1021,6 +1121,17 @@ function CustomerApp({ token, activeTab, onNavigate, onSignOut }) {
       setError(err.message);
     }
   };
+
+  useEffect(() => {
+    const pending = readPaymentSetupIntent();
+    if (!paymentReady || pending?.action !== "search" || activeTab !== "find") {
+      return;
+    }
+    const timerID = window.setTimeout(() => {
+      searchWorkers();
+    }, 300);
+    return () => window.clearTimeout(timerID);
+  }, [activeTab, paymentReady]);
 
   if (activeTab === "requests") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><RequestsPanel token={token} /></CustomerPhonePage>;
   if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm /></CustomerPhonePage>;
@@ -1128,7 +1239,16 @@ function CustomerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
   );
 }
 
-function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
+function WorkerApp({
+  token,
+  activeTab,
+  onNavigate,
+  onSignOut,
+  paymentReady,
+  paymentLoading,
+  paymentError,
+  onStartPaymentSetup,
+}) {
   const { position, geoStatus, geoError, startWatch } = useGeolocation();
   const mapRef = useRef(null);
   const [available, setAvailable] = useState(false);
@@ -1232,6 +1352,15 @@ function WorkerApp({ token, activeTab, onNavigate, onSignOut }) {
     try {
       const next = !available;
       if (next) {
+        if (paymentLoading) {
+          setError("Checking payment method. Try again in a moment.");
+          return;
+        }
+        if (!paymentReady) {
+          setError(paymentError || "Link a payment card before going online.");
+          await onStartPaymentSetup?.();
+          return;
+        }
         let nextBookings = [];
         try {
           const data = await apiGet("/api/bookings/my", token);
@@ -2030,11 +2159,12 @@ function WorkerProfilePanel({ token, onNavigate }) {
 
 function PaymentMethodPanel({ token, onLinked, compact = false }) {
   const [method, setMethod] = useState(null);
-  const [last4, setLast4] = useState("");
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
+    setError("");
     apiGet("/api/payment-method", token)
       .then((nextMethod) => setMethod({
         ...nextMethod,
@@ -2045,25 +2175,29 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
 
   useEffect(() => load(), [load]);
 
-  const submit = async (event) => {
-    event.preventDefault();
+  useEffect(() => {
+    const handleLinked = () => {
+      load();
+      onLinked?.();
+    };
+    window.addEventListener("wm-payment-method-linked", handleLinked);
+    return () => window.removeEventListener("wm-payment-method-linked", handleLinked);
+  }, [load, onLinked]);
+
+  const startSetup = async () => {
+    setBusy(true);
     setError("");
     setMessage("");
     try {
-      const updated = await apiPost("/api/payment-method", token, {
-        provider: "stripe",
-        last4,
-      });
-      setMethod({
-        has_payment_method: true,
-        ...updated,
-        last4: updated.last4 || updated.card_last4 || last4,
-      });
-      setLast4("");
-      setMessage("Card linked.");
-      onLinked?.();
+      const result = await apiPost("/api/payment-method/stripe/setup-session", token, {});
+      const setupURL = result?.payment_setup_url || result?.url;
+      if (!setupURL) {
+        throw new Error("Payment setup URL is missing.");
+      }
+      window.location.href = setupURL;
     } catch (err) {
       setError(err.message);
+      setBusy(false);
     }
   };
 
@@ -2071,15 +2205,18 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
     <section className={compact ? "paymentGateSection" : "profileSection"}>
       <div className="sectionTitleRow">
         <h3>Payment card</h3>
-        {method?.has_payment_method && <span>Stripe •••• {method.last4}</span>}
+        {method?.has_payment_method && <span>{method.provider || "Stripe"} {method.last4 ? `•••• ${method.last4}` : "linked"}</span>}
       </div>
-      <p className="muted">Required before booking or going online. Only the last 4 digits are stored here.</p>
-      <form className="inlineForm" onSubmit={submit}>
-        <Field label="Last 4 digits" light>
-          <input value={last4} onChange={(event) => setLast4(event.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4242" />
-        </Field>
-        <button>Link card</button>
-      </form>
+      <p className="muted">
+        {method?.has_payment_method
+          ? "Payment method is linked and ready for bookings."
+          : "You will be redirected to Stripe to link a payment method securely."}
+      </p>
+      {!method?.has_payment_method && (
+        <button type="button" onClick={startSetup} disabled={busy}>
+          {busy ? "Opening Stripe..." : "Link with Stripe"}
+        </button>
+      )}
       <Messages message={message} error={error} />
     </section>
   );
@@ -2409,4 +2546,9 @@ function decodeToken(token) {
 
 function readRole(token) {
   return decodeToken(token).role || "";
+}
+
+function isTokenExpired(token) {
+  const exp = Number(decodeToken(token).exp || 0);
+  return !token || !exp || exp * 1000 <= Date.now();
 }

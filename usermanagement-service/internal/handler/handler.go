@@ -2,9 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -623,6 +627,174 @@ func (h *AuthHandler) GetPaymentMethod(c *gin.Context) {
 		"provider":           method.Provider,
 		"last4":              method.Last4,
 	})
+}
+
+func (h *AuthHandler) CreatePaymentSetupSession(c *gin.Context) {
+	stripeSecret := strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY"))
+	appBaseURL := strings.TrimRight(os.Getenv("APP_BASE_URL"), "/")
+	if appBaseURL == "" {
+		appBaseURL = "http://localhost:5173"
+	}
+
+	if stripeSecret == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"payment_setup_url": appBaseURL + "/payment/setup-success?session_id=mock_setup_session",
+		})
+		return
+	}
+
+	checkoutURL := strings.TrimSpace(os.Getenv("STRIPE_CHECKOUT_API_URL"))
+	if checkoutURL == "" {
+		checkoutURL = "https://api.stripe.com/v1/checkout/sessions"
+	}
+
+	userID := c.GetInt("user_id")
+	values := url.Values{}
+	values.Set("mode", "setup")
+	values.Set("success_url", appBaseURL+"/payment/setup-success?session_id={CHECKOUT_SESSION_ID}")
+	values.Set("cancel_url", appBaseURL+"/payment/setup-cancel")
+	values.Set("client_reference_id", strconv.Itoa(userID))
+	values.Set("currency", strings.ToLower(paymentCurrency()))
+	values.Set("metadata[user_id]", strconv.Itoa(userID))
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, checkoutURL, strings.NewReader(values.Encode()))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth(stripeSecret, "")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		c.JSON(resp.StatusCode, gin.H{"error": stripeMessage(body)})
+		return
+	}
+
+	var session struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(body, &session); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	if session.URL == "" {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "stripe setup session response has empty url"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"payment_setup_url": session.URL})
+}
+
+func (h *AuthHandler) ConfirmPaymentSetupSession(c *gin.Context) {
+	var reqBody struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	sessionID := strings.TrimSpace(reqBody.SessionID)
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session_id is required"})
+		return
+	}
+
+	last4 := "4242"
+	stripeSecret := strings.TrimSpace(os.Getenv("STRIPE_SECRET_KEY"))
+	if stripeSecret != "" && !strings.HasPrefix(sessionID, "mock_") {
+		resolvedLast4, err := fetchStripeSetupLast4(c.Request.Context(), stripeSecret, sessionID)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		last4 = resolvedLast4
+	}
+
+	method, err := h.auth.UpsertPaymentMethod(c.Request.Context(), c.GetInt("user_id"), "stripe", last4)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"has_payment_method": true,
+		"provider":           method.Provider,
+		"last4":              method.Last4,
+	})
+}
+
+func fetchStripeSetupLast4(ctx context.Context, stripeSecret string, sessionID string) (string, error) {
+	apiURL := "https://api.stripe.com/v1/checkout/sessions/" + url.PathEscape(sessionID) + "?expand[]=setup_intent.payment_method"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(stripeSecret, "")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", fmt.Errorf("stripe setup session lookup failed: status=%d body=%s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var session struct {
+		SetupIntent struct {
+			PaymentMethod struct {
+				Card struct {
+					Last4 string `json:"last4"`
+				} `json:"card"`
+			} `json:"payment_method"`
+		} `json:"setup_intent"`
+	}
+	if err := json.Unmarshal(body, &session); err != nil {
+		return "", err
+	}
+
+	last4 := strings.TrimSpace(session.SetupIntent.PaymentMethod.Card.Last4)
+	if len(last4) != 4 {
+		return "", errors.New("stripe setup session does not contain card last4")
+	}
+	return last4, nil
+}
+
+func stripeMessage(body []byte) string {
+	var stripeErr struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &stripeErr); err == nil && stripeErr.Error.Message != "" {
+		return stripeErr.Error.Message
+	}
+	return strings.TrimSpace(string(body))
+}
+
+func paymentCurrency() string {
+	currency := strings.TrimSpace(os.Getenv("PAYMENT_CURRENCY"))
+	if currency == "" {
+		return "kzt"
+	}
+	return currency
 }
 
 func (h *AuthHandler) HasPaymentMethod(c *gin.Context) {
