@@ -53,6 +53,13 @@ type AuthService interface {
 	UpsertPaymentMethod(ctx context.Context, userID int, provider string, last4 string) (repository.PaymentMethod, error)
 	GetPaymentMethod(ctx context.Context, userID int) (repository.PaymentMethod, error)
 	HasPaymentMethod(ctx context.Context, userID int) (bool, error)
+	CreateReport(ctx context.Context, reporterUserID int, role string, bookingID *int, reportedUserID int, reason string, description string) (repository.Report, error)
+	AddReportFile(ctx context.Context, reportID int, userID int, fileName string, filePath string, contentType string) error
+	ListReports(ctx context.Context, userID int, staff bool) ([]repository.Report, error)
+	AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error)
+	ListReportMessages(ctx context.Context, reportID int, userID int, staff bool) ([]repository.ReportMessage, error)
+	ApplyReportPenalty(ctx context.Context, reportID int, targetUserID int, issuedByUserID int, penaltyType string, reason string, expiresAt *time.Time) (repository.Penalty, error)
+	CloseReport(ctx context.Context, reportID int, status string, resolution string) error
 }
 
 type AuthHandler struct {
@@ -521,6 +528,14 @@ func saveProfilePhoto(ctx context.Context, file *multipart.FileHeader) (string, 
 	})
 }
 
+func saveReportFile(ctx context.Context, file *multipart.FileHeader) (string, error) {
+	return filestorage.SaveUploadedFile(ctx, file, filestorage.SaveOptions{
+		Prefix:      "reports",
+		MaxSize:     15 * 1024 * 1024,
+		AllowedExts: map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".pdf": true, ".mp4": true, ".webm": true, ".txt": true},
+	})
+}
+
 func optionalFloat(value string) (*float64, error) {
 	if strings.TrimSpace(value) == "" {
 		return nil, nil
@@ -572,6 +587,207 @@ func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"message": "skill and worker verified"})
+}
+
+func (h *AuthHandler) CreateReport(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	role := c.GetString("role")
+	contentType := strings.ToLower(c.GetHeader("Content-Type"))
+
+	var bookingID *int
+	reportedUserID := 0
+	reason := ""
+	description := ""
+	files := []*multipart.FileHeader{}
+
+	if strings.Contains(contentType, "multipart/form-data") {
+		if value := strings.TrimSpace(c.PostForm("booking_id")); value != "" {
+			id, err := strconv.Atoi(value)
+			if err != nil || id <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking_id"})
+				return
+			}
+			bookingID = &id
+		}
+		if value := strings.TrimSpace(c.PostForm("reported_user_id")); value != "" {
+			id, err := strconv.Atoi(value)
+			if err != nil || id <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid reported_user_id"})
+				return
+			}
+			reportedUserID = id
+		}
+		reason = c.PostForm("reason")
+		description = c.PostForm("description")
+		if form, err := c.MultipartForm(); err == nil && form != nil {
+			files = form.File["report_files"]
+		}
+	} else {
+		var req struct {
+			BookingID      *int   `json:"booking_id"`
+			ReportedUserID int    `json:"reported_user_id"`
+			Reason         string `json:"reason"`
+			Description    string `json:"description"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+			return
+		}
+		bookingID = req.BookingID
+		reportedUserID = req.ReportedUserID
+		reason = req.Reason
+		description = req.Description
+	}
+
+	report, err := h.auth.CreateReport(c.Request.Context(), userID, role, bookingID, reportedUserID, reason, description)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	for _, file := range files {
+		storedPath, err := saveReportFile(c.Request.Context(), file)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if err := h.auth.AddReportFile(c.Request.Context(), report.ReportID, userID, file.Filename, storedPath, file.Header.Get("Content-Type")); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusCreated, report)
+}
+
+func (h *AuthHandler) ListReports(c *gin.Context) {
+	reports, err := h.auth.ListReports(c.Request.Context(), c.GetInt("user_id"), isStaffRole(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, reports)
+}
+
+func (h *AuthHandler) ListReportMessages(c *gin.Context) {
+	reportID, err := strconv.Atoi(c.Param("report_id"))
+	if err != nil || reportID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report_id"})
+		return
+	}
+	messages, err := h.auth.ListReportMessages(c.Request.Context(), reportID, c.GetInt("user_id"), isStaffRole(c))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, messages)
+}
+
+func (h *AuthHandler) AddReportMessage(c *gin.Context) {
+	reportID, err := strconv.Atoi(c.Param("report_id"))
+	if err != nil || reportID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report_id"})
+		return
+	}
+
+	contentType := strings.ToLower(c.GetHeader("Content-Type"))
+	text := ""
+	attachmentURL := ""
+	attachmentName := ""
+	attachmentType := ""
+	if strings.Contains(contentType, "multipart/form-data") {
+		text = c.PostForm("message_text")
+		file, err := c.FormFile("attachment")
+		if err == nil && file != nil {
+			storedPath, err := saveReportFile(c.Request.Context(), file)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			attachmentURL = storedPath
+			attachmentName = file.Filename
+			attachmentType = file.Header.Get("Content-Type")
+		}
+	} else {
+		var req struct {
+			MessageText string `json:"message_text"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+			return
+		}
+		text = req.MessageText
+	}
+
+	msg, err := h.auth.AddReportMessage(c.Request.Context(), reportID, c.GetInt("user_id"), isStaffRole(c), text, attachmentURL, attachmentName, attachmentType)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, msg)
+}
+
+func (h *AuthHandler) ApplyReportPenalty(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+	reportID, err := strconv.Atoi(c.Param("report_id"))
+	if err != nil || reportID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report_id"})
+		return
+	}
+	var req struct {
+		TargetUserID int    `json:"target_user_id"`
+		PenaltyType  string `json:"penalty_type"`
+		Reason       string `json:"reason"`
+		Days         int    `json:"days"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	if req.PenaltyType == "block_user" || req.PenaltyType == "unverify_skills" {
+		if !isAdminRole(c) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "only admin can apply this penalty"})
+			return
+		}
+	}
+	var expiresAt *time.Time
+	if req.PenaltyType == "temporary_suspend" && req.Days > 0 {
+		value := time.Now().Add(time.Duration(req.Days) * 24 * time.Hour)
+		expiresAt = &value
+	}
+	penalty, err := h.auth.ApplyReportPenalty(c.Request.Context(), reportID, req.TargetUserID, c.GetInt("user_id"), req.PenaltyType, req.Reason, expiresAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, penalty)
+}
+
+func (h *AuthHandler) CloseReport(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+	reportID, err := strconv.Atoi(c.Param("report_id"))
+	if err != nil || reportID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report_id"})
+		return
+	}
+	var req struct {
+		Status     string `json:"status"`
+		Resolution string `json:"resolution"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	if err := h.auth.CloseReport(c.Request.Context(), reportID, req.Status, req.Resolution); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "report closed"})
 }
 func (h *AuthHandler) SetAvailability(c *gin.Context) {
 	var req struct {

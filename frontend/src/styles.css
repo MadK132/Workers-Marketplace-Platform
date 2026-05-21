@@ -1968,19 +1968,54 @@ textarea {
 
 .chatBubble {
   display: grid;
-  gap: 4px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
   justify-self: start;
   max-width: min(520px, 92%);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fffaf2;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .chatBubble.own {
   justify-self: end;
+}
+
+.chatBubble.own .chatBubbleBody {
   background: #e9f5ef;
+}
+
+.chatBubble.own .chatAvatar {
+  order: 2;
+  background: #ffd300;
+}
+
+.chatBubble.supportBubble .chatAvatar {
+  background: linear-gradient(135deg, #10231f, #2e8477);
+}
+
+.chatBubble.supportBubble .chatBubbleBody {
+  border: 1px solid #c9ddd6;
+}
+
+.chatBubbleBody {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #fffaf2;
+}
+
+.chatAvatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: #2e8477;
+  color: #fffaf2;
+  font-weight: 900;
+  box-shadow: 0 8px 18px rgba(16, 35, 31, 0.12);
 }
 
 .chatBubble small {
@@ -2169,6 +2204,180 @@ textarea {
 
 .chatFileButton {
   min-height: 54px;
+}
+
+.reportsPage {
+  min-height: calc(100vh - 160px);
+}
+
+.reportCreateForm,
+.reportSummary,
+.reportPenaltyBox {
+  display: grid;
+  gap: 12px;
+}
+
+.reportCreateForm {
+  border-color: #d9cdb7;
+  padding: 20px;
+  background:
+    linear-gradient(135deg, rgba(255, 211, 0, 0.08), transparent 32%),
+    #fffaf2;
+}
+
+.reportFormHeader {
+  display: flex;
+  gap: 16px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.reportFormHeader h3,
+.reportFormHeader p {
+  margin: 0;
+}
+
+.reportFormHeader p {
+  margin-top: 4px;
+  color: #6f716b;
+  font-size: 0.98rem;
+}
+
+.reportFormGrid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.55fr);
+  gap: 12px;
+}
+
+.selectedReportBooking {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e2d9c8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f3ecdf;
+}
+
+.selectedReportBooking span {
+  overflow: hidden;
+  color: #4f5b56;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectedReportBooking small {
+  color: #6f716b;
+  font-weight: 800;
+}
+
+.reportUploadRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px dashed #d0c5b4;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fbf5ec;
+}
+
+.reportUploadRow span {
+  overflow: hidden;
+  color: #6f716b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reportFileButton {
+  min-height: 44px;
+  background: #2e8477;
+}
+
+.reportsLayout {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  gap: 16px;
+  min-height: 520px;
+}
+
+.reportList {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-height: 72vh;
+  overflow: auto;
+  padding-right: 8px;
+}
+
+.reportList button {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  border: 1px solid #ddd4c2;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffaf2;
+  color: #10231f;
+  text-align: left;
+}
+
+.reportList button.active {
+  border-color: #2e7d6f;
+  box-shadow: 0 14px 30px rgba(16, 35, 31, 0.08);
+}
+
+.reportList span,
+.reportList small {
+  max-width: 100%;
+  overflow: hidden;
+  color: #6f716b;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reportDetail {
+  display: grid;
+  grid-template-rows: auto auto minmax(260px, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.reportSummaryTop {
+  display: flex;
+  gap: 16px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.reportSummaryTop h3,
+.reportSummaryTop small {
+  display: block;
+  margin: 0;
+}
+
+.reportSummaryTop small {
+  margin-top: 4px;
+  color: #6f716b;
+}
+
+.reportChatPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.reportMessageList {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 260px;
+  max-height: 52vh;
+  overflow: auto;
+  border: 1px solid #e2d9c8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f7f1e6;
 }
 
 .jsonBox,
@@ -2473,6 +2682,12 @@ textarea {
   .workerProfileHero,
   .profileEditForm,
   .profileStatsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .reportFormGrid,
+  .selectedReportBooking,
+  .reportUploadRow {
     grid-template-columns: 1fr;
   }
 

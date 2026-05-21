@@ -71,6 +71,7 @@ func main() {
 	categoryRepo := repository.NewCategoryRepository(pool)
 	adminRepo := repository.NewAdminRepository(pool)
 	paymentMethodRepo := repository.NewPaymentMethodRepository(pool)
+	reportRepo := repository.NewReportRepository(pool)
 
 	if err := userRepo.EnsureManagerRole(ctx); err != nil {
 		log.Printf("Manager role bootstrap skipped: %v", err)
@@ -83,6 +84,9 @@ func main() {
 	}
 	if err := paymentMethodRepo.EnsureTable(ctx); err != nil {
 		log.Printf("Payment method bootstrap skipped: %v", err)
+	}
+	if err := reportRepo.EnsureSchema(ctx); err != nil {
+		log.Printf("Report schema bootstrap skipped: %v", err)
 	}
 
 	tokenManager := auth.NewTokenManager(cfg.JWT.Secret, cfg.JWT.TTL)
@@ -98,6 +102,7 @@ func main() {
 		categoryRepo,
 		adminRepo,
 		paymentMethodRepo,
+		reportRepo,
 	)
 	if err := authService.EnsureDefaultAdmin(ctx); err != nil {
 		log.Fatalf("Default admin bootstrap error: %v", err)

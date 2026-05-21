@@ -36,6 +36,7 @@ type AuthService struct {
 	categories       *repository.CategoryRepository
 	admin            *repository.AdminRepository
 	paymentMethods   *repository.PaymentMethodRepository
+	reports          *repository.ReportRepository
 }
 
 func NewAuthService(
@@ -50,6 +51,7 @@ func NewAuthService(
 	categories *repository.CategoryRepository,
 	admin *repository.AdminRepository,
 	paymentMethods *repository.PaymentMethodRepository,
+	reports *repository.ReportRepository,
 ) *AuthService {
 	return &AuthService{
 		users:            users,
@@ -63,6 +65,7 @@ func NewAuthService(
 		categories:       categories,
 		admin:            admin,
 		paymentMethods:   paymentMethods,
+		reports:          reports,
 	}
 }
 
@@ -487,6 +490,14 @@ func (s *AuthService) SetAvailability(ctx context.Context, userID int, available
 	}
 
 	if available {
+		blocked, err := s.reports.HasActiveOnlineBlock(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return errors.New("worker is suspended by support")
+		}
+
 		hasPaymentMethod, err := s.paymentMethods.Exists(ctx, userID)
 		if err != nil {
 			return err
@@ -632,6 +643,82 @@ func (s *AuthService) CreateAdmin(ctx context.Context, input RegisterInput) (mod
 
 func (s *AuthService) CreateManager(ctx context.Context, input RegisterInput) (model.User, error) {
 	return s.createPrivilegedUser(ctx, input, model.RoleManager)
+}
+
+func (s *AuthService) CreateReport(ctx context.Context, reporterUserID int, role string, bookingID *int, reportedUserID int, reason string, description string) (repository.Report, error) {
+	reason = strings.TrimSpace(reason)
+	description = strings.TrimSpace(description)
+	if reason == "" {
+		return repository.Report{}, errors.New("reason is required")
+	}
+	if bookingID != nil {
+		counterpartyID, err := s.reports.BookingCounterparty(ctx, *bookingID, reporterUserID)
+		if err != nil {
+			return repository.Report{}, err
+		}
+		reportedUserID = counterpartyID
+	}
+	if reportedUserID <= 0 || reportedUserID == reporterUserID {
+		return repository.Report{}, errors.New("reported user is required")
+	}
+	if role != string(model.RoleCustomer) && role != string(model.RoleWorker) {
+		return repository.Report{}, errors.New("only customers and workers can create reports")
+	}
+	report, err := s.reports.Create(ctx, bookingID, reporterUserID, reportedUserID, reason, description)
+	if err != nil {
+		return repository.Report{}, err
+	}
+	_ = s.reports.NotifyStaffReportCreated(ctx, report)
+	return report, nil
+}
+
+func (s *AuthService) AddReportFile(ctx context.Context, reportID int, userID int, fileName string, filePath string, contentType string) error {
+	return s.reports.AddFile(ctx, reportID, userID, fileName, filePath, contentType)
+}
+
+func (s *AuthService) ListReports(ctx context.Context, userID int, staff bool) ([]repository.Report, error) {
+	return s.reports.List(ctx, userID, staff)
+}
+
+func (s *AuthService) AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error) {
+	if strings.TrimSpace(text) == "" && strings.TrimSpace(attachmentURL) == "" {
+		return repository.ReportMessage{}, errors.New("message or attachment is required")
+	}
+	msg, err := s.reports.AddMessage(ctx, reportID, userID, staff, text, attachmentURL, attachmentName, attachmentType)
+	if err != nil {
+		return repository.ReportMessage{}, err
+	}
+	_ = s.reports.NotifyReportMessage(ctx, reportID, userID, staff)
+	return msg, nil
+}
+
+func (s *AuthService) ListReportMessages(ctx context.Context, reportID int, userID int, staff bool) ([]repository.ReportMessage, error) {
+	messages, err := s.reports.ListMessages(ctx, reportID, userID, staff)
+	if err != nil {
+		return nil, err
+	}
+	_ = s.reports.MarkMessagesRead(ctx, reportID, userID, staff)
+	return messages, nil
+}
+
+func (s *AuthService) ApplyReportPenalty(ctx context.Context, reportID int, targetUserID int, issuedByUserID int, penaltyType string, reason string, expiresAt *time.Time) (repository.Penalty, error) {
+	penaltyType = strings.TrimSpace(penaltyType)
+	reason = strings.TrimSpace(reason)
+	if reportID <= 0 || targetUserID <= 0 || issuedByUserID <= 0 {
+		return repository.Penalty{}, errors.New("invalid penalty target")
+	}
+	if reason == "" {
+		reason = penaltyType
+	}
+	return s.reports.ApplyPenalty(ctx, reportID, targetUserID, issuedByUserID, penaltyType, reason, expiresAt)
+}
+
+func (s *AuthService) CloseReport(ctx context.Context, reportID int, status string, resolution string) error {
+	status = strings.TrimSpace(status)
+	if status != "resolved" && status != "rejected" {
+		return errors.New("invalid report status")
+	}
+	return s.reports.CloseReport(ctx, reportID, status, strings.TrimSpace(resolution))
 }
 
 func (s *AuthService) createPrivilegedUser(ctx context.Context, input RegisterInput, role model.Role) (model.User, error) {

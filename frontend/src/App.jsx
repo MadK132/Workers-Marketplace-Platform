@@ -24,6 +24,7 @@ const roleTabs = {
     ["requests", "Requests"],
     ["bookings", "Bookings"],
     ["chats", "Chat"],
+    ["reports", "Reports"],
     ["profile", "Profile"],
     ["notifications", "Alerts"],
   ],
@@ -31,6 +32,7 @@ const roleTabs = {
     ["pro", "Map"],
     ["jobs", "Jobs"],
     ["chats", "Chat"],
+    ["reports", "Reports"],
     ["skills", "Services"],
     ["profile", "Profile"],
     ["notifications", "Alerts"],
@@ -39,6 +41,7 @@ const roleTabs = {
     ["overview", "Dashboard"],
     ["verify", "Queue"],
     ["users", "Users"],
+    ["reports", "Reports"],
     ["accounts", "Staff"],
     ["notifications", "Alerts"],
   ],
@@ -46,6 +49,7 @@ const roleTabs = {
     ["overview", "Dashboard"],
     ["verify", "Queue"],
     ["users", "Users"],
+    ["reports", "Reports"],
     ["notifications", "Alerts"],
   ],
 };
@@ -75,6 +79,9 @@ export default function App() {
       setActiveTab("chats");
     } else if (item.action_type === "booking_map") {
       setActiveTab(role === "worker" ? "pro" : "find");
+    } else if (item.action_type === "report" && item.action_ref) {
+      localStorage.setItem("workers_marketplace_active_report", String(item.action_ref));
+      setActiveTab("reports");
     }
     const id = item.notification_id || item.id;
     if (id) {
@@ -1212,6 +1219,7 @@ function CustomerApp({
   if (activeTab === "requests") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><RequestsPanel token={token} /></CustomerPhonePage>;
   if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} /></CustomerPhonePage>;
   if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" /></CustomerPhonePage>;
+  if (activeTab === "reports") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="customer" /></CustomerPhonePage>;
   if (activeTab === "worker-profile") return <CustomerPhonePage activeTab="find" onNavigate={onNavigate} onSignOut={onSignOut}><WorkerPublicProfilePage token={token} worker={profileWorker} onBack={() => onNavigate("find")} onHireWorker={hireWorker} /></CustomerPhonePage>;
   if (activeTab === "profile") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><CustomerProfilePanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
   if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
@@ -1662,6 +1670,9 @@ function WorkerApp({
   if (activeTab === "chats") {
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="worker" /></WorkerPhonePage>;
   }
+  if (activeTab === "reports") {
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="worker" /></WorkerPhonePage>;
+  }
   if (activeTab === "skills") {
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><WorkerSkillsPanel token={token} /></WorkerPhonePage>;
   }
@@ -1832,6 +1843,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
   }, [activeTab, loadOverview, loadUsers]);
 
   if (activeTab === "notifications") return <NotificationsPanel token={token} onNavigate={onNavigate} />;
+  if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff />;
 
   const verifySkill = async (id) => {
     setError("");
@@ -2169,6 +2181,10 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate 
             {canProgress && (
               <div className="rowActions">
                 <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
+                <button className="secondaryButton" onClick={() => {
+                  localStorage.setItem("workers_marketplace_report_booking", String(item.booking_id || item.id));
+                  onNavigate?.("reports");
+                }}>Report</button>
                 {String(item.status).toLowerCase() === "scheduled" && <button onClick={() => onProgress(item.booking_id || item.id, "start")}>Start route</button>}
                 {String(item.status).toLowerCase() === "in_progress" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "complete")}>Send proof</button>}
               </div>
@@ -2176,6 +2192,10 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate 
             {canConfirm && canChatBooking(item) && (
               <div className="rowActions">
                 <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
+                <button className="secondaryButton" onClick={() => {
+                  localStorage.setItem("workers_marketplace_report_booking", String(item.booking_id || item.id));
+                  onNavigate?.("reports");
+                }}>Report</button>
               </div>
             )}
             {canConfirm && String(item.status).toLowerCase() === "awaiting_confirmation" && (
@@ -2524,17 +2544,21 @@ function ChatPanel({ token, role }) {
 }
 
 function ChatBubble({ msg, own }) {
+  const label = own ? "You" : "Partner";
   return (
     <article className={own ? "chatBubble own" : "chatBubble"}>
-      <small>{own ? "You" : "Partner"}</small>
-      {msg.content && !(msg.attachment_url && msg.content === "Attachment") && <span>{msg.content}</span>}
-      {msg.attachment_url && (
-        <AttachmentPreview msg={msg} />
-      )}
-      <footer className="chatMeta">
-        <time dateTime={msg.created_at || msg.createdAt || ""}>{formatChatTime(msg.created_at || msg.createdAt)}</time>
-        {own && <span className={msg.read_at || msg.readAt ? "read" : ""}>{msg.read_at || msg.readAt ? "✓✓" : "✓"}</span>}
-      </footer>
+      <div className="chatAvatar" aria-hidden="true">{own ? "Y" : "P"}</div>
+      <div className="chatBubbleBody">
+        <small>{label}</small>
+        {msg.content && !(msg.attachment_url && msg.content === "Attachment") && <span>{msg.content}</span>}
+        {msg.attachment_url && (
+          <AttachmentPreview msg={msg} />
+        )}
+        <footer className="chatMeta">
+          <time dateTime={msg.created_at || msg.createdAt || ""}>{formatChatTime(msg.created_at || msg.createdAt)}</time>
+          {own && <span className={msg.read_at || msg.readAt ? "read" : ""}>{msg.read_at || msg.readAt ? "✓✓" : "✓"}</span>}
+        </footer>
+      </div>
     </article>
   );
 }
@@ -2563,6 +2587,335 @@ function AttachmentPreview({ msg }) {
       {name}
     </a>
   );
+}
+
+function ReportsPanel({ token, role, staff = false }) {
+  const [reports, setReports] = useState([]);
+  const [reportBookings, setReportBookings] = useState([]);
+  const [activeID, setActiveID] = useState(() => localStorage.getItem("workers_marketplace_active_report") || "");
+  const [viewMode, setViewMode] = useState("details");
+  const [messages, setMessages] = useState([]);
+  const [form, setForm] = useState(() => ({
+    booking_id: localStorage.getItem("workers_marketplace_report_booking") || "",
+    reason: "bad_quality",
+    description: "",
+  }));
+  const [files, setFiles] = useState([]);
+  const [messageText, setMessageText] = useState("");
+  const [attachment, setAttachment] = useState(null);
+  const [penalty, setPenalty] = useState({ penalty_type: "warning", days: "7", reason: "" });
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  const loadReports = useCallback(() => {
+    apiGet("/api/reports", token)
+      .then((data) => {
+        const next = Array.isArray(data) ? data : data.reports || [];
+        setReports(next);
+        setActiveID((current) => {
+          const storedID = localStorage.getItem("workers_marketplace_active_report");
+          if (storedID && next.some((report) => String(report.report_id) === storedID)) {
+            return storedID;
+          }
+          return current || String(next[0]?.report_id || "");
+        });
+      })
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  const loadReportBookings = useCallback(() => {
+    if (staff) return;
+    apiGet("/api/bookings/my", token)
+      .then((data) => {
+        const next = Array.isArray(data) ? data : data.bookings || [];
+        setReportBookings(next);
+        setForm((current) => {
+          if (current.booking_id || next.length === 0) return current;
+          return { ...current, booking_id: String(next[0].booking_id || next[0].id || "") };
+        });
+      })
+      .catch((err) => setError(err.message));
+  }, [staff, token]);
+
+  const loadMessages = useCallback((reportID) => {
+    if (!reportID) {
+      setMessages([]);
+      return;
+    }
+    apiGet(`/api/reports/${reportID}/messages`, token)
+      .then((data) => setMessages(Array.isArray(data) ? data : data.messages || []))
+      .catch((err) => setError(err.message));
+  }, [token]);
+
+  useEffect(() => {
+    loadReports();
+    const intervalID = window.setInterval(loadReports, 5000);
+    return () => window.clearInterval(intervalID);
+  }, [loadReports]);
+
+  useEffect(() => {
+    loadReportBookings();
+  }, [loadReportBookings]);
+
+  useEffect(() => {
+    loadMessages(activeID);
+    if (!activeID) return undefined;
+    localStorage.setItem("workers_marketplace_active_report", String(activeID));
+    const intervalID = window.setInterval(() => loadMessages(activeID), 4000);
+    return () => window.clearInterval(intervalID);
+  }, [activeID, loadMessages]);
+
+  const activeReport = reports.find((item) => String(item.report_id) === String(activeID));
+  const selectedBooking = reportBookings.find((item) => String(item.booking_id || item.id) === String(form.booking_id));
+  const fileSummary = files.length === 0 ? "No files selected" : files.map((file) => file.name).join(", ");
+
+  const createReport = async (event) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      if (form.booking_id) body.append("booking_id", form.booking_id);
+      body.append("reason", form.reason);
+      body.append("description", form.description);
+      files.forEach((file) => body.append("report_files", file));
+      const created = await apiMultipart("/api/reports", token, body);
+      localStorage.removeItem("workers_marketplace_report_booking");
+      setForm({ booking_id: "", reason: "bad_quality", description: "" });
+      setFiles([]);
+      setMessage("Report created. Support will review it.");
+      setActiveID(String(created.report_id || ""));
+      loadReports();
+      loadReportBookings();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const sendReportMessage = async (event) => {
+    event.preventDefault();
+    if (!activeID) return;
+    setError("");
+    try {
+      let sent;
+      if (attachment) {
+        const body = new FormData();
+        body.append("message_text", messageText);
+        body.append("attachment", attachment);
+        sent = await apiMultipart(`/api/reports/${activeID}/messages`, token, body);
+      } else {
+        sent = await apiPost(`/api/reports/${activeID}/messages`, token, { message_text: messageText });
+      }
+      setMessages((current) => [...current, sent]);
+      setMessageText("");
+      setAttachment(null);
+      loadReports();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const applyPenalty = async () => {
+    if (!activeReport) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPost(`/api/admin/reports/${activeReport.report_id}/penalty`, token, {
+        target_user_id: activeReport.reported_user_id,
+        penalty_type: penalty.penalty_type,
+        reason: penalty.reason || activeReport.reason,
+        days: Number(penalty.days || 0),
+      });
+      setMessage("Penalty applied and report resolved.");
+      loadReports();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const closeReport = async (status) => {
+    if (!activeReport) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/admin/reports/${activeReport.report_id}/close`, token, {
+        status,
+        resolution: penalty.reason || "Closed by support",
+      });
+      setMessage("Report closed.");
+      loadReports();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <section className="pagePanel reportsPage">
+      <SectionHeader title={staff ? "Reports" : "My reports"} text={staff ? "Review disputes and apply penalties when needed." : "Create a support case for a booking issue."} />
+      <Messages message={message} error={error} />
+      {!staff && (
+        <form className="toolCard reportCreateForm" onSubmit={createReport}>
+          <div className="reportFormHeader">
+            <div>
+              <h3>New support case</h3>
+              <p>Choose the booking, explain what happened and attach proof if needed.</p>
+            </div>
+            {selectedBooking && <span className="statusPill">{selectedBooking.status || "booking"}</span>}
+          </div>
+          <div className="reportFormGrid">
+            <Field label="Booking" light>
+              <select value={form.booking_id} onChange={(event) => setForm({ ...form, booking_id: event.target.value })} required>
+                <option value="">Choose booking</option>
+                {reportBookings.map((booking) => {
+                  const id = booking.booking_id || booking.id;
+                  const title = booking.address || booking.description || "Booking";
+                  return <option key={id} value={id}>Booking #{id} - {title}</option>;
+                })}
+              </select>
+            </Field>
+            <Field label="Reason" light>
+              <select value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })}>
+                <option value="bad_quality">Bad quality</option>
+                <option value="no_show">Worker/customer did not arrive</option>
+                <option value="rude_behavior">Rude behavior</option>
+                <option value="fake_evidence">Fake evidence</option>
+                <option value="payment_disagreement">Payment disagreement</option>
+                <option value="other">Other</option>
+              </select>
+            </Field>
+          </div>
+          {selectedBooking && (
+            <div className="selectedReportBooking">
+              <strong>Booking #{selectedBooking.booking_id || selectedBooking.id}</strong>
+              <span>{selectedBooking.address || selectedBooking.description || "No address"}</span>
+              <small>{selectedBooking.final_price ? `${formatMoney(parseMoney(selectedBooking.final_price))} KZT` : "Price was set in chat"}</small>
+            </div>
+          )}
+          <Field label="Description" light><textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Explain what happened..." required /></Field>
+          <div className="reportUploadRow">
+            <label className="fileButton reportFileButton">
+              Attach files
+              <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files || []))} />
+            </label>
+            <span title={fileSummary}>{fileSummary}</span>
+          </div>
+          <button disabled={!form.booking_id}>Create report</button>
+        </form>
+      )}
+      <div className="reportsLayout">
+        <aside className="reportList">
+          {reports.length === 0 && <EmptyState title="No reports" text="Reports will appear here." />}
+          {reports.map((report) => (
+            <button key={report.report_id} className={String(activeID) === String(report.report_id) ? "active" : ""} onClick={() => {
+              setActiveID(String(report.report_id));
+              setViewMode("details");
+            }}>
+              <strong>Report #{report.report_id}</strong>
+              <span>{report.reason} - {report.status}</span>
+              <small>{staff ? `${report.reporter_name} -> ${report.reported_name}` : `Booking #${report.booking_id || "-"}`}</small>
+            </button>
+          ))}
+        </aside>
+        <section className="reportDetail">
+          {!activeReport && <EmptyState title="Choose report" text="Select a report from the list." />}
+          {activeReport && (
+            <>
+              <div className="toolCard reportSummary">
+                <div className="reportSummaryTop">
+                  <div>
+                    <h3>Report #{activeReport.report_id}</h3>
+                    <small>Booking #{activeReport.booking_id || "-"} | {activeReport.reporter_name || "Reporter"} {"->"} {activeReport.reported_name || "Reported"}</small>
+                  </div>
+                  <span className={`statusPill ${activeReport.status}`}>{activeReport.status}</span>
+                </div>
+                <p>{activeReport.description || "No description"}</p>
+                <div className="rowActions">
+                  <button type="button" className={viewMode === "chat" ? "" : "secondaryButton"} onClick={() => setViewMode(viewMode === "chat" ? "details" : "chat")}>
+                    {viewMode === "chat" ? "Hide chat" : "Open support chat"}
+                  </button>
+                </div>
+              </div>
+              {staff && viewMode !== "chat" && (
+                <div className="toolCard reportPenaltyBox">
+                  <h3>Support decision</h3>
+                  <div className="toolbarGrid">
+                    <Field label="Penalty" light>
+                      <select value={penalty.penalty_type} onChange={(event) => setPenalty({ ...penalty, penalty_type: event.target.value })}>
+                        <option value="warning">Warning</option>
+                        <option value="temporary_suspend">Temporary suspend</option>
+                        <option value="unverify_skills">Unverify worker skills</option>
+                        {role === "admin" && <option value="block_user">Block user</option>}
+                      </select>
+                    </Field>
+                    <Field label="Days for suspend" light><input value={penalty.days} onChange={(event) => setPenalty({ ...penalty, days: event.target.value })} /></Field>
+                  </div>
+                  <Field label="Resolution note" light><textarea value={penalty.reason} onChange={(event) => setPenalty({ ...penalty, reason: event.target.value })} placeholder="What decision was made?" /></Field>
+                  <div className="rowActions">
+                    <button type="button" onClick={applyPenalty}>Apply penalty</button>
+                    <button type="button" className="secondaryButton" onClick={() => closeReport("rejected")}>Reject report</button>
+                    <button type="button" className="secondaryButton" onClick={() => closeReport("resolved")}>Close without penalty</button>
+                  </div>
+                </div>
+              )}
+              {viewMode === "chat" && (
+                <div className="reportChatPanel">
+                  <div className="sectionTitleRow">
+                    <strong>Support chat</strong>
+                    <span>{staff ? "Manager desk" : "Dispute conversation"}</span>
+                  </div>
+                  <div className="reportMessageList">
+                    {messages.length === 0 && <EmptyState title="No dispute messages" text="Write a message to start the support chat." />}
+                    {messages.map((msg) => (
+                      <ReportChatBubble
+                        key={msg.message_id}
+                        msg={msg}
+                        own={Number(msg.sender_user_id) === tokenUserID(token)}
+                        staff={Number(msg.sender_user_id) !== Number(activeReport.reporter_user_id) && Number(msg.sender_user_id) !== Number(activeReport.reported_user_id)}
+                      />
+                    ))}
+                  </div>
+                  <form className="chatComposer" onSubmit={sendReportMessage}>
+                    <textarea value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Write to dispute chat..." />
+                    <label className="fileButton chatFileButton">Attach<input type="file" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label>
+                    <button disabled={!messageText.trim() && !attachment}>Send</button>
+                  </form>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function ReportChatBubble({ msg, own, staff }) {
+  const label = staff ? "Support" : own ? "You" : msg.sender_name || "User";
+  const initials = staff ? "M" : own ? "Y" : initialsOf(msg.sender_name || "U");
+  return (
+    <article className={`${own ? "chatBubble own" : "chatBubble"} ${staff ? "supportBubble" : ""}`}>
+      <div className="chatAvatar" aria-hidden="true">{initials}</div>
+      <div className="chatBubbleBody">
+        <small>{label}</small>
+        {msg.message_text && <span>{msg.message_text}</span>}
+        {msg.attachment_url && <a className="chatAttachment file" href={apiURL(msg.attachment_url)} target="_blank" rel="noreferrer">{msg.attachment_name || "Attachment"}</a>}
+        <footer className="chatMeta">
+          <time dateTime={msg.created_at || ""}>{formatChatTime(msg.created_at)}</time>
+          {own && <span className={msg.read_at ? "read" : ""}>{msg.read_at ? "✓✓" : "✓"}</span>}
+        </footer>
+      </div>
+    </article>
+  );
+}
+
+function initialsOf(name) {
+  return String(name || "")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase() || "U";
 }
 
 function NotificationsPanel({ token, onNavigate }) {
@@ -2602,6 +2955,9 @@ function NotificationsPanel({ token, onNavigate }) {
         onNavigate?.("chats");
       } else if (item.action_type === "booking_map") {
         onNavigate?.("find");
+      } else if (item.action_type === "report" && item.action_ref) {
+        localStorage.setItem("workers_marketplace_active_report", String(item.action_ref));
+        onNavigate?.("reports");
       }
       const id = item.notification_id || item.id;
       if (id) {
