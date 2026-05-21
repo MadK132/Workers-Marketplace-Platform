@@ -549,6 +549,10 @@ textarea {
   min-height: 100vh;
 }
 
+.navigationMap .mapCanvas {
+  filter: saturate(1.05) contrast(1.02);
+}
+
 .mapCanvas [class*="control"],
 .mapCanvas [class*="Control"],
 .mapCanvas [class*="zoom"],
@@ -724,6 +728,53 @@ textarea {
   top: 544px;
   font-size: 13px;
   font-weight: 900;
+}
+
+.navigationOverlay {
+  position: absolute;
+  top: 118px;
+  left: 22px;
+  z-index: 24;
+  display: flex;
+  width: min(430px, calc(100% - 188px));
+  min-height: 74px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-radius: 18px;
+  padding: 14px 14px 14px 18px;
+  background: rgba(16, 35, 31, 0.92);
+  color: #fffaf2;
+  box-shadow: 0 18px 46px rgba(16, 35, 31, 0.24);
+  backdrop-filter: blur(10px);
+}
+
+.navigationOverlay div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.navigationOverlay strong {
+  color: #ffd900;
+  font-size: 19px;
+  line-height: 1.15;
+}
+
+.navigationOverlay span {
+  overflow: hidden;
+  color: rgba(255, 250, 242, 0.74);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navigationOverlay button {
+  min-height: 42px;
+  border-radius: 999px;
+  background: #ffd900;
+  color: #111;
 }
 
 .energyPill {
@@ -1989,33 +2040,50 @@ textarea {
 }
 
 .chatPage {
-  min-height: 72vh;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: calc(100vh - 150px);
+  min-height: 620px;
+  overflow: hidden;
 }
 
 .chatLayout {
   display: grid;
-  grid-template-columns: minmax(220px, 0.34fr) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
   gap: 14px;
-  min-height: 520px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chatList {
   display: grid;
   align-content: start;
+  grid-auto-rows: minmax(72px, auto);
   gap: 8px;
   overflow: auto;
+  min-height: 0;
+  padding-right: 10px;
+  scrollbar-gutter: stable;
 }
 
 .chatList button {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   justify-items: start;
+  align-content: center;
+  min-height: 72px;
   border: 1px solid #ddd4c2;
   border-radius: 8px;
   padding: 12px;
   background: #fffaf2;
   color: #10231f;
   text-align: left;
+  overflow: hidden;
+}
+
+.chatList strong {
+  display: block;
+  line-height: 1.18;
+  white-space: nowrap;
 }
 
 .chatList button.active {
@@ -2024,8 +2092,11 @@ textarea {
 }
 
 .chatList span {
+  display: block;
   color: #6f716b;
   font-size: 13px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .chatConversation {
@@ -2033,6 +2104,14 @@ textarea {
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.chatPage .messageList {
+  min-height: 0;
+  max-height: none;
+  height: 100%;
 }
 
 .priceComposer {
@@ -2068,7 +2147,7 @@ textarea {
 
 .chatComposer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) 100px 88px;
   gap: 8px;
   align-items: end;
 }

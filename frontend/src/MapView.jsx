@@ -38,6 +38,8 @@ const MapView = forwardRef(function MapView({
   autoCenterOnPosition = true,
   routeLine = null,
   routeFocusKey = "",
+  followPosition = false,
+  navigationMode = false,
 }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -71,6 +73,13 @@ const MapView = forwardRef(function MapView({
       if (mapRef.current && position) {
         userAdjustedMapRef.current = false;
         mapRef.current.setCenter([position.longitude, position.latitude]);
+      }
+    },
+    follow() {
+      if (mapRef.current && position) {
+        userAdjustedMapRef.current = false;
+        mapRef.current.setCenter([position.longitude, position.latitude]);
+        setMapZoom(Math.max(zoomRef.current, 17));
       }
     },
   }));
@@ -156,14 +165,14 @@ const MapView = forwardRef(function MapView({
 
     routeLineRef.current = new window.mapgl.Polyline(mapRef.current, {
       coordinates: points.map((point) => [point.longitude, point.latitude]),
-      width: 5,
-      color: "#2e8979",
+      width: navigationMode ? 7 : 5,
+      color: navigationMode ? "#2e8cff" : "#2e8979",
       zIndex: 7,
     });
 
     const lastPoint = points[points.length - 1];
     const focusKey = routeFocusKey || `${points[0].latitude}:${points[0].longitude}:${lastPoint.latitude}:${lastPoint.longitude}`;
-    if (focusedRouteRef.current !== focusKey) {
+    if (!followPosition && focusedRouteRef.current !== focusKey) {
       focusRoute(points);
       focusedRouteRef.current = focusKey;
     }
@@ -172,7 +181,18 @@ const MapView = forwardRef(function MapView({
       routeLineRef.current?.destroy?.();
       routeLineRef.current = null;
     };
-  }, [routeFocusKey, routeLine]);
+  }, [followPosition, navigationMode, routeFocusKey, routeLine]);
+
+  useEffect(() => {
+    if (!mapRef.current || !position || !followPosition) {
+      return;
+    }
+    userAdjustedMapRef.current = false;
+    mapRef.current.setCenter([position.longitude, position.latitude]);
+    if (zoomRef.current < 17) {
+      setMapZoom(17);
+    }
+  }, [followPosition, position?.latitude, position?.longitude]);
 
   useEffect(() => {
     if (!mapRef.current || !window.mapgl || !position) {
@@ -243,7 +263,7 @@ const MapView = forwardRef(function MapView({
   }, [workers, selectedWorker, position, onSelectWorker, autoCenterOnPosition]);
 
   return (
-    <section className="mapShell" aria-label="2GIS map with nearby workers">
+    <section className={navigationMode ? "mapShell navigationMap" : "mapShell"} aria-label="2GIS map with nearby workers">
       <div ref={containerRef} className="mapCanvas" />
       {!MAP_KEY && (
         <div className="mapOverlay">

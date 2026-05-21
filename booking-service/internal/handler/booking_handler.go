@@ -123,7 +123,7 @@ func (h *Handler) StartBooking(c *gin.Context) {
 		}
 		return
 	}
-	h.notifyCustomer(c.Request.Context(), bookingID, "booking_started", "Booking started", "The worker has started the job and is on the way.")
+	h.notifyCustomerMapAction(c.Request.Context(), bookingID, "booking_started", "Worker is on the way", "The worker has started moving to your address.")
 	c.JSON(http.StatusOK, gin.H{"message": "booking started"})
 }
 

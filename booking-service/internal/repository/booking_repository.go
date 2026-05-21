@@ -337,6 +337,19 @@ func (r *BookingRepository) MarkInProgress(
 	}
 
 	_, err = tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET is_available = false
+		WHERE worker_profile_id = (
+			SELECT worker_profile_id
+			FROM bookings
+			WHERE booking_id = $1
+		)
+	`, bookingID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
 		UPDATE service_requests
 		SET status = 'in_progress'
 		WHERE request_id = $1
@@ -365,6 +378,19 @@ func (r *BookingRepository) MarkAwaitingConfirmation(
 		SET status = 'awaiting_confirmation', completion_evidence = $2
 		WHERE booking_id = $1
 	`, bookingID, evidence)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET is_available = false
+		WHERE worker_profile_id = (
+			SELECT worker_profile_id
+			FROM bookings
+			WHERE booking_id = $1
+		)
+	`, bookingID)
 	if err != nil {
 		return err
 	}
@@ -413,7 +439,7 @@ func (r *BookingRepository) MarkRejected(
 
 	_, err = tx.Exec(ctx, `
 		UPDATE worker_profiles
-		SET is_available = true
+		SET is_available = false
 		WHERE worker_profile_id = $1
 	`, workerProfileID)
 	if err != nil {

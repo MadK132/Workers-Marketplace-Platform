@@ -14,6 +14,9 @@ const ASTANA_BOUNDS = {
   maxLongitude: 71.75,
 };
 const GIS_API_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
+const TTS_VOICE_HINT = import.meta.env.VITE_TTS_VOICE_HINT || "";
+const ROUTE_REFRESH_MS = 90000;
+const ROUTE_REFRESH_DISTANCE_M = 200;
 
 const roleTabs = {
   customer: [
@@ -70,6 +73,8 @@ export default function App() {
     } else if (item.action_type === "chat" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
       setActiveTab("chats");
+    } else if (item.action_type === "booking_map") {
+      setActiveTab(role === "worker" ? "pro" : "find");
     }
     const id = item.notification_id || item.id;
     if (id) {
@@ -680,46 +685,30 @@ async function buildDrivingRoute(start, end) {
       transport: "driving",
       route_mode: "fastest",
       traffic_mode: "jam",
-      locale: "ru",
-    },
-    {
-      points: [
-        { type: "walking", x: start.longitude, y: start.latitude },
-        { type: "walking", x: end.longitude, y: end.latitude },
-      ],
-      transport: "car",
-      route_mode: "fastest",
-      traffic_mode: "jam",
+      output: "detailed",
       locale: "ru",
     },
   ];
   try {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      for (const payload of payloads) {
-        const response = await fetch(`https://routing.api.2gis.com/routing/7.0.0/global?key=${encodeURIComponent(GIS_API_KEY)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!response.ok) {
-          continue;
-        }
-        const data = await response.json();
-        const points = collectRoutePoints(data?.result?.[0] || data?.result || data);
-        if (points.length >= 2) {
-          return points;
-        }
+    for (const payload of payloads) {
+      const response = await fetch(`https://routing.api.2gis.com/routing/7.0.0/global?key=${encodeURIComponent(GIS_API_KEY)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        continue;
       }
-      await wait(350);
+      const data = await response.json();
+      const points = collectRoutePoints(data?.result?.[0] || data?.result || data);
+      if (points.length >= 2) {
+        return points;
+      }
     }
-    return directRoute(start, end);
+    return null;
   } catch {
-    return directRoute(start, end);
+    return null;
   }
-}
-
-function wait(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function collectRoutePoints(route) {
@@ -746,13 +735,13 @@ function collectRoutePoints(route) {
   }
   add(route?.end_pedestrian_path?.geometry?.selection);
   if (points.length === 0) {
-    collectRouteGeometry(route, add);
+    collectRouteGeometry(route, add, (point) => points.push(point));
   }
 
   return dedupeRoutePoints(points);
 }
 
-function collectRouteGeometry(value, add) {
+function collectRouteGeometry(value, add, addPoint) {
   if (!value) {
     return;
   }
@@ -761,12 +750,32 @@ function collectRouteGeometry(value, add) {
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach((item) => collectRouteGeometry(item, add));
+    const point = parseCoordinatePair(value);
+    if (point) {
+      addPoint(point);
+      return;
+    }
+    value.forEach((item) => collectRouteGeometry(item, add, addPoint));
     return;
   }
   if (typeof value === "object") {
-    Object.values(value).forEach((item) => collectRouteGeometry(item, add));
+    Object.values(value).forEach((item) => collectRouteGeometry(item, add, addPoint));
   }
+}
+
+function parseCoordinatePair(value) {
+  if (!Array.isArray(value) || value.length < 2) {
+    return null;
+  }
+  const longitude = Number(value[0]);
+  const latitude = Number(value[1]);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+    return null;
+  }
+  return { latitude, longitude };
 }
 
 function parseLineString(value) {
@@ -968,6 +977,7 @@ function CustomerApp({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [routePoints, setRoutePoints] = useState(null);
+  const customerRouteRequestRef = useRef(null);
 
   useEffect(() => {
     apiGet("/api/categories", token).then(setCategories).catch((err) => setError(err.message));
@@ -1024,9 +1034,6 @@ function CustomerApp({
   const activeCustomerBooking = bookings.find((item) => {
     const status = String(item.status || "").toLowerCase();
     return status === "in_progress" && item.worker_latitude && item.worker_longitude && item.latitude && item.longitude;
-  }) || bookings.find((item) => {
-    const status = String(item.status || "").toLowerCase();
-    return (status === "scheduled" || status === "awaiting_confirmation") && item.worker_latitude && item.worker_longitude;
   });
   const trackingWorker = activeCustomerBooking ? [{
     worker_id: activeCustomerBooking.worker_profile_id,
@@ -1039,23 +1046,41 @@ function CustomerApp({
     ? { latitude: activeCustomerBooking.latitude, longitude: activeCustomerBooking.longitude }
     : null;
   const searchPosition = locationMode === "map" || locationMode === "address" ? pickedPosition : position;
+  const routeSourceWorker = trackingWorker?.[0] || null;
+  const routeDestination = customerDestination;
 
   useEffect(() => {
     let cancelled = false;
-    const bookingStatus = String(activeCustomerBooking?.status || "").toLowerCase();
-    if (!activeCustomerBooking || !customerDestination || bookingStatus === "scheduled") {
+    if (!routeSourceWorker?.latitude || !routeSourceWorker?.longitude || !routeDestination?.latitude || !routeDestination?.longitude) {
       setRoutePoints(null);
+      customerRouteRequestRef.current = null;
       return () => {
         cancelled = true;
       };
     }
     const workerPosition = {
-      latitude: activeCustomerBooking.worker_latitude,
-      longitude: activeCustomerBooking.worker_longitude,
+      latitude: routeSourceWorker.latitude,
+      longitude: routeSourceWorker.longitude,
     };
-    buildDrivingRoute(workerPosition, customerDestination).then((points) => {
+    const routeID = activeCustomerBooking?.booking_id || activeCustomerBooking?.id || `preview:${routeSourceWorker.worker_id || routeSourceWorker.worker_profile_id || ""}`;
+    const routeKey = `${routeID}:${routeDestination.latitude}:${routeDestination.longitude}`;
+    if (!shouldRefreshRoute(customerRouteRequestRef.current, routeKey, workerPosition)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    buildDrivingRoute(workerPosition, routeDestination).then((points) => {
       if (!cancelled) {
-        setRoutePoints(points);
+        const visiblePoints = points && points.length > 2 ? points : null;
+        if (visiblePoints) {
+          customerRouteRequestRef.current = { key: routeKey, start: workerPosition, at: Date.now() };
+        }
+        setRoutePoints((current) => {
+          if (!visiblePoints) {
+            return current;
+          }
+          return visiblePoints;
+        });
       }
     });
     return () => {
@@ -1063,11 +1088,13 @@ function CustomerApp({
     };
   }, [
     activeCustomerBooking?.booking_id,
-    activeCustomerBooking?.status,
-    activeCustomerBooking?.worker_latitude,
-    activeCustomerBooking?.worker_longitude,
-    customerDestination?.latitude,
-    customerDestination?.longitude,
+    activeCustomerBooking?.id,
+    routeSourceWorker?.worker_id,
+    routeSourceWorker?.worker_profile_id,
+    routeSourceWorker?.latitude,
+    routeSourceWorker?.longitude,
+    routeDestination?.latitude,
+    routeDestination?.longitude,
   ]);
 
   const useCurrentLocation = async () => {
@@ -1131,7 +1158,9 @@ function CustomerApp({
         longitude: String(searchPosition.longitude),
       });
       const data = await apiGet(`/api/geo/workers/nearby?${query}`, token);
-      setWorkers(Array.isArray(data) ? data : data.workers || []);
+      const nextWorkers = Array.isArray(data) ? data : data.workers || [];
+      setWorkers(nextWorkers);
+      setSelectedWorker((current) => current || nextWorkers[0] || null);
       localStorage.removeItem(PAYMENT_SETUP_INTENT_KEY);
     } catch (err) {
       setError(err.message);
@@ -1214,6 +1243,8 @@ function CustomerApp({
           onPickPosition={pickMapPosition}
           autoCenterOnPosition={false}
           routeLine={routePoints}
+          routeFocusKey={activeCustomerBooking?.booking_id || activeCustomerBooking?.id || ""}
+          navigationMode={Boolean(activeCustomerBooking)}
         />
         <CustomerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
@@ -1409,7 +1440,9 @@ function WorkerApp({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [routePoints, setRoutePoints] = useState(null);
+  const [followRoute, setFollowRoute] = useState(false);
   const knownScheduledBookingsRef = useRef(null);
+  const workerRouteRequestRef = useRef(null);
 
   const loadBookings = useCallback(async () => {
     setError("");
@@ -1461,8 +1494,14 @@ function WorkerApp({
 
   useEffect(() => {
     let cancelled = false;
-    if (!position || !currentInProgressBooking?.latitude || !currentInProgressBooking?.longitude) {
+    if (!position || !currentInProgressBooking) {
       setRoutePoints(null);
+      workerRouteRequestRef.current = null;
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (!currentInProgressBooking.latitude || !currentInProgressBooking.longitude) {
       return () => {
         cancelled = true;
       };
@@ -1471,9 +1510,19 @@ function WorkerApp({
       latitude: currentInProgressBooking.latitude,
       longitude: currentInProgressBooking.longitude,
     };
+    const routeKey = `${currentInProgressBooking.booking_id || currentInProgressBooking.id || ""}:${destination.latitude}:${destination.longitude}`;
+    if (!shouldRefreshRoute(workerRouteRequestRef.current, routeKey, position)) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    workerRouteRequestRef.current = { key: routeKey, start: position, at: Date.now() };
     buildDrivingRoute(position, destination).then((points) => {
       if (!cancelled) {
         setRoutePoints((current) => {
+          if (!points || points.length < 2) {
+            return current;
+          }
           if (isDirectRoute(points) && Array.isArray(current) && current.length > 2) {
             return current;
           }
@@ -1491,6 +1540,12 @@ function WorkerApp({
     currentInProgressBooking?.latitude,
     currentInProgressBooking?.longitude,
   ]);
+
+  useEffect(() => {
+    if (!currentInProgressBooking) {
+      setFollowRoute(false);
+    }
+  }, [currentInProgressBooking?.booking_id]);
 
   useEffect(() => {
     if (!position || !currentInProgressBooking?.latitude || !currentInProgressBooking?.longitude) {
@@ -1587,14 +1642,20 @@ function WorkerApp({
         const body = new FormData();
         body.append("evidence_file", file);
         await apiMultipartPatch(`/api/bookings/${bookingID}/complete`, token, body);
+        await apiPatch("/api/worker/availability", token, { is_available: false }).catch(() => {});
+        setAvailable(false);
+        setSearching(false);
         setMessage("Proof photo sent. Waiting for customer confirmation.");
       } else {
         await apiPatch(`/api/bookings/${bookingID}/${action}`, token, {});
         setMessage(action === "reject" ? "Booking rejected." : `Booking ${action}ed.`);
         if (action === "start") {
+          await apiPatch("/api/worker/availability", token, { is_available: false }).catch(() => {});
           setSearching(false);
           setAvailable(false);
+          setFollowRoute(true);
           onNavigate("pro");
+          window.setTimeout(() => mapRef.current?.follow?.(), 50);
         }
       }
       loadBookings();
@@ -1636,8 +1697,20 @@ function WorkerApp({
           routeLine={routePoints}
           routeFocusKey={currentInProgressBooking?.booking_id || ""}
           autoCenterOnPosition={!currentInProgressBooking}
+          followPosition={followRoute && Boolean(currentInProgressBooking)}
+          navigationMode={Boolean(currentInProgressBooking)}
         />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
+        {currentInProgressBooking && (
+          <NavigationOverlay
+            booking={currentInProgressBooking}
+            position={position}
+            onFollow={() => {
+              setFollowRoute(true);
+              mapRef.current?.follow?.();
+            }}
+          />
+        )}
         {available && searching && bookings.length === 0 && (
           <div className="searchPulse" aria-hidden="true">
             <span />
@@ -1645,12 +1718,26 @@ function WorkerApp({
             <span />
           </div>
         )}
-        <button className={available ? "searchButton lineSearchButton online" : "searchButton lineSearchButton"} onClick={toggleAvailability}>
-          {available ? "Offline" : "Go online"}
-        </button>
+        {!currentInProgressBooking && (
+          <button className={available ? "searchButton lineSearchButton online" : "searchButton lineSearchButton"} onClick={toggleAvailability}>
+            {available ? "Offline" : "Go online"}
+          </button>
+        )}
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
         <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
-        <button className="roundMapButton navButtonMap" onClick={() => mapRef.current?.recenter()}>GPS</button>
+        <button
+          className="roundMapButton navButtonMap"
+          onClick={() => {
+            if (currentInProgressBooking) {
+              setFollowRoute(true);
+              mapRef.current?.follow?.();
+              return;
+            }
+            mapRef.current?.recenter();
+          }}
+        >
+          GPS
+        </button>
         <div className="offersDrawer">
           <div>
             <h2>Offers</h2>
@@ -1689,6 +1776,30 @@ function WorkerLocationGate({ geoStatus, geoError, onAllow, onSignOut }) {
         {geoError && <p className="errorMessage">{geoError}</p>}
       </section>
     </main>
+  );
+}
+
+function NavigationOverlay({ booking, position, onFollow }) {
+  const destination = {
+    latitude: booking?.latitude,
+    longitude: booking?.longitude,
+  };
+  const meters = position && destination.latitude && destination.longitude
+    ? haversineMeters(position, destination)
+    : 0;
+  const primary = meters > 0 && meters < 35
+    ? "Вы на месте"
+    : meters > 0
+      ? `Следуйте по маршруту ${formatNavigationDistance(meters)}`
+      : "Следуйте по маршруту";
+  return (
+    <div className="navigationOverlay">
+      <div>
+        <strong>{primary}</strong>
+        <span>{booking?.address || booking?.description || "Адрес клиента"}</span>
+      </div>
+      <button type="button" onClick={onFollow}>GPS</button>
+    </div>
   );
 }
 
@@ -2497,6 +2608,8 @@ function NotificationsPanel({ token, onNavigate }) {
       } else if (item.action_type === "chat" && item.action_ref) {
         localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
         onNavigate?.("chats");
+      } else if (item.action_type === "booking_map") {
+        onNavigate?.("find");
       }
       const id = item.notification_id || item.id;
       if (id) {
@@ -3137,7 +3250,7 @@ function announceNavigationHint(current, destination) {
   navigationSpeechState.spokenAt = now;
   const text = meters < 35
     ? "Вы на месте."
-    : `Двигайтесь прямо примерно ${formatNavigationDistance(meters)}.`;
+    : `Следуйте по маршруту примерно ${formatNavigationDistance(meters)}.`;
   speakText(text);
 }
 
@@ -3147,9 +3260,31 @@ function speakText(text) {
   }
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang = "ru-RU";
-  utterance.rate = 0.95;
+  const voice = preferredRussianVoice();
+  if (voice) {
+    utterance.voice = voice;
+  }
+  utterance.rate = 0.9;
+  utterance.pitch = 1.05;
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
+}
+
+function preferredRussianVoice() {
+  if (!("speechSynthesis" in window)) {
+    return null;
+  }
+  const voices = window.speechSynthesis.getVoices?.() || [];
+  const hint = TTS_VOICE_HINT.trim().toLowerCase();
+  if (hint) {
+    const hintedVoice = voices.find((voice) => voice.name.toLowerCase().includes(hint) || voice.lang.toLowerCase().includes(hint));
+    if (hintedVoice) {
+      return hintedVoice;
+    }
+  }
+  return voices.find((voice) => /ru/i.test(voice.lang) && /natural|online|google|microsoft|irina|milena|dariya|svetlana|female/i.test(voice.name)) ||
+    voices.find((voice) => /ru/i.test(voice.lang)) ||
+    null;
 }
 
 function formatNavigationDistance(meters) {
@@ -3176,6 +3311,17 @@ function degreesToRadians(value) {
 
 function isDirectRoute(points) {
   return Array.isArray(points) && points.length <= 2;
+}
+
+function shouldRefreshRoute(cache, key, start) {
+  if (!cache || cache.key !== key || !cache.start) {
+    return true;
+  }
+  const elapsed = Date.now() - Number(cache.at || 0);
+  if (elapsed < ROUTE_REFRESH_MS) {
+    return false;
+  }
+  return haversineMeters(cache.start, start) >= ROUTE_REFRESH_DISTANCE_M;
 }
 
 function formatChatTime(value) {

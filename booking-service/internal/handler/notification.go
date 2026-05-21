@@ -19,6 +19,10 @@ func (h *Handler) notifyWorkerChatAction(ctx context.Context, bookingID int, not
 	h.notifyBookingParticipantAction(ctx, bookingID, false, notificationType, title, message, "booking_chat", strconv.Itoa(bookingID), "Open chat")
 }
 
+func (h *Handler) notifyCustomerMapAction(ctx context.Context, bookingID int, notificationType string, title string, message string) {
+	h.notifyBookingParticipantAction(ctx, bookingID, true, notificationType, title, message, "booking_map", strconv.Itoa(bookingID), "Open map")
+}
+
 func (h *Handler) notifyBookingParticipant(ctx context.Context, bookingID int, customer bool, notificationType string, title string, message string) {
 	h.notifyBookingParticipantAction(ctx, bookingID, customer, notificationType, title, message, "", "", "")
 }
