@@ -58,6 +58,7 @@ type BookingListItem struct {
 	ReviewID           *int       `json:"review_id,omitempty"`
 	ReviewRating       *int       `json:"review_rating,omitempty"`
 	ReviewComment      *string    `json:"review_comment,omitempty"`
+	ReviewPhotoURL     *string    `json:"review_photo_url,omitempty"`
 	ReviewCreatedAt    *time.Time `json:"review_created_at,omitempty"`
 }
 
@@ -69,14 +70,25 @@ type WorkerReview struct {
 	CategoryName    string    `json:"category_name"`
 	Rating          int       `json:"rating"`
 	Comment         string    `json:"comment"`
+	PhotoURL        string    `json:"photo_url"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type WorkerReviewSkill struct {
+	WorkerSkillID   int    `json:"worker_skill_id"`
+	CategoryName    string `json:"category_name"`
+	ExperienceLevel string `json:"experience_level"`
+}
+
 type WorkerReviewSummary struct {
-	WorkerProfileID int            `json:"worker_profile_id"`
-	AverageRating   float64        `json:"average_rating"`
-	ReviewCount     int            `json:"review_count"`
-	Reviews         []WorkerReview `json:"reviews"`
+	WorkerProfileID int                 `json:"worker_profile_id"`
+	WorkerName      string              `json:"worker_name"`
+	Bio             string              `json:"bio"`
+	ProfilePhotoURL string              `json:"profile_photo_url"`
+	AverageRating   float64             `json:"average_rating"`
+	ReviewCount     int                 `json:"review_count"`
+	Skills          []WorkerReviewSkill `json:"skills"`
+	Reviews         []WorkerReview      `json:"reviews"`
 }
 
 type BookingRepository struct {
@@ -102,8 +114,10 @@ func (r *BookingRepository) EnsureWorkflowColumns(ctx context.Context) error {
 			worker_profile_id integer REFERENCES worker_profiles(worker_profile_id) ON DELETE SET NULL,
 			rating integer CHECK (rating >= 1 AND rating <= 5),
 			comment text,
+			photo_url text,
 			created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
 		);
+		ALTER TABLE reviews ADD COLUMN IF NOT EXISTS photo_url text;
 	`)
 	return err
 }
@@ -546,6 +560,7 @@ func (r *BookingRepository) ListByCustomerProfile(
 			r.review_id,
 			r.rating,
 			r.comment,
+			r.photo_url,
 			r.created_at
 		FROM bookings b
 		JOIN service_requests sr ON sr.request_id = b.request_id
@@ -589,6 +604,7 @@ func (r *BookingRepository) ListByCustomerProfile(
 			&item.ReviewID,
 			&item.ReviewRating,
 			&item.ReviewComment,
+			&item.ReviewPhotoURL,
 			&item.ReviewCreatedAt,
 		); err != nil {
 			return nil, err
@@ -633,6 +649,7 @@ func (r *BookingRepository) ListByWorkerProfile(
 			r.review_id,
 			r.rating,
 			r.comment,
+			r.photo_url,
 			r.created_at
 		FROM bookings b
 		JOIN service_requests sr ON sr.request_id = b.request_id
@@ -677,6 +694,7 @@ func (r *BookingRepository) ListByWorkerProfile(
 			&item.ReviewID,
 			&item.ReviewRating,
 			&item.ReviewComment,
+			&item.ReviewPhotoURL,
 			&item.ReviewCreatedAt,
 		); err != nil {
 			return nil, err
@@ -698,6 +716,7 @@ func (r *BookingRepository) SaveReview(
 	workerProfileID int,
 	rating int,
 	comment string,
+	photoURL string,
 ) (int, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -707,14 +726,15 @@ func (r *BookingRepository) SaveReview(
 
 	var reviewID int
 	err = tx.QueryRow(ctx, `
-		INSERT INTO reviews (booking_id, customer_profile_id, worker_profile_id, rating, comment)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO reviews (booking_id, customer_profile_id, worker_profile_id, rating, comment, photo_url)
+		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
 		ON CONFLICT (booking_id) DO UPDATE
 		SET rating = EXCLUDED.rating,
 		    comment = EXCLUDED.comment,
+		    photo_url = COALESCE(EXCLUDED.photo_url, reviews.photo_url),
 		    created_at = CURRENT_TIMESTAMP
 		RETURNING review_id
-	`, bookingID, customerProfileID, workerProfileID, rating, comment).Scan(&reviewID)
+	`, bookingID, customerProfileID, workerProfileID, rating, comment, photoURL).Scan(&reviewID)
 	if err != nil {
 		return 0, err
 	}
@@ -741,6 +761,48 @@ func (r *BookingRepository) SaveReview(
 }
 
 func (r *BookingRepository) ListWorkerReviews(ctx context.Context, workerProfileID int) (WorkerReviewSummary, error) {
+	summary := WorkerReviewSummary{
+		WorkerProfileID: workerProfileID,
+		Skills:          make([]WorkerReviewSkill, 0),
+		Reviews:         make([]WorkerReview, 0),
+	}
+	_ = r.db.QueryRow(ctx, `
+		SELECT COALESCE(u.full_name, ''), COALESCE(wp.bio, ''), COALESCE(wp.profile_photo_url, ''), COALESCE(wp.rating, 0)::float8
+		FROM worker_profiles wp
+		LEFT JOIN users u ON u.user_id = wp.user_id
+		WHERE wp.worker_profile_id = $1
+	`, workerProfileID).Scan(
+		&summary.WorkerName,
+		&summary.Bio,
+		&summary.ProfilePhotoURL,
+		&summary.AverageRating,
+	)
+
+	skillRows, err := r.db.Query(ctx, `
+		SELECT ws.worker_skill_id, COALESCE(sc.name, ''), ws.experience_level
+		FROM worker_skills ws
+		LEFT JOIN service_categories sc ON sc.category_id = ws.category_id
+		WHERE ws.worker_profile_id = $1
+		  AND ws.is_verified = true
+		ORDER BY sc.name, ws.worker_skill_id
+	`, workerProfileID)
+	if err != nil {
+		return WorkerReviewSummary{}, err
+	}
+	for skillRows.Next() {
+		var skill WorkerReviewSkill
+		if err := skillRows.Scan(&skill.WorkerSkillID, &skill.CategoryName, &skill.ExperienceLevel); err != nil {
+			skillRows.Close()
+			return WorkerReviewSummary{}, err
+		}
+		summary.Skills = append(summary.Skills, skill)
+	}
+	if err := skillRows.Err(); err != nil {
+		skillRows.Close()
+		return WorkerReviewSummary{}, err
+	}
+	skillRows.Close()
+
 	rows, err := r.db.Query(ctx, `
 		SELECT
 			r.review_id,
@@ -750,6 +812,7 @@ func (r *BookingRepository) ListWorkerReviews(ctx context.Context, workerProfile
 			COALESCE(sc.name, '') AS category_name,
 			r.rating,
 			COALESCE(r.comment, '') AS comment,
+			COALESCE(r.photo_url, '') AS photo_url,
 			r.created_at
 		FROM reviews r
 		LEFT JOIN customer_profiles cp ON cp.customer_profile_id = r.customer_profile_id
@@ -765,7 +828,6 @@ func (r *BookingRepository) ListWorkerReviews(ctx context.Context, workerProfile
 	}
 	defer rows.Close()
 
-	summary := WorkerReviewSummary{WorkerProfileID: workerProfileID, Reviews: make([]WorkerReview, 0)}
 	total := 0
 	for rows.Next() {
 		var item WorkerReview
@@ -777,6 +839,7 @@ func (r *BookingRepository) ListWorkerReviews(ctx context.Context, workerProfile
 			&item.CategoryName,
 			&item.Rating,
 			&item.Comment,
+			&item.PhotoURL,
 			&item.CreatedAt,
 		); err != nil {
 			return WorkerReviewSummary{}, err

@@ -680,7 +680,7 @@ async function buildDrivingRoute(start, end) {
       transport: "driving",
       route_mode: "fastest",
       traffic_mode: "jam",
-      locale: "en",
+      locale: "ru",
     },
     {
       points: [
@@ -690,29 +690,36 @@ async function buildDrivingRoute(start, end) {
       transport: "car",
       route_mode: "fastest",
       traffic_mode: "jam",
-      locale: "en",
+      locale: "ru",
     },
   ];
   try {
-    for (const payload of payloads) {
-      const response = await fetch(`https://routing.api.2gis.com/routing/7.0.0/global?key=${encodeURIComponent(GIS_API_KEY)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) {
-        continue;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      for (const payload of payloads) {
+        const response = await fetch(`https://routing.api.2gis.com/routing/7.0.0/global?key=${encodeURIComponent(GIS_API_KEY)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          continue;
+        }
+        const data = await response.json();
+        const points = collectRoutePoints(data?.result?.[0] || data?.result || data);
+        if (points.length >= 2) {
+          return points;
+        }
       }
-      const data = await response.json();
-      const points = collectRoutePoints(data?.result?.[0] || data?.result || data);
-      if (points.length >= 2) {
-        return points;
-      }
+      await wait(350);
     }
     return directRoute(start, end);
   } catch {
     return directRoute(start, end);
   }
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function collectRoutePoints(route) {
@@ -952,6 +959,7 @@ function CustomerApp({
   const [pickedPosition, setPickedPosition] = useState(pendingPaymentIntent?.pickedPosition || null);
   const [workers, setWorkers] = useState([]);
   const [selectedWorker, setSelectedWorker] = useState(null);
+  const [profileWorker, setProfileWorker] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [description, setDescription] = useState(pendingPaymentIntent?.description || "");
   const [address, setAddress] = useState(pendingPaymentIntent?.address || "");
@@ -1183,6 +1191,7 @@ function CustomerApp({
   if (activeTab === "requests") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><RequestsPanel token={token} /></CustomerPhonePage>;
   if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} /></CustomerPhonePage>;
   if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" /></CustomerPhonePage>;
+  if (activeTab === "worker-profile") return <CustomerPhonePage activeTab="find" onNavigate={onNavigate} onSignOut={onSignOut}><WorkerPublicProfilePage token={token} worker={profileWorker} onBack={() => onNavigate("find")} onHireWorker={hireWorker} /></CustomerPhonePage>;
   if (activeTab === "profile") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><CustomerProfilePanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
   if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
 
@@ -1241,7 +1250,17 @@ function CustomerApp({
           {locationMode === "map" && <p className="muted">Click on the map to choose the arrival point.</p>}
           <StatusLine geoStatus={geoStatus} geoError={geoError} />
           <Messages message={message} error={error} />
-          <WorkerList workers={workers} selectedWorker={selectedWorker} onSelectWorker={setSelectedWorker} onHireWorker={hireWorker} loading={loading} token={token} />
+          <WorkerList
+            workers={workers}
+            selectedWorker={selectedWorker}
+            onSelectWorker={setSelectedWorker}
+            onHireWorker={hireWorker}
+            onOpenProfile={(worker) => {
+              setProfileWorker(worker);
+              onNavigate("worker-profile");
+            }}
+            loading={loading}
+          />
         </div>
       </section>
     </div>
@@ -1256,6 +1275,91 @@ function CustomerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
         <div className="customerInnerPage">{children}</div>
       </section>
     </div>
+  );
+}
+
+function WorkerPublicProfilePage({ token, worker, onBack, onHireWorker }) {
+  const workerID = worker?.worker_id || worker?.worker_profile_id;
+  const [profile, setProfile] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!workerID) {
+      setError("Worker profile is missing.");
+      return;
+    }
+    setError("");
+    apiGet(`/api/reviews/workers/${workerID}`, token)
+      .then(setProfile)
+      .catch((err) => setError(err.message));
+  }, [token, workerID]);
+
+  const reviews = profile?.reviews || [];
+  const skills = profile?.skills || [];
+  const name = profile?.worker_name || worker?.full_name || "Worker";
+  const photoURL = profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "";
+  const rating = Number(profile?.average_rating || worker?.average_rating || 0);
+  const reviewCount = Number(profile?.review_count || worker?.review_count || 0);
+
+  return (
+    <section className="pagePanel workerPublicProfile">
+      <div className="sectionTitleRow">
+        <button className="secondaryButton fitButton" type="button" onClick={onBack}>Back</button>
+        <button type="button" className="fitButton" onClick={() => worker && onHireWorker(worker)}>Open chat</button>
+      </div>
+      <div className="publicProfileHero">
+        <div className="profilePhoto compactPhoto">
+          <span>WM</span>
+          {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+        </div>
+        <div>
+          <h2>{name}</h2>
+          <div className="ratingLine">
+            <span>{renderStars(rating)}</span>
+            <small>{rating.toFixed(1)} from {reviewCount} review{reviewCount === 1 ? "" : "s"}</small>
+          </div>
+          <p>{profile?.bio || "Worker has not added profile information yet."}</p>
+          {worker?.distance_meters !== undefined && <span className="pillTag">{formatDistanceLabel(worker.distance_meters)}</span>}
+        </div>
+      </div>
+      <section className="profileSection">
+        <div className="sectionTitleRow">
+          <h3>Skills</h3>
+        </div>
+        <div className="verifiedSkillsGrid">
+          {skills.length === 0 && worker && (
+            <article className="verifiedSkillCard">
+              <strong>{categoryTitle(worker.category_name)}</strong>
+              <span>{worker.experience_level}</span>
+            </article>
+          )}
+          {skills.map((skill) => (
+            <article className="verifiedSkillCard" key={skill.worker_skill_id}>
+              <strong>{categoryTitle(skill.category_name)}</strong>
+              <span>{skill.experience_level}</span>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="profileSection">
+        <div className="sectionTitleRow">
+          <h3>Reviews</h3>
+          <span>{reviewCount}</span>
+        </div>
+        <div className="publicReviewList">
+          {reviews.length === 0 && <EmptyState title="No reviews yet" text="Customer reviews will appear here after completed bookings." />}
+          {reviews.map((review) => (
+            <article className="publicReviewCard" key={review.review_id}>
+              <strong>{renderStars(review.rating)} {review.customer_name || "Customer"}</strong>
+              <span>{categoryTitle(review.category_name)} - {formatDateTime(review.created_at)}</span>
+              {review.comment && <p>{review.comment}</p>}
+              {review.photo_url && <img src={apiURL(review.photo_url)} alt="" />}
+            </article>
+          ))}
+        </div>
+      </section>
+      <Messages error={error} />
+    </section>
   );
 }
 
@@ -1305,12 +1409,14 @@ function WorkerApp({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [routePoints, setRoutePoints] = useState(null);
+  const knownScheduledBookingsRef = useRef(null);
 
   const loadBookings = useCallback(async () => {
     setError("");
     try {
       const data = await apiGet("/api/bookings/my", token);
       const nextBookings = Array.isArray(data) ? data : data.bookings || [];
+      announceNewScheduledBookings(nextBookings, knownScheduledBookingsRef);
       setBookings(nextBookings);
       if (activeInProgressBooking(nextBookings)) {
         setAvailable(false);
@@ -1367,12 +1473,33 @@ function WorkerApp({
     };
     buildDrivingRoute(position, destination).then((points) => {
       if (!cancelled) {
-        setRoutePoints(points);
+        setRoutePoints((current) => {
+          if (isDirectRoute(points) && Array.isArray(current) && current.length > 2) {
+            return current;
+          }
+          return points;
+        });
       }
     });
     return () => {
       cancelled = true;
     };
+  }, [
+    position?.latitude,
+    position?.longitude,
+    currentInProgressBooking?.booking_id,
+    currentInProgressBooking?.latitude,
+    currentInProgressBooking?.longitude,
+  ]);
+
+  useEffect(() => {
+    if (!position || !currentInProgressBooking?.latitude || !currentInProgressBooking?.longitude) {
+      return;
+    }
+    announceNavigationHint(position, {
+      latitude: currentInProgressBooking.latitude,
+      longitude: currentInProgressBooking.longitude,
+    });
   }, [
     position?.latitude,
     position?.longitude,
@@ -1507,6 +1634,8 @@ function WorkerApp({
           onSelectWorker={() => {}}
           userMarker="driver"
           routeLine={routePoints}
+          routeFocusKey={currentInProgressBooking?.booking_id || ""}
+          autoCenterOnPosition={!currentInProgressBooking}
         />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         {available && searching && bookings.length === 0 && (
@@ -1937,8 +2066,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate 
             {canProgress && (
               <div className="rowActions">
                 <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
-                {String(item.status).toLowerCase() === "scheduled" && <button onClick={() => onProgress(item.booking_id || item.id, "start")}>Start</button>}
-                {String(item.status).toLowerCase() === "scheduled" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "reject")}>Reject</button>}
+                {String(item.status).toLowerCase() === "scheduled" && <button onClick={() => onProgress(item.booking_id || item.id, "start")}>Start route</button>}
                 {String(item.status).toLowerCase() === "in_progress" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "complete")}>Send proof</button>}
               </div>
             )}
@@ -1965,6 +2093,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate 
 function BookingReviewBlock({ item, token, onSaved }) {
   const [rating, setRating] = useState(item.review_rating || 5);
   const [comment, setComment] = useState(item.review_comment || "");
+  const [reviewPhoto, setReviewPhoto] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -1972,11 +2101,15 @@ function BookingReviewBlock({ item, token, onSaved }) {
     setError("");
     setMessage("");
     try {
-      await apiPost(`/api/bookings/${item.booking_id || item.id}/review`, token, {
-        rating: Number(rating),
-        comment,
-      });
+      const body = new FormData();
+      body.append("rating", String(Number(rating)));
+      body.append("comment", comment);
+      if (reviewPhoto) {
+        body.append("review_photo", reviewPhoto);
+      }
+      await apiMultipart(`/api/bookings/${item.booking_id || item.id}/review`, token, body);
       setMessage("Review saved.");
+      setReviewPhoto(null);
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -1991,6 +2124,7 @@ function BookingReviewBlock({ item, token, onSaved }) {
           <span>{renderStars(item.review_rating || rating)}</span>
         </div>
         <p>{item.review_comment || comment || "No comment."}</p>
+        {item.review_photo_url && <img className="reviewPhoto" src={apiURL(item.review_photo_url)} alt="" />}
       </div>
     );
   }
@@ -2015,6 +2149,11 @@ function BookingReviewBlock({ item, token, onSaved }) {
         ))}
       </div>
       <textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Write what went well and what could be better..." />
+      <label className="fileButton fitButton">
+        Attach photo
+        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setReviewPhoto(event.target.files?.[0] || null)} />
+      </label>
+      {reviewPhoto && <span className="muted">{reviewPhoto.name}</span>}
       <button className="secondaryButton" type="button" onClick={saveReview}>
         Send review
       </button>
@@ -2395,8 +2534,14 @@ function NotificationsPanel({ token, onNavigate }) {
 function useNotificationFeed(token) {
   const [toastNotifications, setToastNotifications] = useState([]);
   const seenRef = useRef(new Set());
+  const timersRef = useRef(new Map());
 
   const dismissToastNotification = useCallback((id) => {
+    const timer = timersRef.current.get(id);
+    if (timer) {
+      window.clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
     setToastNotifications((current) => current.filter((item) => notificationID(item) !== id));
   }, []);
 
@@ -2422,6 +2567,14 @@ function useNotificationFeed(token) {
         });
         if (!cancelled && fresh.length > 0) {
           setToastNotifications((current) => [...fresh, ...current].slice(0, 5));
+          fresh.forEach((item) => {
+            const id = notificationID(item);
+            if (!id || timersRef.current.has(id)) {
+              return;
+            }
+            const timer = window.setTimeout(() => dismissToastNotification(id), 15000);
+            timersRef.current.set(id, timer);
+          });
           window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
         }
       } catch {
@@ -2434,8 +2587,10 @@ function useNotificationFeed(token) {
     return () => {
       cancelled = true;
       window.clearInterval(intervalID);
+      timersRef.current.forEach((timer) => window.clearTimeout(timer));
+      timersRef.current.clear();
     };
-  }, [token]);
+  }, [dismissToastNotification, token]);
 
   return { toastNotifications, dismissToastNotification };
 }
@@ -2930,6 +3085,99 @@ function formatMoney(value) {
   return Math.round(value).toLocaleString("ru-RU");
 }
 
+function formatDistanceLabel(value) {
+  const distance = Number(value);
+  if (!Number.isFinite(distance)) {
+    return "nearby";
+  }
+  if (distance >= 1000) {
+    return `${(distance / 1000).toFixed(1)} km away`;
+  }
+  return `${Math.round(distance)} m away`;
+}
+
+const navigationSpeechState = {
+  key: "",
+  spokenAt: 0,
+};
+
+function announceNewScheduledBookings(bookings, knownRef) {
+  if (!knownRef.current) {
+    knownRef.current = new Set(
+      (bookings || [])
+        .filter((booking) => String(booking.status || booking.booking_status || "").toLowerCase() === "scheduled")
+        .map((booking) => booking.booking_id || booking.id)
+        .filter(Boolean),
+    );
+    return;
+  }
+  for (const booking of bookings || []) {
+    const id = booking.booking_id || booking.id;
+    const status = String(booking.status || booking.booking_status || "").toLowerCase();
+    if (!id) {
+      continue;
+    }
+    if (status === "scheduled" && !knownRef.current.has(id)) {
+      knownRef.current.add(id);
+      speakText("Клиент принял цену. Начните поездку.");
+    } else if (status === "scheduled") {
+      knownRef.current.add(id);
+    }
+  }
+}
+
+function announceNavigationHint(current, destination) {
+  const meters = haversineMeters(current, destination);
+  const bucket = meters < 35 ? "arrived" : String(Math.round(meters / 100) * 100);
+  const now = Date.now();
+  if (navigationSpeechState.key === bucket && now - navigationSpeechState.spokenAt < 45000) {
+    return;
+  }
+  navigationSpeechState.key = bucket;
+  navigationSpeechState.spokenAt = now;
+  const text = meters < 35
+    ? "Вы на месте."
+    : `Двигайтесь прямо примерно ${formatNavigationDistance(meters)}.`;
+  speakText(text);
+}
+
+function speakText(text) {
+  if (!("speechSynthesis" in window)) {
+    return;
+  }
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = "ru-RU";
+  utterance.rate = 0.95;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
+
+function formatNavigationDistance(meters) {
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(1).replace(".", ",")} километра`;
+  }
+  return `${Math.max(50, Math.round(meters / 50) * 50)} метров`;
+}
+
+function haversineMeters(a, b) {
+  const radius = 6371000;
+  const lat1 = degreesToRadians(Number(a.latitude));
+  const lat2 = degreesToRadians(Number(b.latitude));
+  const deltaLat = degreesToRadians(Number(b.latitude) - Number(a.latitude));
+  const deltaLon = degreesToRadians(Number(b.longitude) - Number(a.longitude));
+  const halfChord = Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+  return 2 * radius * Math.atan2(Math.sqrt(halfChord), Math.sqrt(1 - halfChord));
+}
+
+function degreesToRadians(value) {
+  return value * Math.PI / 180;
+}
+
+function isDirectRoute(points) {
+  return Array.isArray(points) && points.length <= 2;
+}
+
 function formatChatTime(value) {
   if (!value) {
     return "";
@@ -3049,8 +3297,7 @@ function JobBoard({ bookings, onProgress, compact }) {
             <p>{booking.address || booking.description || "Customer task"}</p>
             {booking.completion_evidence && <p>Proof sent: {booking.completion_evidence}</p>}
             <div className="rowActions">
-              {status === "scheduled" && <button onClick={() => onProgress(id, "start")}>Start</button>}
-              {status === "scheduled" && <button className="secondaryButton" onClick={() => onProgress(id, "reject")}>Reject</button>}
+              {status === "scheduled" && <button onClick={() => onProgress(id, "start")}>Start route</button>}
               {status === "in_progress" && <button className="secondaryButton" onClick={() => onProgress(id, "complete")}>Send proof</button>}
               {status === "awaiting_confirmation" && <span className="lightStatus">Waiting for customer confirmation</span>}
             </div>

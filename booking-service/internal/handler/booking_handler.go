@@ -458,9 +458,35 @@ func (h *Handler) CreateReview(c *gin.Context) {
 		Rating  int    `json:"rating"`
 		Comment string `json:"comment"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
-		return
+	photoURL := ""
+	if strings.HasPrefix(c.GetHeader("Content-Type"), "multipart/form-data") {
+		rating, err := strconv.Atoi(c.PostForm("rating"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid rating"})
+			return
+		}
+		req.Rating = rating
+		req.Comment = c.PostForm("comment")
+		file, err := c.FormFile("review_photo")
+		if err == nil && file != nil {
+			url, err := filestorage.SaveUploadedFile(c.Request.Context(), file, filestorage.SaveOptions{
+				Prefix:  "review-photos",
+				MaxSize: 8 * 1024 * 1024,
+				AllowedExts: map[string]bool{
+					".jpg": true, ".jpeg": true, ".png": true, ".webp": true,
+				},
+			})
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			photoURL = url
+		}
+	} else {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+			return
+		}
 	}
 
 	token := c.GetHeader("Authorization")
@@ -476,6 +502,7 @@ func (h *Handler) CreateReview(c *gin.Context) {
 		customerProfileID,
 		req.Rating,
 		strings.TrimSpace(req.Comment),
+		photoURL,
 	)
 	if err != nil {
 		switch {

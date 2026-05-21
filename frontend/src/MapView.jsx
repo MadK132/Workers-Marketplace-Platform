@@ -37,6 +37,7 @@ const MapView = forwardRef(function MapView({
   onPickPosition,
   autoCenterOnPosition = true,
   routeLine = null,
+  routeFocusKey = "",
 }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -49,6 +50,7 @@ const MapView = forwardRef(function MapView({
   const onPickPositionRef = useRef(onPickPosition);
   const userAdjustedMapRef = useRef(false);
   const centeredWorkersRef = useRef("");
+  const focusedRouteRef = useRef("");
   const [mapError, setMapError] = useState("");
 
   useEffect(() => {
@@ -159,11 +161,18 @@ const MapView = forwardRef(function MapView({
       zIndex: 7,
     });
 
+    const lastPoint = points[points.length - 1];
+    const focusKey = routeFocusKey || `${points[0].latitude}:${points[0].longitude}:${lastPoint.latitude}:${lastPoint.longitude}`;
+    if (focusedRouteRef.current !== focusKey) {
+      focusRoute(points);
+      focusedRouteRef.current = focusKey;
+    }
+
     return () => {
       routeLineRef.current?.destroy?.();
       routeLineRef.current = null;
     };
-  }, [routeLine]);
+  }, [routeFocusKey, routeLine]);
 
   useEffect(() => {
     if (!mapRef.current || !window.mapgl || !position) {
@@ -255,6 +264,18 @@ const MapView = forwardRef(function MapView({
     const zoom = Math.max(2, Math.min(20, nextZoom));
     zoomRef.current = zoom;
     mapRef.current?.setZoom(zoom);
+  }
+
+  function focusRoute(points) {
+    if (!mapRef.current || points.length < 2) {
+      return;
+    }
+    const midPoint = points[Math.floor(points.length / 2)];
+    if (!midPoint) {
+      return;
+    }
+    mapRef.current.setCenter([midPoint.longitude, midPoint.latitude]);
+    setMapZoom(Math.max(zoomRef.current, 16));
   }
 });
 

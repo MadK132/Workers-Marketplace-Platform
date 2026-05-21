@@ -1,37 +1,13 @@
-import React, { useState } from "react";
-import { apiGet } from "./api.js";
+import React from "react";
 
 export default function WorkerList({
   workers,
   selectedWorker,
   onSelectWorker,
   onHireWorker,
+  onOpenProfile,
   loading,
-  token,
 }) {
-  const [reviewWorkerID, setReviewWorkerID] = useState(null);
-  const [reviewData, setReviewData] = useState(null);
-  const [reviewError, setReviewError] = useState("");
-
-  const showReviews = async (event, worker) => {
-    event.stopPropagation();
-    const workerID = worker.worker_id || worker.worker_profile_id;
-    if (reviewWorkerID === workerID) {
-      setReviewWorkerID(null);
-      setReviewData(null);
-      return;
-    }
-    setReviewWorkerID(workerID);
-    setReviewError("");
-    setReviewData(null);
-    try {
-      const data = await apiGet(`/api/reviews/workers/${workerID}`, token);
-      setReviewData(data);
-    } catch (err) {
-      setReviewError(err.message);
-    }
-  };
-
   if (loading) {
     return (
       <div className="emptyState">
@@ -57,7 +33,7 @@ export default function WorkerList({
         const active = selectedWorker?.worker_id === worker.worker_id;
         return (
           <article
-            key={worker.worker_id}
+            key={workerID}
             className={active ? "workerCard active" : "workerCard"}
             onClick={() => onSelectWorker(worker)}
           >
@@ -77,13 +53,10 @@ export default function WorkerList({
               <button type="button" onClick={(event) => onHireClick(event, worker, onHireWorker)}>
                 Chat
               </button>
-              <button className="secondaryButton" type="button" onClick={(event) => showReviews(event, worker)}>
-                Reviews
+              <button className="secondaryButton" type="button" onClick={(event) => onProfileClick(event, worker, onOpenProfile)}>
+                Profile
               </button>
             </div>
-            {reviewWorkerID === workerID && (
-              <WorkerReviews data={reviewData} error={reviewError} />
-            )}
           </article>
         );
       })}
@@ -91,27 +64,14 @@ export default function WorkerList({
   );
 }
 
-function WorkerReviews({ data, error }) {
-  if (error) return <p className="errorMessage">{error}</p>;
-  if (!data) return <p className="muted">Loading reviews...</p>;
-  const reviews = data.reviews || [];
-  if (reviews.length === 0) return <p className="muted">No reviews yet.</p>;
-  return (
-    <div className="reviewPreviewList">
-      {reviews.slice(0, 3).map((review) => (
-        <div className="reviewPreview" key={review.review_id}>
-          <strong>{stars(review.rating)} {review.customer_name || "Customer"}</strong>
-          <span>{review.category_name}</span>
-          {review.comment && <p>{review.comment}</p>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function onHireClick(event, worker, onHireWorker) {
   event.stopPropagation();
   onHireWorker(worker);
+}
+
+function onProfileClick(event, worker, onOpenProfile) {
+  event.stopPropagation();
+  onOpenProfile?.(worker);
 }
 
 function formatDistance(value) {
@@ -126,7 +86,7 @@ function formatDistance(value) {
 
 function stars(value) {
   const rating = Math.round(Number(value) || 0);
-  return "★★★★★".split("").map((star, index) => index < rating ? star : "☆").join("");
+  return Array.from({ length: 5 }, (_, index) => String.fromCharCode(index < rating ? 9733 : 9734)).join("");
 }
 
 function reviewSummary(worker) {

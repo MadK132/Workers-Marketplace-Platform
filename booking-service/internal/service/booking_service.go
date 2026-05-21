@@ -364,6 +364,7 @@ func (s *BookingService) CreateReview(
 	customerProfileID int,
 	rating int,
 	comment string,
+	photoURL string,
 ) (int, error) {
 	if rating < 1 || rating > 5 {
 		return 0, ErrReviewInvalidRating
@@ -391,7 +392,7 @@ func (s *BookingService) CreateReview(
 		return 0, ErrBookingNotCustomer
 	}
 
-	return s.repo.SaveReview(ctx, bookingID, customerProfileID, b.WorkerProfileID, rating, comment)
+	return s.repo.SaveReview(ctx, bookingID, customerProfileID, b.WorkerProfileID, rating, comment, photoURL)
 }
 
 func (s *BookingService) ListWorkerReviews(
