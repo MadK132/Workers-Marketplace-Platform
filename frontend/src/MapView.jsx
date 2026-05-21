@@ -54,6 +54,7 @@ const MapView = forwardRef(function MapView({
   const centeredWorkersRef = useRef("");
   const focusedRouteRef = useRef("");
   const [mapError, setMapError] = useState("");
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     pickModeRef.current = pickMode;
@@ -102,6 +103,7 @@ const MapView = forwardRef(function MapView({
           zoomControl: false,
           controls: [],
         });
+        setMapReady(true);
         mapRef.current.on("click", (event) => {
           const coordinates = event.lngLat || event.coordinates || event.lnglat;
           if (!coordinates || !pickModeRef.current || !onPickPositionRef.current) {
@@ -127,7 +129,7 @@ const MapView = forwardRef(function MapView({
   }, [position]);
 
   useEffect(() => {
-    if (!mapRef.current || !window.mapgl) {
+    if (!mapReady || !mapRef.current || !window.mapgl) {
       return;
     }
 
@@ -149,10 +151,10 @@ const MapView = forwardRef(function MapView({
       pickedMarkerRef.current?.destroy?.();
       pickedMarkerRef.current = null;
     };
-  }, [pickedPosition]);
+  }, [mapReady, pickedPosition]);
 
   useEffect(() => {
-    if (!mapRef.current || !window.mapgl) {
+    if (!mapReady || !mapRef.current || !window.mapgl) {
       return;
     }
     routeLineRef.current?.destroy?.();
@@ -181,10 +183,10 @@ const MapView = forwardRef(function MapView({
       routeLineRef.current?.destroy?.();
       routeLineRef.current = null;
     };
-  }, [followPosition, navigationMode, routeFocusKey, routeLine]);
+  }, [followPosition, mapReady, navigationMode, routeFocusKey, routeLine]);
 
   useEffect(() => {
-    if (!mapRef.current || !position || !followPosition) {
+    if (!mapReady || !mapRef.current || !position || !followPosition) {
       return;
     }
     userAdjustedMapRef.current = false;
@@ -192,10 +194,10 @@ const MapView = forwardRef(function MapView({
     if (zoomRef.current < 17) {
       setMapZoom(17);
     }
-  }, [followPosition, position?.latitude, position?.longitude]);
+  }, [followPosition, mapReady, position?.latitude, position?.longitude]);
 
   useEffect(() => {
-    if (!mapRef.current || !window.mapgl || !position) {
+    if (!mapReady || !mapRef.current || !window.mapgl || !position) {
       return;
     }
 
@@ -225,10 +227,10 @@ const MapView = forwardRef(function MapView({
       userMarkerRef.current?.destroy?.();
       userMarkerRef.current = null;
     };
-  }, [position, userMarker]);
+  }, [mapReady, position, userMarker]);
 
   useEffect(() => {
-    if (!mapRef.current || !window.mapgl || !position) {
+    if (!mapReady || !mapRef.current || !window.mapgl || !position) {
       return;
     }
 
@@ -260,7 +262,7 @@ const MapView = forwardRef(function MapView({
         setMapZoom(zoomRef.current || 13);
       }
     }
-  }, [workers, selectedWorker, position, onSelectWorker, autoCenterOnPosition]);
+  }, [workers, selectedWorker, position, onSelectWorker, autoCenterOnPosition, mapReady]);
 
   return (
     <section className={navigationMode ? "mapShell navigationMap" : "mapShell"} aria-label="2GIS map with nearby workers">

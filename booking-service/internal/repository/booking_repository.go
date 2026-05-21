@@ -481,7 +481,7 @@ func (r *BookingRepository) MarkCompleted(
 
 	_, err = tx.Exec(ctx, `
 		UPDATE worker_profiles
-		SET is_available = true
+		SET is_available = false
 		WHERE worker_profile_id = $1
 	`, workerProfileID)
 	if err != nil {

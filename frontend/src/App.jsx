@@ -1043,7 +1043,7 @@ function CustomerApp({
     distance_meters: 0,
   }] : null;
   const customerDestination = activeCustomerBooking?.latitude && activeCustomerBooking?.longitude
-    ? { latitude: activeCustomerBooking.latitude, longitude: activeCustomerBooking.longitude }
+    ? { latitude: Number(activeCustomerBooking.latitude), longitude: Number(activeCustomerBooking.longitude) }
     : null;
   const searchPosition = locationMode === "map" || locationMode === "address" ? pickedPosition : position;
   const routeSourceWorker = trackingWorker?.[0] || null;
@@ -1059,8 +1059,8 @@ function CustomerApp({
       };
     }
     const workerPosition = {
-      latitude: routeSourceWorker.latitude,
-      longitude: routeSourceWorker.longitude,
+      latitude: Number(routeSourceWorker.latitude),
+      longitude: Number(routeSourceWorker.longitude),
     };
     const routeID = activeCustomerBooking?.booking_id || activeCustomerBooking?.id || `preview:${routeSourceWorker.worker_id || routeSourceWorker.worker_profile_id || ""}`;
     const routeKey = `${routeID}:${routeDestination.latitude}:${routeDestination.longitude}`;
@@ -1071,16 +1071,8 @@ function CustomerApp({
     }
     buildDrivingRoute(workerPosition, routeDestination).then((points) => {
       if (!cancelled) {
-        const visiblePoints = points && points.length > 2 ? points : null;
-        if (visiblePoints) {
-          customerRouteRequestRef.current = { key: routeKey, start: workerPosition, at: Date.now() };
-        }
-        setRoutePoints((current) => {
-          if (!visiblePoints) {
-            return current;
-          }
-          return visiblePoints;
-        });
+        customerRouteRequestRef.current = { key: routeKey, start: workerPosition, at: Date.now() };
+        setRoutePoints(points && points.length > 2 ? points : null);
       }
     });
     return () => {
