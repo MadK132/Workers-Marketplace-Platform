@@ -138,7 +138,8 @@ func (r *ReportRepository) EnsureSchema(ctx context.Context) error {
 		`ALTER TABLE notifications
 			ADD COLUMN IF NOT EXISTS action_type VARCHAR(50),
 			ADD COLUMN IF NOT EXISTS action_ref VARCHAR(255),
-			ADD COLUMN IF NOT EXISTS action_label VARCHAR(100)`,
+			ADD COLUMN IF NOT EXISTS action_label VARCHAR(100),
+			ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`,
 		`CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC)`,

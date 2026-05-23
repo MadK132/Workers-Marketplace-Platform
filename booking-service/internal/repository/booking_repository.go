@@ -34,32 +34,33 @@ type BookingUsers struct {
 }
 
 type BookingListItem struct {
-	BookingID          int        `json:"booking_id"`
-	RequestID          int        `json:"request_id"`
-	WorkerProfileID    int        `json:"worker_profile_id"`
-	CustomerProfileID  int        `json:"customer_profile_id"`
-	CategoryID         int        `json:"category_id"`
-	CategoryName       string     `json:"category_name"`
-	RequestDescription string     `json:"request_description"`
-	Status             string     `json:"status"`
-	ScheduledTime      *time.Time `json:"scheduled_time,omitempty"`
-	StartTime          *time.Time `json:"start_time,omitempty"`
-	EndTime            *time.Time `json:"end_time,omitempty"`
-	FinalPrice         *string    `json:"final_price,omitempty"`
-	CounterpartyName   string     `json:"counterparty_name"`
-	CounterpartyRole   string     `json:"counterparty_role"`
-	Address            string     `json:"address"`
-	Latitude           *float64   `json:"latitude,omitempty"`
-	Longitude          *float64   `json:"longitude,omitempty"`
-	WorkerLatitude     *float64   `json:"worker_latitude,omitempty"`
-	WorkerLongitude    *float64   `json:"worker_longitude,omitempty"`
-	CompletionEvidence *string    `json:"completion_evidence,omitempty"`
-	CustomerConfirmed  bool       `json:"customer_confirmed"`
-	ReviewID           *int       `json:"review_id,omitempty"`
-	ReviewRating       *int       `json:"review_rating,omitempty"`
-	ReviewComment      *string    `json:"review_comment,omitempty"`
-	ReviewPhotoURL     *string    `json:"review_photo_url,omitempty"`
-	ReviewCreatedAt    *time.Time `json:"review_created_at,omitempty"`
+	BookingID            int        `json:"booking_id"`
+	RequestID            int        `json:"request_id"`
+	WorkerProfileID      int        `json:"worker_profile_id"`
+	CustomerProfileID    int        `json:"customer_profile_id"`
+	CategoryID           int        `json:"category_id"`
+	CategoryName         string     `json:"category_name"`
+	RequestDescription   string     `json:"request_description"`
+	Status               string     `json:"status"`
+	ScheduledTime        *time.Time `json:"scheduled_time,omitempty"`
+	StartTime            *time.Time `json:"start_time,omitempty"`
+	EndTime              *time.Time `json:"end_time,omitempty"`
+	FinalPrice           *string    `json:"final_price,omitempty"`
+	CounterpartyName     string     `json:"counterparty_name"`
+	CounterpartyRole     string     `json:"counterparty_role"`
+	CounterpartyPhotoURL string     `json:"counterparty_photo_url"`
+	Address              string     `json:"address"`
+	Latitude             *float64   `json:"latitude,omitempty"`
+	Longitude            *float64   `json:"longitude,omitempty"`
+	WorkerLatitude       *float64   `json:"worker_latitude,omitempty"`
+	WorkerLongitude      *float64   `json:"worker_longitude,omitempty"`
+	CompletionEvidence   *string    `json:"completion_evidence,omitempty"`
+	CustomerConfirmed    bool       `json:"customer_confirmed"`
+	ReviewID             *int       `json:"review_id,omitempty"`
+	ReviewRating         *int       `json:"review_rating,omitempty"`
+	ReviewComment        *string    `json:"review_comment,omitempty"`
+	ReviewPhotoURL       *string    `json:"review_photo_url,omitempty"`
+	ReviewCreatedAt      *time.Time `json:"review_created_at,omitempty"`
 }
 
 type WorkerReview struct {
@@ -576,6 +577,7 @@ func (r *BookingRepository) ListByCustomerProfile(
 			b.final_price::text AS final_price,
 			COALESCE(wu.full_name, '') AS counterparty_name,
 			'worker' AS counterparty_role,
+			COALESCE(wp.profile_photo_url, '') AS counterparty_photo_url,
 			COALESCE(sr.address, '') AS address,
 			sr.latitude::float8,
 			sr.longitude::float8,
@@ -620,6 +622,7 @@ func (r *BookingRepository) ListByCustomerProfile(
 			&item.FinalPrice,
 			&item.CounterpartyName,
 			&item.CounterpartyRole,
+			&item.CounterpartyPhotoURL,
 			&item.Address,
 			&item.Latitude,
 			&item.Longitude,
@@ -665,6 +668,7 @@ func (r *BookingRepository) ListByWorkerProfile(
 			b.final_price::text AS final_price,
 			COALESCE(cu.full_name, '') AS counterparty_name,
 			'customer' AS counterparty_role,
+			COALESCE(cp.profile_photo_url, '') AS counterparty_photo_url,
 			COALESCE(sr.address, '') AS address,
 			sr.latitude::float8,
 			sr.longitude::float8,
@@ -710,6 +714,7 @@ func (r *BookingRepository) ListByWorkerProfile(
 			&item.FinalPrice,
 			&item.CounterpartyName,
 			&item.CounterpartyRole,
+			&item.CounterpartyPhotoURL,
 			&item.Address,
 			&item.Latitude,
 			&item.Longitude,

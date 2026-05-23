@@ -37,7 +37,9 @@ type AuthService interface {
 	UpsertWorkerProfile(ctx context.Context, userID int, bio string, latitude *float64, longitude *float64, profilePhotoURL *string) (*model.WorkerProfile, error)
 	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) (int, error)
 	AddWorkerSkillEvidence(ctx context.Context, workerSkillID int, fileName string, filePath string, contentType string, note string) error
+	RequestWorkerSkillUpgrade(ctx context.Context, userID int, workerSkillID int, requestedLevel string, evidenceFiles string, note string) (int, error)
 	VerifyWorkerSkill(ctx context.Context, skillID int) error
+	VerifyWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error
 	SetAvailability(ctx context.Context, userID int, available bool) error
 	FindWorkers(ctx context.Context, categoryID int) ([]repository.WorkerSearchResult, error)
 	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
@@ -473,6 +475,57 @@ func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "skill added", "worker_skill_id": skillID})
 }
 
+func (h *AuthHandler) RequestWorkerSkillUpgrade(c *gin.Context) {
+	contentType := c.GetHeader("Content-Type")
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "multipart/form-data is required"})
+		return
+	}
+
+	workerSkillID, err := strconv.Atoi(c.PostForm("worker_skill_id"))
+	if err != nil || workerSkillID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid worker_skill_id"})
+		return
+	}
+
+	requestedLevel := strings.TrimSpace(c.PostForm("requested_experience_level"))
+	note := strings.TrimSpace(c.PostForm("evidence_note"))
+	form, _ := c.MultipartForm()
+	files := []*multipart.FileHeader{}
+	if form != nil {
+		files = form.File["evidence_files"]
+	}
+	if len(files) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "qualification evidence is required"})
+		return
+	}
+
+	storedFiles := make([]string, 0, len(files))
+	for _, file := range files {
+		storedPath, err := saveEvidenceFile(c.Request.Context(), file)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		storedFiles = append(storedFiles, storedPath)
+	}
+
+	requestID, err := h.auth.RequestWorkerSkillUpgrade(
+		c.Request.Context(),
+		c.GetInt("user_id"),
+		workerSkillID,
+		requestedLevel,
+		strings.Join(storedFiles, ","),
+		note,
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "upgrade request sent", "upgrade_request_id": requestID})
+}
+
 func (h *AuthHandler) parseWorkerSkillRequest(c *gin.Context) (int, string, int, string, []*multipart.FileHeader, bool) {
 	contentType := c.GetHeader("Content-Type")
 	if strings.HasPrefix(contentType, "multipart/form-data") {
@@ -587,6 +640,35 @@ func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{"message": "skill and worker verified"})
+}
+
+func (h *AuthHandler) VerifyWorkerSkillUpgrade(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	var req struct {
+		RequestID int `json:"upgrade_request_id"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+
+	if req.RequestID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "upgrade_request_id must be positive"})
+		return
+	}
+
+	err := h.auth.VerifyWorkerSkillUpgrade(c.Request.Context(), req.RequestID, c.GetInt("user_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "skill upgrade approved"})
 }
 
 func (h *AuthHandler) CreateReport(c *gin.Context) {

@@ -1,4 +1,5 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { apiDelete, apiGet, apiMultipart, apiMultipartPatch, apiPatch, apiPost, apiURL, wsURL } from "./api.js";
 import MapView from "./MapView.jsx";
 import WorkerList from "./WorkerList.jsx";
@@ -17,11 +18,11 @@ const GIS_API_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 const TTS_VOICE_HINT = import.meta.env.VITE_TTS_VOICE_HINT || "";
 const ROUTE_REFRESH_MS = 90000;
 const ROUTE_REFRESH_DISTANCE_M = 200;
+const STAFF_AVATAR_URL = "/staff-avatar.png";
 
 const roleTabs = {
   customer: [
     ["find", "Search"],
-    ["requests", "Requests"],
     ["bookings", "Bookings"],
     ["chats", "Chat"],
     ["reports", "Reports"],
@@ -71,6 +72,109 @@ const reportStatusLabels = {
   rejected: "Rejected",
   closed: "Closed",
 };
+
+function openFilePreview(file) {
+  window.dispatchEvent(new CustomEvent("wm-file-preview", { detail: file }));
+}
+
+function makeAvatarDraft(file) {
+  if (!file) return null;
+  return {
+    file,
+    previewURL: URL.createObjectURL(file),
+    x: 50,
+    y: 50,
+    zoom: 1,
+  };
+}
+
+function revokeAvatarDraft(draft) {
+  if (draft?.previewURL) {
+    URL.revokeObjectURL(draft.previewURL);
+  }
+}
+
+async function cropAvatarDraft(draft) {
+  if (!draft?.file) return null;
+  const image = new Image();
+  image.src = draft.previewURL;
+  await image.decode();
+
+  const sourceSize = Math.min(image.naturalWidth, image.naturalHeight) / Number(draft.zoom || 1);
+  const maxX = Math.max(0, image.naturalWidth - sourceSize);
+  const maxY = Math.max(0, image.naturalHeight - sourceSize);
+  const sourceX = maxX * (Number(draft.x || 50) / 100);
+  const sourceY = maxY * (Number(draft.y || 50) / 100);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, sourceX, sourceY, sourceSize, sourceSize, 0, 0, canvas.width, canvas.height);
+
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.95));
+  if (!blob) return draft.file;
+  return new File([blob], draft.file.name.replace(/\.[^.]+$/, "") + "-avatar.png", { type: "image/png" });
+}
+
+function AvatarCropper({ draft, onChange, onClose }) {
+  if (!draft) return null;
+
+  const stageRef = useRef(null);
+  const draggingRef = useRef(false);
+  const update = (patch) => onChange({ ...draft, ...patch });
+  const updatePositionFromPointer = (event) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const nextX = Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100));
+    const nextY = Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100));
+    update({ x: Math.round(nextX), y: Math.round(nextY) });
+  };
+  const imageStyle = {
+    objectPosition: `${draft.x}% ${draft.y}%`,
+    transform: `scale(${draft.zoom})`,
+    transformOrigin: `${draft.x}% ${draft.y}%`,
+  };
+
+  return createPortal((
+    <div className="avatarEditorOverlay" role="dialog" aria-modal="true" aria-label="Edit image" onMouseDown={onClose}>
+      <div className="avatarEditorModal" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <strong>Edit image</strong>
+          <button type="button" aria-label="Close editor" onClick={onClose}>×</button>
+        </header>
+        <div
+          className="avatarCropStage"
+          ref={stageRef}
+          onPointerDown={(event) => {
+            draggingRef.current = true;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            updatePositionFromPointer(event);
+          }}
+          onPointerMove={(event) => {
+            if (draggingRef.current) updatePositionFromPointer(event);
+          }}
+          onPointerUp={() => {
+            draggingRef.current = false;
+          }}
+          onPointerCancel={() => {
+            draggingRef.current = false;
+          }}
+        >
+          <img src={draft.previewURL} alt="" style={imageStyle} />
+          <div className="avatarCropRing" aria-hidden="true" />
+        </div>
+        <div className="avatarCropControls">
+          <span aria-hidden="true">□</span>
+          <input aria-label="Zoom" type="range" min="1" max="3" step="0.05" value={draft.zoom} onChange={(event) => update({ zoom: Number(event.target.value) })} />
+          <span aria-hidden="true">▣</span>
+        </div>
+        <p className="avatarEditorHint">Drag the photo to choose the area inside the circle.</p>
+        <button className="avatarEditorApply" type="button" onClick={onClose}>Apply</button>
+      </div>
+    </div>
+  ), document.body);
+}
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
@@ -288,6 +392,7 @@ export default function App() {
           />
         </main>
         <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+        <FilePreviewPortal />
       </>
     );
   }
@@ -308,6 +413,7 @@ export default function App() {
           />
         </main>
         <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+        <FilePreviewPortal />
       </>
     );
   }
@@ -321,6 +427,7 @@ export default function App() {
         )}
       </AppFrame>
       <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+      <FilePreviewPortal />
     </>
   );
 }
@@ -585,6 +692,17 @@ function categoryTitle(name) {
     painting: "Painting",
   };
   return titles[normalized] || humanize(name);
+}
+
+function nextSkillLevels(level) {
+  switch (String(level || "").toLowerCase()) {
+    case "junior":
+      return ["middle", "senior"];
+    case "middle":
+      return ["senior"];
+    default:
+      return [];
+  }
 }
 
 function categoryDescription(name, fallback) {
@@ -1234,8 +1352,8 @@ function CustomerApp({
     return () => window.clearTimeout(timerID);
   }, [activeTab, paymentReady]);
 
-  if (activeTab === "requests") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><RequestsPanel token={token} /></CustomerPhonePage>;
-  if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} /></CustomerPhonePage>;
+  if (activeTab === "requests") return <CustomerPhonePage activeTab="bookings" onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} showRequests /></CustomerPhonePage>;
+  if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} showRequests /></CustomerPhonePage>;
   if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" /></CustomerPhonePage>;
   if (activeTab === "reports") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="customer" /></CustomerPhonePage>;
   if (activeTab === "worker-profile") return <CustomerPhonePage activeTab="find" onNavigate={onNavigate} onSignOut={onSignOut}><WorkerPublicProfilePage token={token} worker={profileWorker} onBack={() => onNavigate("find")} onHireWorker={hireWorker} /></CustomerPhonePage>;
@@ -1417,14 +1535,15 @@ function WorkerPublicProfilePage({ token, worker, onBack, onHireWorker }) {
 }
 
 function CustomerLocationGate({ activeTab, geoStatus, geoError, onAllow, onNavigate, onSignOut }) {
+  const loading = geoStatus === "loading";
   return (
     <main className="geoGate">
-      <CustomerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
       <section className="geoGateCard">
         <div className="appIcon">WM</div>
         <h1>Allow location</h1>
         <p>We use your location to find nearby workers in Astana.</p>
-        <button onClick={onAllow} disabled={geoStatus === "loading"}>{geoStatus === "loading" ? "Requesting..." : "Allow location"}</button>
+        {loading && <div className="geoLoader" aria-hidden="true"><span /><span /></div>}
+        <button onClick={onAllow} disabled={loading}>{loading ? "Finding location..." : "Allow location"}</button>
         <button className="secondaryButton" onClick={onSignOut}>Exit</button>
         {geoError && <p className="errorMessage">{geoError}</p>}
       </section>
@@ -1794,7 +1913,6 @@ function WorkerLocationGate({ activeTab, geoStatus, geoError, onAllow, onNavigat
   const loading = geoStatus === "loading";
   return (
     <main className="geoGate">
-      <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
       <section className="geoGateCard">
         <div className="appIcon">WM</div>
         <h1>Allow location</h1>
@@ -1883,6 +2001,18 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     }
   };
 
+  const verifySkillUpgrade = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/verify-skill-upgrade", token, { upgrade_request_id: Number(id) });
+      setMessage("Skill level upgraded.");
+      loadOverview();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const deleteUser = async (id) => {
     setError("");
     setMessage("");
@@ -1940,6 +2070,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
         <AdminVerificationPanel
           overview={overview}
           verifySkill={verifySkill}
+          verifySkillUpgrade={verifySkillUpgrade}
         />
       )}
       {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={deleteUser} canDelete={isAdmin} />}
@@ -2110,8 +2241,10 @@ function RequestsPanel({ token }) {
 function AdminVerificationPanel({
   overview,
   verifySkill,
+  verifySkillUpgrade,
 }) {
   const pendingSkills = overview?.pending_skills || [];
+  const pendingUpgrades = overview?.pending_skill_upgrades || [];
 
   return (
     <div className="adminVerifyGrid">
@@ -2131,6 +2264,23 @@ function AdminVerificationPanel({
           ))}
         </div>
       </div>
+      <div className="toolCard">
+        <h3>Skill upgrade requests</h3>
+        <p className="muted">Workers can upgrade an already verified skill after sending fresh evidence.</p>
+        <div className="dataList">
+          {pendingUpgrades.length === 0 && <EmptyState title="No upgrade requests" text="Requests for junior to middle or senior will appear here." />}
+          {pendingUpgrades.map((request) => (
+            <article className="dataRow" key={request.upgrade_request_id}>
+              <strong>{categoryTitle(request.category_name)}</strong>
+              <span>{request.worker_full_name} - {request.worker_user_email}</span>
+              <span>{request.current_level} to {request.requested_level} - Skill #{request.worker_skill_id}</span>
+              {request.admin_note && <small>{request.admin_note}</small>}
+              <EvidenceLinks value={request.evidence_files} />
+              <button onClick={() => verifySkillUpgrade(request.upgrade_request_id)}>Approve upgrade</button>
+            </article>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2143,15 +2293,24 @@ function EvidenceLinks({ value }) {
   return (
     <div className="evidenceLinks">
       {files.map((file) => (
-        <a key={file} href={apiURL(file)} target="_blank" rel="noreferrer">Open evidence</a>
+        <button
+          key={file}
+          type="button"
+          onClick={() => openFilePreview({ url: apiURL(file), name: file.split("/").pop() || "Evidence" })}
+        >
+          Open evidence
+        </button>
       ))}
     </div>
   );
 }
 
-function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate }) {
+function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate, showRequests = false }) {
   const [items, setItems] = useState([]);
+  const [requests, setRequests] = useState([]);
+  const [requestHistoryOpen, setRequestHistoryOpen] = useState(false);
   const [error, setError] = useState("");
+  const [requestError, setRequestError] = useState("");
   const [message, setMessage] = useState("");
 
   const load = useCallback(() => {
@@ -2159,6 +2318,20 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate 
   }, [token]);
 
   useEffect(() => load(), [load]);
+
+  const loadRequests = useCallback(() => {
+    if (!showRequests) {
+      return;
+    }
+    apiGet("/api/requests/my", token)
+      .then((data) => {
+        setRequestError("");
+        setRequests(Array.isArray(data) ? data : data.requests || []);
+      })
+      .catch((err) => setRequestError(err.message));
+  }, [showRequests, token]);
+
+  useEffect(() => loadRequests(), [loadRequests]);
 
   const confirmCompletion = async (id) => {
     setError("");
@@ -2235,6 +2408,41 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate 
           </article>
         ))}
       </div>
+      {showRequests && (
+        <section className="secondaryPanel requestArchive">
+          <div className="sectionTitleRow">
+            <div>
+              <h3>Request history</h3>
+              <span>Created requests are kept here quietly instead of cluttering the main menu.</span>
+            </div>
+            <div className="rowActions">
+              <button className="secondaryButton" type="button" onClick={() => setRequestHistoryOpen((value) => !value)}>
+                {requestHistoryOpen ? "Hide" : `Show ${requests.length ? `(${requests.length})` : ""}`} history
+              </button>
+              <button className="secondaryButton" type="button" onClick={loadRequests}>Refresh</button>
+            </div>
+          </div>
+          {requestHistoryOpen && (
+            <>
+              <Messages error={requestError} />
+              <div className="requestGrid compact">
+                {requests.length === 0 && <EmptyState title="No service requests yet" text="Requests appear here after you choose a worker." />}
+                {requests.map((item) => (
+                  <article className="requestCard" key={item.request_id}>
+                    <div className="requestCardTop">
+                      <strong>{categoryTitle(item.category_name) || `Request #${item.request_id}`}</strong>
+                      <span className={`statusPill ${String(item.status || "").toLowerCase()}`}>{item.status || "pending"}</span>
+                    </div>
+                    <p>{item.description || "No task description"}</p>
+                    {item.address && <span>{item.address}</span>}
+                    <small>{formatDateTime(item.created_at)}</small>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      )}
     </section>
   );
 }
@@ -2273,7 +2481,15 @@ function BookingReviewBlock({ item, token, onSaved }) {
           <span>{renderStars(item.review_rating || rating)}</span>
         </div>
         <p>{item.review_comment || comment || "No comment."}</p>
-        {item.review_photo_url && <img className="reviewPhoto" src={apiURL(item.review_photo_url)} alt="" />}
+        {item.review_photo_url && (
+          <button
+            className="reviewPhotoButton"
+            type="button"
+            onClick={() => openFilePreview({ url: apiURL(item.review_photo_url), name: "Review photo", type: "image" })}
+          >
+            <img className="reviewPhoto" src={apiURL(item.review_photo_url)} alt="" />
+          </button>
+        )}
       </div>
     );
   }
@@ -2321,6 +2537,7 @@ function ChatPanel({ token, role }) {
   const [priceDraft, setPriceDraft] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [selfAvatarURL, setSelfAvatarURL] = useState("");
   const currentUserID = useMemo(() => tokenUserID(token), [token]);
   const activeChat = useMemo(
     () => chats.find((chat) => String(chat.chat_id) === String(activeChatID)),
@@ -2332,6 +2549,7 @@ function ChatPanel({ token, role }) {
   );
   const activeBookingStatus = String(activeBooking?.status || activeBooking?.booking_status || "").toLowerCase();
   const activeBookingPrice = parseMoney(activeBooking?.final_price || 0);
+  const partnerAvatarURL = activeBooking?.counterparty_photo_url ? apiURL(activeBooking.counterparty_photo_url) : "";
   const messageListRef = useRef(null);
 
   const loadChats = useCallback(() => {
@@ -2371,6 +2589,17 @@ function ChatPanel({ token, role }) {
     loadChats();
     loadBookings();
   }, [loadBookings, loadChats]);
+
+  useEffect(() => {
+    const endpoint = role === "worker" ? "/api/worker/profile" : role === "customer" ? "/api/customer/profile" : "";
+    if (!endpoint) {
+      setSelfAvatarURL("");
+      return;
+    }
+    apiGet(endpoint, token)
+      .then((data) => setSelfAvatarURL(data?.profile_photo_url ? apiURL(data.profile_photo_url) : ""))
+      .catch(() => setSelfAvatarURL(""));
+  }, [role, token]);
 
   useEffect(() => {
     loadMessages(activeChatID);
@@ -2555,7 +2784,13 @@ function ChatPanel({ token, role }) {
           <div className="chatMessageList" ref={messageListRef}>
             {!activeChatID && <EmptyState title="Choose chat" text="Select a booking chat on the left." />}
             {messages.map((msg) => (
-              <ChatBubble key={msg.message_id} msg={msg} own={Number(msg.sender_user_id) === Number(currentUserID)} />
+              <ChatBubble
+                key={msg.message_id}
+                msg={msg}
+                own={Number(msg.sender_user_id) === Number(currentUserID)}
+                ownAvatarURL={selfAvatarURL}
+                partnerAvatarURL={partnerAvatarURL}
+              />
             ))}
           </div>
           <form className="chatComposer" onSubmit={send}>
@@ -2577,11 +2812,14 @@ function ChatPanel({ token, role }) {
   );
 }
 
-function ChatBubble({ msg, own }) {
+function ChatBubble({ msg, own, ownAvatarURL, partnerAvatarURL }) {
   const label = own ? "You" : "Partner";
+  const avatarURL = own ? ownAvatarURL : partnerAvatarURL;
   return (
     <article className={own ? "chatBubble own" : "chatBubble"}>
-      <div className="chatAvatar" aria-hidden="true">{own ? "Y" : "P"}</div>
+      <div className="chatAvatar" aria-hidden="true">
+        {avatarURL ? <img src={avatarURL} alt="" /> : own ? "Y" : "P"}
+      </div>
       <div className="chatBubbleBody">
         <small>{label}</small>
         {msg.content && !(msg.attachment_url && msg.content === "Attachment") && <span>{msg.content}</span>}
@@ -2604,9 +2842,13 @@ function AttachmentPreview({ msg }) {
   const lowerURL = url.toLowerCase();
   if (type.startsWith("image/") || /\.(jpg|jpeg|png|webp)$/i.test(lowerURL)) {
     return (
-      <a className="chatAttachment media" href={url} target="_blank" rel="noreferrer">
+      <button
+        className="chatAttachment media"
+        type="button"
+        onClick={() => openFilePreview({ url, name, type: msg.attachment_type || "image" })}
+      >
         <img src={url} alt={name} />
-      </a>
+      </button>
     );
   }
   if (type.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(lowerURL)) {
@@ -2617,9 +2859,13 @@ function AttachmentPreview({ msg }) {
     );
   }
   return (
-    <a className="chatAttachment file" href={url} target="_blank" rel="noreferrer">
+    <button
+      className="chatAttachment file"
+      type="button"
+      onClick={() => openFilePreview({ url, name, type: msg.attachment_type || "" })}
+    >
       {name}
-    </a>
+    </button>
   );
 }
 
@@ -2969,11 +3215,21 @@ function ReportChatBubble({ msg, own, staff }) {
   const initials = staff ? "M" : own ? "Y" : initialsOf(msg.sender_name || "U");
   return (
     <article className={`${own ? "chatBubble own" : "chatBubble"} ${staff ? "supportBubble" : ""}`}>
-      <div className="chatAvatar" aria-hidden="true">{initials}</div>
+      <div className={`chatAvatar ${staff ? "staffAvatar" : ""}`} aria-hidden="true">
+        {staff ? <img src={STAFF_AVATAR_URL} alt="" /> : initials}
+      </div>
       <div className="chatBubbleBody">
         <small>{label}</small>
         {msg.message_text && <span>{msg.message_text}</span>}
-        {msg.attachment_url && <a className="chatAttachment file" href={apiURL(msg.attachment_url)} target="_blank" rel="noreferrer">{msg.attachment_name || "Attachment"}</a>}
+        {msg.attachment_url && (
+          <button
+            className="chatAttachment file"
+            type="button"
+            onClick={() => openFilePreview({ url: apiURL(msg.attachment_url), name: msg.attachment_name || "Attachment", type: msg.attachment_type || "" })}
+          >
+            {msg.attachment_name || "Attachment"}
+          </button>
+        )}
         <footer className="chatMeta">
           <time dateTime={msg.created_at || ""}>{formatChatTime(msg.created_at)}</time>
           {own && <span className={msg.read_at ? "read" : ""}>{msg.read_at ? "✓✓" : "✓"}</span>}
@@ -3001,8 +3257,60 @@ function initialsOf(name) {
     .toUpperCase() || "U";
 }
 
+function FilePreviewPortal() {
+  const [file, setFile] = useState(null);
+
+  useEffect(() => {
+    const open = (event) => setFile(event.detail || null);
+    const close = (event) => {
+      if (event.key === "Escape") setFile(null);
+    };
+    window.addEventListener("wm-file-preview", open);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("wm-file-preview", open);
+      window.removeEventListener("keydown", close);
+    };
+  }, []);
+
+  if (!file?.url) {
+    return null;
+  }
+
+  const url = file.url;
+  const name = file.name || "File preview";
+  const type = String(file.type || "").toLowerCase();
+  const lowerURL = String(url).toLowerCase();
+  const isImage = type.startsWith("image") || /\.(jpg|jpeg|png|webp)$/i.test(lowerURL);
+  const isVideo = type.startsWith("video") || /\.(mp4|webm|mov)$/i.test(lowerURL);
+  const isPdf = type.includes("pdf") || /\.pdf$/i.test(lowerURL);
+
+  return (
+    <div className="filePreviewOverlay" role="dialog" aria-modal="true" aria-label={name} onMouseDown={() => setFile(null)}>
+      <div className="filePreviewModal" onMouseDown={(event) => event.stopPropagation()}>
+        <header>
+          <strong>{name}</strong>
+          <button type="button" aria-label="Close preview" onClick={() => setFile(null)}>×</button>
+        </header>
+        <div className="filePreviewBody">
+          {isImage && <img src={url} alt={name} />}
+          {isVideo && <video controls autoPlay src={url} />}
+          {isPdf && <iframe title={name} src={url} />}
+          {!isImage && !isVideo && !isPdf && (
+            <div className="filePreviewFallback">
+              <p>This file type cannot be previewed inline.</p>
+              <a href={url} target="_blank" rel="noreferrer">Open file</a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NotificationsPanel({ token, onNavigate }) {
   const [items, setItems] = useState([]);
+  const [mode, setMode] = useState("unread");
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
@@ -3052,17 +3360,30 @@ function NotificationsPanel({ token, onNavigate }) {
     }
   };
 
+  const unreadItems = items.filter((item) => !item.is_read);
+  const readItems = items.filter((item) => item.is_read);
+  const visibleItems = mode === "unread" ? unreadItems : readItems;
+
   return (
     <section className="pagePanel">
       <SectionHeader title="Notifications" text="System messages and booking updates." />
-      <button className="secondaryButton fitButton" onClick={markAll}>Mark all read</button>
+      <div className="notificationTabs">
+        <button className={mode === "unread" ? "active" : ""} type="button" onClick={() => setMode("unread")}>
+          Unread <span>{unreadItems.length}</span>
+        </button>
+        <button className={mode === "read" ? "active" : ""} type="button" onClick={() => setMode("read")}>
+          Read <span>{readItems.length}</span>
+        </button>
+        <button className="secondaryButton fitButton" onClick={markAll} disabled={unreadItems.length === 0}>Mark all read</button>
+      </div>
       <Messages error={error} />
       <div className="dataList">
-        {items.length === 0 && <EmptyState title="No notifications" text="New alerts will appear here." />}
-        {items.map((item) => (
-          <article className="dataRow" key={item.notification_id || item.id}>
+        {visibleItems.length === 0 && <EmptyState title={mode === "unread" ? "No unread notifications" : "No read notifications"} text={mode === "unread" ? "Fresh alerts will appear here." : "Read alerts stay here for one week."} />}
+        {visibleItems.map((item) => (
+          <article className={`dataRow notificationRow ${item.is_read ? "read" : "unread"}`} key={item.notification_id || item.id}>
             <strong>{item.title || item.type || "Notification"}</strong>
             <span>{item.message || item.body || ""}</span>
+            {item.created_at && <small>{formatDateTime(item.created_at)}</small>}
             {item.action_type && (
               <button className="secondaryButton fitButton" type="button" onClick={() => openAction(item)}>
                 {item.action_label || "Open"}
@@ -3172,7 +3493,8 @@ function CustomerProfilePanel({ token, onNavigate }) {
   const { position, locate } = useGeolocation();
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({ address: "", bio: "", latitude: "", longitude: "" });
-  const [photo, setPhoto] = useState(null);
+  const [avatarDraft, setAvatarDraft] = useState(null);
+  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -3194,6 +3516,8 @@ function CustomerProfilePanel({ token, onNavigate }) {
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  useEffect(() => () => revokeAvatarDraft(avatarDraft), [avatarDraft?.previewURL]);
 
   const useCurrentLocation = async () => {
     const nextPosition = await locate();
@@ -3219,17 +3543,27 @@ function CustomerProfilePanel({ token, onNavigate }) {
       body.append("bio", form.bio);
       if (form.latitude) body.append("latitude", form.latitude);
       if (form.longitude) body.append("longitude", form.longitude);
-      if (photo) body.append("profile_photo", photo);
+      if (avatarDraft) {
+        const croppedPhoto = await cropAvatarDraft(avatarDraft);
+        if (croppedPhoto) body.append("profile_photo", croppedPhoto);
+      }
       const updated = await apiMultipart("/api/customer/profile", token, body);
       setProfile((current) => ({ ...(current || {}), ...updated }));
-      setPhoto(null);
+      revokeAvatarDraft(avatarDraft);
+      setAvatarDraft(null);
+      setAvatarEditorOpen(false);
       setMessage("Profile saved.");
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const photoURL = profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "";
+  const photoURL = avatarDraft?.previewURL || (profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "");
+  const avatarStyle = avatarDraft ? {
+    objectPosition: `${avatarDraft.x}% ${avatarDraft.y}%`,
+    transform: `scale(${avatarDraft.zoom})`,
+    transformOrigin: `${avatarDraft.x}% ${avatarDraft.y}%`,
+  } : undefined;
   const customerName = profile?.full_name || profile?.customer_name || profile?.name || "Customer";
   const savedAddressLabel = form.address || "No saved address yet";
 
@@ -3241,7 +3575,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
           <div className="profileIdentity">
             <div className="profilePhoto">
               <span>WM</span>
-              {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+              {photoURL ? <img src={photoURL} alt="" style={avatarStyle} onError={(event) => event.currentTarget.remove()} /> : null}
             </div>
             <div>
               <span className="profileRoleBadge">Customer</span>
@@ -3251,9 +3585,24 @@ function CustomerProfilePanel({ token, onNavigate }) {
           </div>
           <label className="fileButton profileUploadButton">
             Upload photo
-            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => {
+                const nextFile = e.target.files?.[0] || null;
+                if (!nextFile) return;
+                revokeAvatarDraft(avatarDraft);
+                setAvatarDraft(makeAvatarDraft(nextFile));
+                setAvatarEditorOpen(true);
+              }}
+            />
           </label>
-          {photo && <span className="muted">{photo.name}</span>}
+          {avatarDraft && (
+            <div className="avatarDraftActions">
+              <span className="muted">{avatarDraft.file.name}</span>
+              <button className="secondaryButton" type="button" onClick={() => setAvatarEditorOpen(true)}>Edit crop</button>
+            </div>
+          )}
         </section>
         <form className="profileEditorCard customerProfileForm" onSubmit={submit}>
           <div className="profileFormHeader">
@@ -3266,6 +3615,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
           <Field label="About me" light>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
           </Field>
+          {avatarEditorOpen && <AvatarCropper draft={avatarDraft} onChange={setAvatarDraft} onClose={() => setAvatarEditorOpen(false)} />}
           <div className="profileAddressRow">
             <Field label="Saved address" light>
               <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
@@ -3286,11 +3636,11 @@ function CustomerProfilePanel({ token, onNavigate }) {
             <small>Open all customer bookings</small>
           </span>
         </button>
-        <button className="profileLinkCard" type="button" onClick={() => onNavigate("requests")}>
+        <button className="profileLinkCard" type="button" onClick={() => onNavigate("bookings")}>
           <span className="profileShortcutIcon" aria-hidden="true">R</span>
           <span>
-            <strong>My requests</strong>
-            <small>Track created service requests</small>
+            <strong>Requests history</strong>
+            <small>Shown inside bookings</small>
           </span>
         </button>
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("find")}>
@@ -3311,7 +3661,8 @@ function WorkerProfilePanel({ token, onNavigate }) {
   const [profile, setProfile] = useState(null);
   const [bookings, setBookings] = useState([]);
   const [form, setForm] = useState({ bio: "" });
-  const [photo, setPhoto] = useState(null);
+  const [avatarDraft, setAvatarDraft] = useState(null);
+  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -3334,6 +3685,8 @@ function WorkerProfilePanel({ token, onNavigate }) {
       .catch(() => setBookings([]));
   }, [loadProfile, token]);
 
+  useEffect(() => () => revokeAvatarDraft(avatarDraft), [avatarDraft?.previewURL]);
+
   const stats = useMemo(() => buildIncomeStats(bookings), [bookings]);
 
   const submit = async (event) => {
@@ -3343,19 +3696,27 @@ function WorkerProfilePanel({ token, onNavigate }) {
     try {
       const body = new FormData();
       body.append("bio", form.bio);
-      if (photo) {
-        body.append("profile_photo", photo);
+      if (avatarDraft) {
+        const croppedPhoto = await cropAvatarDraft(avatarDraft);
+        if (croppedPhoto) body.append("profile_photo", croppedPhoto);
       }
       const updated = await apiMultipart("/api/worker/profile", token, body);
       setProfile((current) => ({ ...(current || {}), ...updated }));
-      setPhoto(null);
+      revokeAvatarDraft(avatarDraft);
+      setAvatarDraft(null);
+      setAvatarEditorOpen(false);
       setMessage("Profile saved.");
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const photoURL = profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "";
+  const photoURL = avatarDraft?.previewURL || (profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "");
+  const avatarStyle = avatarDraft ? {
+    objectPosition: `${avatarDraft.x}% ${avatarDraft.y}%`,
+    transform: `scale(${avatarDraft.zoom})`,
+    transformOrigin: `${avatarDraft.x}% ${avatarDraft.y}%`,
+  } : undefined;
   const workerName = profile?.worker_name || profile?.full_name || profile?.name || "Worker";
   const verifiedSkills = profile?.verified_skills || [];
 
@@ -3367,7 +3728,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
           <div className="profileIdentity">
             <div className="profilePhoto">
               <span>WM</span>
-              {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+              {photoURL ? <img src={photoURL} alt="" style={avatarStyle} onError={(event) => event.currentTarget.remove()} /> : null}
             </div>
             <div>
               <span className="profileRoleBadge">Worker</span>
@@ -3377,9 +3738,24 @@ function WorkerProfilePanel({ token, onNavigate }) {
           </div>
           <label className="fileButton profileUploadButton">
             Upload photo
-            <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => {
+                const nextFile = e.target.files?.[0] || null;
+                if (!nextFile) return;
+                revokeAvatarDraft(avatarDraft);
+                setAvatarDraft(makeAvatarDraft(nextFile));
+                setAvatarEditorOpen(true);
+              }}
+            />
           </label>
-          {photo && <span className="muted">{photo.name}</span>}
+          {avatarDraft && (
+            <div className="avatarDraftActions">
+              <span className="muted">{avatarDraft.file.name}</span>
+              <button className="secondaryButton" type="button" onClick={() => setAvatarEditorOpen(true)}>Edit crop</button>
+            </div>
+          )}
         </section>
         <form className="profileEditorCard workerBioCard" onSubmit={submit}>
           <div className="profileFormHeader">
@@ -3392,6 +3768,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
           <Field label="About me" light>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
           </Field>
+          {avatarEditorOpen && <AvatarCropper draft={avatarDraft} onChange={setAvatarDraft} onClose={() => setAvatarEditorOpen(false)} />}
         </form>
       </div>
       <div className="profileStatsGrid workerKpiGrid">
@@ -3533,7 +3910,9 @@ function WorkerSkillsPanel({ token }) {
   const [workerProfile, setWorkerProfile] = useState(null);
   const [profileID, setProfileID] = useState("");
   const [form, setForm] = useState({ category_id: "", experience_level: "junior", price: "", evidence_note: "" });
+  const [upgradeForm, setUpgradeForm] = useState({ worker_skill_id: "", requested_experience_level: "middle", evidence_note: "" });
   const [files, setFiles] = useState([]);
+  const [upgradeFiles, setUpgradeFiles] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -3594,6 +3973,33 @@ function WorkerSkillsPanel({ token }) {
   const verifiedSkills = workerProfile?.verified_skills || [];
   const profileStatus = workerProfile?.verification_status || (profileID ? "pending" : "not created");
   const selectedSummary = selectedCategory ? `${categoryTitle(selectedCategory.name)} / ${form.experience_level}` : "Choose a category and level";
+  const selectedUpgradeSkill = verifiedSkills.find((skill) => String(skill.worker_skill_id) === String(upgradeForm.worker_skill_id));
+  const upgradeLevels = nextSkillLevels(selectedUpgradeSkill?.experience_level);
+
+  const submitUpgrade = async (event) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      if (!upgradeForm.worker_skill_id) {
+        throw new Error("Choose a verified service first.");
+      }
+      if (upgradeFiles.length === 0) {
+        throw new Error("Attach evidence for the upgrade.");
+      }
+      const body = new FormData();
+      body.append("worker_skill_id", upgradeForm.worker_skill_id);
+      body.append("requested_experience_level", upgradeForm.requested_experience_level);
+      body.append("evidence_note", upgradeForm.evidence_note);
+      upgradeFiles.forEach((file) => body.append("evidence_files", file));
+      await apiMultipart("/api/worker/skill-upgrades", token, body);
+      setUpgradeFiles([]);
+      setUpgradeForm({ worker_skill_id: "", requested_experience_level: "middle", evidence_note: "" });
+      setMessage("Upgrade request sent. Admin will review new evidence.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   return (
     <section className="pagePanel skillsPage">
@@ -3658,10 +4064,81 @@ function WorkerSkillsPanel({ token }) {
             <article className="workerServiceSummaryCard" key={skill.worker_skill_id || `${skill.category_name}-${skill.experience_level}`}>
               <strong>{categoryTitle(skill.category_name || skill.name || "Service")}</strong>
               <span>{skill.experience_level || "level not set"}</span>
+              {nextSkillLevels(skill.experience_level).length > 0 && (
+                <button
+                  type="button"
+                  className="linkButton"
+                  onClick={() => setUpgradeForm({
+                    worker_skill_id: String(skill.worker_skill_id),
+                    requested_experience_level: nextSkillLevels(skill.experience_level)[0],
+                    evidence_note: "",
+                  })}
+                >
+                  Request upgrade
+                </button>
+              )}
             </article>
           ))}
         </div>
       </section>
+      {verifiedSkills.length > 0 && (
+        <form className="skillUpgradeForm" onSubmit={submitUpgrade}>
+          <div>
+            <h3>Upgrade a verified service</h3>
+            <p>Choose an existing skill and attach fresh evidence. Your current level stays active while staff reviews the request.</p>
+          </div>
+          <div className="skillFormTop">
+            <Field label="Verified service" light>
+              <select
+                value={upgradeForm.worker_skill_id}
+                onChange={(e) => {
+                  const nextSkill = verifiedSkills.find((skill) => String(skill.worker_skill_id) === e.target.value);
+                  const levels = nextSkillLevels(nextSkill?.experience_level);
+                  setUpgradeForm({
+                    ...upgradeForm,
+                    worker_skill_id: e.target.value,
+                    requested_experience_level: levels[0] || "middle",
+                  });
+                }}
+                required
+              >
+                <option value="">Choose service</option>
+                {verifiedSkills.filter((skill) => nextSkillLevels(skill.experience_level).length > 0).map((skill) => (
+                  <option key={skill.worker_skill_id} value={skill.worker_skill_id}>
+                    {categoryTitle(skill.category_name || skill.name)} - {skill.experience_level}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Requested level" light>
+              <select
+                value={upgradeForm.requested_experience_level}
+                onChange={(e) => setUpgradeForm({ ...upgradeForm, requested_experience_level: e.target.value })}
+                disabled={upgradeLevels.length === 0}
+                required
+              >
+                {upgradeLevels.length === 0 && <option value="">No upgrade available</option>}
+                {upgradeLevels.map((level) => <option key={level} value={level}>{level}</option>)}
+              </select>
+            </Field>
+            <div className="field light skillEvidenceField">
+              <span>Upgrade evidence</span>
+              <label className="fileButton skillEvidenceButton">
+                <span aria-hidden="true">+</span>
+                Attach files
+                <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setUpgradeFiles(Array.from(e.target.files || []))} />
+              </label>
+              <div className="selectedFiles">
+                {upgradeFiles.length === 0 ? <span>No files selected</span> : upgradeFiles.map((file) => <span key={file.name}>{file.name}</span>)}
+              </div>
+            </div>
+          </div>
+          <Field label="Admin note" light>
+            <textarea value={upgradeForm.evidence_note} onChange={(e) => setUpgradeForm({ ...upgradeForm, evidence_note: e.target.value })} placeholder="What changed since the last verification?" />
+          </Field>
+          <button className="secondaryButton">Send upgrade request</button>
+        </form>
+      )}
       <div className="skillCategoryGrid">
         {categories.map((category) => (
           <article key={category.category_id} className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"} onClick={() => setForm({ ...form, category_id: String(category.category_id) })}>

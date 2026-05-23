@@ -2,7 +2,10 @@ package repository
 
 import (
 	"context"
+	"errors"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -35,6 +38,27 @@ func (r *WorkerSkillRepository) EnsureEvidenceTable(ctx context.Context) error {
 
 		CREATE INDEX IF NOT EXISTS idx_worker_skill_evidence_skill_id
 			ON worker_skill_evidence(worker_skill_id);
+
+		CREATE TABLE IF NOT EXISTS worker_skill_upgrade_requests (
+			upgrade_request_id serial PRIMARY KEY,
+			worker_skill_id integer NOT NULL REFERENCES worker_skills(worker_skill_id) ON DELETE CASCADE,
+			worker_profile_id integer NOT NULL REFERENCES worker_profiles(worker_profile_id) ON DELETE CASCADE,
+			requested_experience_level experience_level NOT NULL,
+			evidence_files text NOT NULL DEFAULT '',
+			admin_note text NOT NULL DEFAULT '',
+			status varchar(20) NOT NULL DEFAULT 'pending'
+				CHECK (status IN ('pending', 'approved', 'rejected')),
+			created_at timestamp with time zone DEFAULT now(),
+			reviewed_at timestamp with time zone,
+			reviewed_by_user_id integer REFERENCES users(user_id) ON DELETE SET NULL
+		);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_skill_upgrade_pending_unique
+			ON worker_skill_upgrade_requests(worker_skill_id)
+			WHERE status = 'pending';
+
+		CREATE INDEX IF NOT EXISTS idx_worker_skill_upgrade_status
+			ON worker_skill_upgrade_requests(status, created_at DESC);
 	`)
 	return err
 }
@@ -72,6 +96,117 @@ func (r *WorkerSkillRepository) AddEvidence(
 	`, workerSkillID, fileName, filePath, contentType, note)
 	return err
 }
+
+func (r *WorkerSkillRepository) CreateUpgradeRequest(
+	ctx context.Context,
+	userID int,
+	workerSkillID int,
+	requestedLevel string,
+	evidenceFiles string,
+	note string,
+) (int, error) {
+	var currentLevel string
+	var workerProfileID int
+	err := r.db.QueryRow(ctx, `
+		SELECT ws.experience_level, ws.worker_profile_id
+		FROM worker_skills ws
+		JOIN worker_profiles wp ON wp.worker_profile_id = ws.worker_profile_id
+		WHERE ws.worker_skill_id = $1
+		  AND wp.user_id = $2
+		  AND ws.is_verified = true
+	`, workerSkillID, userID).Scan(&currentLevel, &workerProfileID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, errors.New("verified worker skill not found")
+		}
+		return 0, err
+	}
+
+	if experienceRank(requestedLevel) <= experienceRank(currentLevel) {
+		return 0, errors.New("requested level must be higher than current level")
+	}
+
+	var requestID int
+	err = r.db.QueryRow(ctx, `
+		INSERT INTO worker_skill_upgrade_requests
+			(worker_skill_id, worker_profile_id, requested_experience_level, evidence_files, admin_note)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING upgrade_request_id
+	`, workerSkillID, workerProfileID, requestedLevel, evidenceFiles, note).Scan(&requestID)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return 0, errors.New("upgrade request is already pending")
+	}
+	return requestID, err
+}
+
+func (r *WorkerSkillRepository) ApproveUpgradeRequest(ctx context.Context, requestID int, reviewerUserID int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var workerSkillID int
+	var workerProfileID int
+	var requestedLevel string
+	err = tx.QueryRow(ctx, `
+		SELECT worker_skill_id, worker_profile_id, requested_experience_level
+		FROM worker_skill_upgrade_requests
+		WHERE upgrade_request_id = $1
+		  AND status = 'pending'
+		FOR UPDATE
+	`, requestID).Scan(&workerSkillID, &workerProfileID, &requestedLevel)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("pending upgrade request not found")
+		}
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE worker_skills
+		SET experience_level = $2,
+			is_verified = true
+		WHERE worker_skill_id = $1
+	`, workerSkillID, requestedLevel); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET verification_status = 'verified'
+		WHERE worker_profile_id = $1
+	`, workerProfileID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE worker_skill_upgrade_requests
+		SET status = 'approved',
+			reviewed_at = now(),
+			reviewed_by_user_id = $2
+		WHERE upgrade_request_id = $1
+	`, requestID, reviewerUserID); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func experienceRank(level string) int {
+	switch level {
+	case "junior":
+		return 1
+	case "middle":
+		return 2
+	case "senior":
+		return 3
+	default:
+		return 0
+	}
+}
+
 func (r *WorkerSkillRepository) Verify(ctx context.Context, skillID int) error {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
