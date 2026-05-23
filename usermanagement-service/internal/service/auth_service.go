@@ -480,9 +480,36 @@ func (s *AuthService) AddWorkerSkillEvidence(
 ) error {
 	return s.workerSkills.AddEvidence(ctx, workerSkillID, fileName, filePath, contentType, note)
 }
+
+func (s *AuthService) RequestWorkerSkillUpgrade(
+	ctx context.Context,
+	userID int,
+	workerSkillID int,
+	requestedLevel string,
+	evidenceFiles string,
+	note string,
+) (int, error) {
+	if !isValidExperience(requestedLevel) {
+		return 0, errors.New("invalid experience level")
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	if user.Role != model.RoleWorker {
+		return 0, errors.New("not a worker")
+	}
+	return s.workerSkills.CreateUpgradeRequest(ctx, userID, workerSkillID, requestedLevel, evidenceFiles, note)
+}
+
 func (s *AuthService) VerifyWorkerSkill(ctx context.Context, skillID int) error {
 	return s.workerSkills.Verify(ctx, skillID)
 }
+
+func (s *AuthService) VerifyWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error {
+	return s.workerSkills.ApproveUpgradeRequest(ctx, requestID, reviewerUserID)
+}
+
 func (s *AuthService) SetAvailability(ctx context.Context, userID int, available bool) error {
 	worker, err := s.workerProfiles.GetByUserIDFull(ctx, userID)
 	if err != nil {

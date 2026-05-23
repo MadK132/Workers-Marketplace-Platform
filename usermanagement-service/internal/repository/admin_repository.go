@@ -42,10 +42,25 @@ type PendingSkill struct {
 	EvidenceFiles   string `json:"evidence_files"`
 }
 
+type PendingSkillUpgrade struct {
+	UpgradeRequestID int    `json:"upgrade_request_id"`
+	WorkerSkillID    int    `json:"worker_skill_id"`
+	WorkerProfileID  int    `json:"worker_profile_id"`
+	CategoryName     string `json:"category_name"`
+	CurrentLevel     string `json:"current_level"`
+	RequestedLevel   string `json:"requested_level"`
+	WorkerFullName   string `json:"worker_full_name"`
+	WorkerUserEmail  string `json:"worker_user_email"`
+	EvidenceFiles    string `json:"evidence_files"`
+	AdminNote        string `json:"admin_note"`
+	CreatedAt        string `json:"created_at"`
+}
+
 type AdminOverview struct {
-	Stats          AdminStats      `json:"stats"`
-	PendingWorkers []PendingWorker `json:"pending_workers"`
-	PendingSkills  []PendingSkill  `json:"pending_skills"`
+	Stats                AdminStats            `json:"stats"`
+	PendingWorkers       []PendingWorker       `json:"pending_workers"`
+	PendingSkills        []PendingSkill        `json:"pending_skills"`
+	PendingSkillUpgrades []PendingSkillUpgrade `json:"pending_skill_upgrades"`
 }
 
 type AdminRepository struct {
@@ -89,9 +104,10 @@ func (r *AdminRepository) GetOverview(ctx context.Context) (AdminOverview, error
 	}
 
 	overview := AdminOverview{
-		Stats:          stats,
-		PendingWorkers: make([]PendingWorker, 0),
-		PendingSkills:  make([]PendingSkill, 0),
+		Stats:                stats,
+		PendingWorkers:       make([]PendingWorker, 0),
+		PendingSkills:        make([]PendingSkill, 0),
+		PendingSkillUpgrades: make([]PendingSkillUpgrade, 0),
 	}
 
 	workerRows, err := r.db.Query(ctx, `
@@ -178,6 +194,56 @@ func (r *AdminRepository) GetOverview(ctx context.Context) (AdminOverview, error
 		overview.PendingSkills = append(overview.PendingSkills, item)
 	}
 	if err := skillRows.Err(); err != nil {
+		return AdminOverview{}, err
+	}
+
+	upgradeRows, err := r.db.Query(ctx, `
+		SELECT
+			wur.upgrade_request_id,
+			wur.worker_skill_id,
+			wur.worker_profile_id,
+			COALESCE(sc.name, '') AS category_name,
+			ws.experience_level AS current_level,
+			wur.requested_experience_level,
+			u.full_name,
+			u.email,
+			wur.evidence_files,
+			wur.admin_note,
+			COALESCE(to_char(wur.created_at, 'YYYY-MM-DD HH24:MI'), '') AS created_at
+		FROM worker_skill_upgrade_requests wur
+		JOIN worker_skills ws ON ws.worker_skill_id = wur.worker_skill_id
+		JOIN worker_profiles wp ON wp.worker_profile_id = wur.worker_profile_id
+		JOIN users u ON u.user_id = wp.user_id
+		LEFT JOIN service_categories sc ON sc.category_id = ws.category_id
+		WHERE wur.status = 'pending'
+		ORDER BY wur.created_at DESC, wur.upgrade_request_id DESC
+		LIMIT 200
+	`)
+	if err != nil {
+		return AdminOverview{}, err
+	}
+	defer upgradeRows.Close()
+
+	for upgradeRows.Next() {
+		var item PendingSkillUpgrade
+		if err := upgradeRows.Scan(
+			&item.UpgradeRequestID,
+			&item.WorkerSkillID,
+			&item.WorkerProfileID,
+			&item.CategoryName,
+			&item.CurrentLevel,
+			&item.RequestedLevel,
+			&item.WorkerFullName,
+			&item.WorkerUserEmail,
+			&item.EvidenceFiles,
+			&item.AdminNote,
+			&item.CreatedAt,
+		); err != nil {
+			return AdminOverview{}, err
+		}
+		overview.PendingSkillUpgrades = append(overview.PendingSkillUpgrades, item)
+	}
+	if err := upgradeRows.Err(); err != nil {
 		return AdminOverview{}, err
 	}
 

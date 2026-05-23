@@ -41,7 +41,8 @@ func (r *NotificationRepository) EnsureSchema(ctx context.Context) error {
 		ALTER TABLE notifications
 			ADD COLUMN IF NOT EXISTS action_type VARCHAR(50),
 			ADD COLUMN IF NOT EXISTS action_ref VARCHAR(255),
-			ADD COLUMN IF NOT EXISTS action_label VARCHAR(100);
+			ADD COLUMN IF NOT EXISTS action_label VARCHAR(100),
+			ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;
 	`)
 	return err
 }
@@ -62,7 +63,7 @@ func (r *NotificationRepository) Create(
 		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), NULLIF($7, ''))
 		RETURNING notification_id, user_id, COALESCE(type, ''), COALESCE(title, ''),
 			COALESCE(message, ''), COALESCE(action_type, ''), COALESCE(action_ref, ''),
-			COALESCE(action_label, ''), is_read, created_at
+			COALESCE(action_label, ''), is_read, read_at, created_at
 	`, userID, notificationType, title, message, actionType, actionRef, actionLabel).Scan(
 		&notification.ID,
 		&notification.UserID,
@@ -73,6 +74,7 @@ func (r *NotificationRepository) Create(
 		&notification.ActionRef,
 		&notification.ActionLabel,
 		&notification.IsRead,
+		&notification.ReadAt,
 		&notification.CreatedAt,
 	)
 	if err != nil {
@@ -88,10 +90,20 @@ func (r *NotificationRepository) ListByUser(
 	limit int,
 	onlyUnread bool,
 ) ([]model.Notification, error) {
+	if _, err := r.db.Exec(ctx, `
+		DELETE FROM notifications
+		WHERE user_id = $1
+		  AND is_read = true
+		  AND read_at IS NOT NULL
+		  AND read_at < NOW() - INTERVAL '7 days'
+	`, userID); err != nil {
+		return nil, err
+	}
+
 	rows, err := r.db.Query(ctx, `
 		SELECT notification_id, user_id, COALESCE(type, ''), COALESCE(title, ''),
 			COALESCE(message, ''), COALESCE(action_type, ''), COALESCE(action_ref, ''),
-			COALESCE(action_label, ''), is_read, created_at
+			COALESCE(action_label, ''), is_read, read_at, created_at
 		FROM notifications
 		WHERE user_id = $1
 		  AND ($2 = false OR is_read = false)
@@ -116,6 +128,7 @@ func (r *NotificationRepository) ListByUser(
 			&notification.ActionRef,
 			&notification.ActionLabel,
 			&notification.IsRead,
+			&notification.ReadAt,
 			&notification.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -137,12 +150,13 @@ func (r *NotificationRepository) MarkRead(
 	var notification model.Notification
 	err := r.db.QueryRow(ctx, `
 		UPDATE notifications
-		SET is_read = true
+		SET is_read = true,
+		    read_at = COALESCE(read_at, NOW())
 		WHERE notification_id = $1
 		  AND user_id = $2
 		RETURNING notification_id, user_id, COALESCE(type, ''), COALESCE(title, ''),
 			COALESCE(message, ''), COALESCE(action_type, ''), COALESCE(action_ref, ''),
-			COALESCE(action_label, ''), is_read, created_at
+			COALESCE(action_label, ''), is_read, read_at, created_at
 	`, notificationID, userID).Scan(
 		&notification.ID,
 		&notification.UserID,
@@ -153,6 +167,7 @@ func (r *NotificationRepository) MarkRead(
 		&notification.ActionRef,
 		&notification.ActionLabel,
 		&notification.IsRead,
+		&notification.ReadAt,
 		&notification.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -168,7 +183,8 @@ func (r *NotificationRepository) MarkRead(
 func (r *NotificationRepository) MarkAllRead(ctx context.Context, userID int) (int64, error) {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE notifications
-		SET is_read = true
+		SET is_read = true,
+		    read_at = COALESCE(read_at, NOW())
 		WHERE user_id = $1
 		  AND is_read = false
 	`, userID)
