@@ -54,6 +54,24 @@ const roleTabs = {
   ],
 };
 
+const reportReasonLabels = {
+  bad_quality: "Bad quality",
+  no_show: "No show",
+  rude_behavior: "Rude behavior",
+  fake_evidence: "Fake evidence",
+  payment_disagreement: "Payment disagreement",
+  other: "Other",
+};
+
+const reportStatusLabels = {
+  open: "Open",
+  pending: "Pending",
+  reviewing: "Reviewing",
+  resolved: "Resolved",
+  rejected: "Rejected",
+  closed: "Closed",
+};
+
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
@@ -1225,7 +1243,7 @@ function CustomerApp({
   if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
 
   if (!position) {
-    return <CustomerLocationGate geoStatus={geoStatus} geoError={geoError} onAllow={startWatch} onSignOut={onSignOut} />;
+    return <CustomerLocationGate activeTab={activeTab} geoStatus={geoStatus} geoError={geoError} onAllow={startWatch} onNavigate={onNavigate} onSignOut={onSignOut} />;
   }
 
   return (
@@ -1256,31 +1274,33 @@ function CustomerApp({
               <h2>Find a worker</h2>
               <p>Choose service, search nearby and book.</p>
             </div>
-            <button className="walletButton" onClick={searchWorkers} disabled={loading}>Search</button>
           </div>
-          <div className="locationModeTabs">
-            <button className={locationMode === "current" ? "active" : ""} onClick={useCurrentLocation}>Current location</button>
-            <button className={locationMode === "map" ? "active" : ""} onClick={() => setLocationMode("map")}>Pick on map</button>
+          <div className="customerSearchPanel">
+            <div className="locationModeTabs">
+              <button className={locationMode === "current" ? "active" : ""} onClick={useCurrentLocation}>Current location</button>
+              <button className={locationMode === "map" ? "active" : ""} onClick={() => setLocationMode("map")}>Pick on map</button>
+            </div>
+            <div className="customerSearchGrid">
+              <Field label="Category" light>
+                <select value={categoryID} onChange={(e) => setCategoryID(e.target.value)}>
+                  <option value="">Choose category</option>
+                  {categories.map((category) => (
+                    <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Address" light><input value={addressDraft} onChange={(e) => {
+                setAddressDraft(e.target.value);
+                setAddress(e.target.value);
+                setLocationMode("address");
+              }} placeholder="Arrival address" /></Field>
+              <Field label="Task" light><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe task" /></Field>
+              <button className="customerSearchButton" onClick={searchWorkers} disabled={loading}>Search</button>
+            </div>
+            {locationMode === "map" && <p className="muted">Click on the map to choose the arrival point.</p>}
+            <StatusLine geoStatus={geoStatus} geoError={geoError} />
+            <Messages message={message} error={error} />
           </div>
-          <div className="customerSearchGrid">
-            <Field label="Category" light>
-              <select value={categoryID} onChange={(e) => setCategoryID(e.target.value)}>
-                <option value="">Choose category</option>
-                {categories.map((category) => (
-                  <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Address" light><input value={addressDraft} onChange={(e) => {
-              setAddressDraft(e.target.value);
-              setAddress(e.target.value);
-              setLocationMode("address");
-            }} placeholder="Arrival address" /></Field>
-            <Field label="Task" light><input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe task" /></Field>
-          </div>
-          {locationMode === "map" && <p className="muted">Click on the map to choose the arrival point.</p>}
-          <StatusLine geoStatus={geoStatus} geoError={geoError} />
-          <Messages message={message} error={error} />
           <WorkerList
             workers={workers}
             selectedWorker={selectedWorker}
@@ -1299,11 +1319,13 @@ function CustomerApp({
 }
 
 function CustomerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
+  const innerClassName = activeTab === "chats" ? "customerInnerPage chatInnerPage" : "customerInnerPage";
+
   return (
     <div className="customerPhoneShell">
       <section className="customerPageScreen">
         <CustomerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
-        <div className="customerInnerPage">{children}</div>
+        <div className={innerClassName}>{children}</div>
       </section>
     </div>
   );
@@ -1394,9 +1416,10 @@ function WorkerPublicProfilePage({ token, worker, onBack, onHireWorker }) {
   );
 }
 
-function CustomerLocationGate({ geoStatus, geoError, onAllow, onSignOut }) {
+function CustomerLocationGate({ activeTab, geoStatus, geoError, onAllow, onNavigate, onSignOut }) {
   return (
     <main className="geoGate">
+      <CustomerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
       <section className="geoGateCard">
         <div className="appIcon">WM</div>
         <h1>Allow location</h1>
@@ -1684,7 +1707,7 @@ function WorkerApp({
   }
 
   if (!position) {
-    return <WorkerLocationGate geoStatus={geoStatus} geoError={geoError} onAllow={startWatch} onSignOut={onSignOut} />;
+    return <WorkerLocationGate activeTab={activeTab} geoStatus={geoStatus} geoError={geoError} onAllow={startWatch} onNavigate={onNavigate} onSignOut={onSignOut} />;
   }
 
   return (
@@ -1755,20 +1778,23 @@ function WorkerApp({
 }
 
 function WorkerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
+  const innerClassName = activeTab === "chats" ? "workerInnerPage chatInnerPage" : "workerInnerPage";
+
   return (
     <div className="proPhoneShell">
       <section className="proPhone workerPagePhone">
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
-        <div className="workerInnerPage">{children}</div>
+        <div className={innerClassName}>{children}</div>
       </section>
     </div>
   );
 }
 
-function WorkerLocationGate({ geoStatus, geoError, onAllow, onSignOut }) {
+function WorkerLocationGate({ activeTab, geoStatus, geoError, onAllow, onNavigate, onSignOut }) {
   const loading = geoStatus === "loading";
   return (
     <main className="geoGate">
+      <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
       <section className="geoGateCard">
         <div className="appIcon">WM</div>
         <h1>Allow location</h1>
@@ -2306,7 +2332,7 @@ function ChatPanel({ token, role }) {
   );
   const activeBookingStatus = String(activeBooking?.status || activeBooking?.booking_status || "").toLowerCase();
   const activeBookingPrice = parseMoney(activeBooking?.final_price || 0);
-  const messagesEndRef = useRef(null);
+  const messageListRef = useRef(null);
 
   const loadChats = useCallback(() => {
     setError("");
@@ -2385,7 +2411,12 @@ function ChatPanel({ token, role }) {
   }, [activeChatID, loadBookings, loadChats, loadMessages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const messageList = messageListRef.current;
+    if (!messageList) return;
+    messageList.scrollTo({
+      top: messageList.scrollHeight,
+      behavior: "smooth",
+    });
   }, [messages]);
 
   const postChatText = async (text) => {
@@ -2481,7 +2512,7 @@ function ChatPanel({ token, role }) {
 
   return (
     <section className="pagePanel chatPage">
-      <SectionHeader title="Chat" text="Talk about details, timing and proof files." />
+      <SectionHeader title="Chat" text="Talk about details, timing, price and files." />
       <Messages message={message} error={error} />
       <div className="chatLayout">
         <aside className="chatList">
@@ -2500,15 +2531,15 @@ function ChatPanel({ token, role }) {
         </aside>
         <div className="chatConversation">
           {canWorkerSetPrice && (
-            <form className="priceComposer" onSubmit={setBookingPrice}>
+            <form className="chatPriceBar" onSubmit={setBookingPrice}>
               <Field label="Booking price, KZT" light>
-                <input value={priceDraft} onChange={(event) => setPriceDraft(event.target.value)} inputMode="numeric" placeholder="Set price in this chat" />
+                <input value={priceDraft} onChange={(event) => setPriceDraft(event.target.value)} inputMode="numeric" placeholder="Enter amount" />
               </Field>
               <button disabled={!activeChatID}>Set price</button>
             </form>
           )}
           {canCustomerDecidePrice && (
-            <div className="priceDecision">
+            <div className="chatPriceDecision">
               <div>
                 <strong>{activeBookingPrice > 0 ? `${formatMoney(activeBookingPrice)} KZT` : "Waiting for worker price"}</strong>
                 <span>{activeBookingPrice > 0 ? "Accept the price to select this worker and activate the booking." : "Discuss details in chat first."}</span>
@@ -2521,20 +2552,23 @@ function ChatPanel({ token, role }) {
               )}
             </div>
           )}
-          <div className="messageList">
+          <div className="chatMessageList" ref={messageListRef}>
             {!activeChatID && <EmptyState title="Choose chat" text="Select a booking chat on the left." />}
             {messages.map((msg) => (
               <ChatBubble key={msg.message_id} msg={msg} own={Number(msg.sender_user_id) === Number(currentUserID)} />
             ))}
-            <div ref={messagesEndRef} />
           </div>
           <form className="chatComposer" onSubmit={send}>
             <textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write a message..." />
-            <label className="fileButton chatFileButton">
-              Attach
+            <label className="fileButton chatFileButton" aria-label="Attach file" title="Attach file">
+              <span aria-hidden="true">+</span>
+              <span className="visuallyHidden">Attach file</span>
               <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
             </label>
-            <button disabled={!activeChatID || (!content.trim() && !attachment)}>Send</button>
+            <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={!activeChatID || (!content.trim() && !attachment)}>
+              <span aria-hidden="true" />
+              <span className="visuallyHidden">Send</span>
+            </button>
             {attachment && <span className="muted">{attachment.name}</span>}
           </form>
         </div>
@@ -2593,7 +2627,8 @@ function ReportsPanel({ token, role, staff = false }) {
   const [reports, setReports] = useState([]);
   const [reportBookings, setReportBookings] = useState([]);
   const [activeID, setActiveID] = useState(() => localStorage.getItem("workers_marketplace_active_report") || "");
-  const [viewMode, setViewMode] = useState("details");
+  const [showCreateForm, setShowCreateForm] = useState(() => Boolean(localStorage.getItem("workers_marketplace_report_booking")));
+  const [supportChatOpen, setSupportChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [form, setForm] = useState(() => ({
     booking_id: localStorage.getItem("workers_marketplace_report_booking") || "",
@@ -2668,6 +2703,7 @@ function ReportsPanel({ token, role, staff = false }) {
   const activeReport = reports.find((item) => String(item.report_id) === String(activeID));
   const selectedBooking = reportBookings.find((item) => String(item.booking_id || item.id) === String(form.booking_id));
   const fileSummary = files.length === 0 ? "No files selected" : files.map((file) => file.name).join(", ");
+  const reportListTitle = staff ? "Report queue" : "My cases";
 
   const createReport = async (event) => {
     event.preventDefault();
@@ -2683,7 +2719,9 @@ function ReportsPanel({ token, role, staff = false }) {
       localStorage.removeItem("workers_marketplace_report_booking");
       setForm({ booking_id: "", reason: "bad_quality", description: "" });
       setFiles([]);
-      setMessage("Report created. Support will review it.");
+      setShowCreateForm(false);
+      setSupportChatOpen(true);
+      setMessage("Report created. You can continue in support chat.");
       setActiveID(String(created.report_id || ""));
       loadReports();
       loadReportBookings();
@@ -2753,71 +2791,94 @@ function ReportsPanel({ token, role, staff = false }) {
     <section className="pagePanel reportsPage">
       <SectionHeader title={staff ? "Reports" : "My reports"} text={staff ? "Review disputes and apply penalties when needed." : "Create a support case for a booking issue."} />
       <Messages message={message} error={error} />
-      {!staff && (
-        <form className="toolCard reportCreateForm" onSubmit={createReport}>
-          <div className="reportFormHeader">
-            <div>
-              <h3>New support case</h3>
-              <p>Choose the booking, explain what happened and attach proof if needed.</p>
-            </div>
-            {selectedBooking && <span className="statusPill">{selectedBooking.status || "booking"}</span>}
-          </div>
-          <div className="reportFormGrid">
-            <Field label="Booking" light>
-              <select value={form.booking_id} onChange={(event) => setForm({ ...form, booking_id: event.target.value })} required>
-                <option value="">Choose booking</option>
-                {reportBookings.map((booking) => {
-                  const id = booking.booking_id || booking.id;
-                  const title = booking.address || booking.description || "Booking";
-                  return <option key={id} value={id}>Booking #{id} - {title}</option>;
-                })}
-              </select>
-            </Field>
-            <Field label="Reason" light>
-              <select value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })}>
-                <option value="bad_quality">Bad quality</option>
-                <option value="no_show">Worker/customer did not arrive</option>
-                <option value="rude_behavior">Rude behavior</option>
-                <option value="fake_evidence">Fake evidence</option>
-                <option value="payment_disagreement">Payment disagreement</option>
-                <option value="other">Other</option>
-              </select>
-            </Field>
-          </div>
-          {selectedBooking && (
-            <div className="selectedReportBooking">
-              <strong>Booking #{selectedBooking.booking_id || selectedBooking.id}</strong>
-              <span>{selectedBooking.address || selectedBooking.description || "No address"}</span>
-              <small>{selectedBooking.final_price ? `${formatMoney(parseMoney(selectedBooking.final_price))} KZT` : "Price was set in chat"}</small>
+      <div className={staff ? "reportsLayout staffReportsLayout" : "reportsLayout"}>
+        <div className="reportSidebar">
+          {!staff && (
+            <div className="reportCreateLauncher">
+              <button type="button" onClick={() => setShowCreateForm((current) => !current)}>
+                {showCreateForm ? "Close form" : "+ New case"}
+              </button>
+              <span>{showCreateForm ? "Fill the case details below." : "Need help? Start a case, then chat with support."}</span>
             </div>
           )}
-          <Field label="Description" light><textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Explain what happened..." required /></Field>
-          <div className="reportUploadRow">
-            <label className="fileButton reportFileButton">
-              Attach files
-              <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files || []))} />
-            </label>
-            <span title={fileSummary}>{fileSummary}</span>
-          </div>
-          <button disabled={!form.booking_id}>Create report</button>
-        </form>
-      )}
-      <div className="reportsLayout">
-        <aside className="reportList">
-          {reports.length === 0 && <EmptyState title="No reports" text="Reports will appear here." />}
-          {reports.map((report) => (
-            <button key={report.report_id} className={String(activeID) === String(report.report_id) ? "active" : ""} onClick={() => {
-              setActiveID(String(report.report_id));
-              setViewMode("details");
-            }}>
-              <strong>Report #{report.report_id}</strong>
-              <span>{report.reason} - {report.status}</span>
-              <small>{staff ? `${report.reporter_name} -> ${report.reported_name}` : `Booking #${report.booking_id || "-"}`}</small>
-            </button>
-          ))}
-        </aside>
+          {!staff && showCreateForm && (
+            <form className="toolCard reportCreateForm" onSubmit={createReport}>
+              <div className="reportFormHeader">
+                <div>
+                  <h3>New support case</h3>
+                  <p>Tell support what happened. Proof is optional.</p>
+                </div>
+                <span className="reportHintBadge">Support</span>
+              </div>
+              <div className="reportFormGrid">
+                <Field label="Booking" light>
+                  <select value={form.booking_id} onChange={(event) => setForm({ ...form, booking_id: event.target.value })} required>
+                    <option value="">Choose booking</option>
+                    {reportBookings.map((booking) => {
+                      const id = booking.booking_id || booking.id;
+                      const title = booking.address || booking.description || "Booking";
+                      return <option key={id} value={id}>Booking #{id} - {title}</option>;
+                    })}
+                  </select>
+                </Field>
+                <Field label="Reason" light>
+                  <select value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })}>
+                    <option value="bad_quality">Bad quality</option>
+                    <option value="no_show">Worker/customer did not arrive</option>
+                    <option value="rude_behavior">Rude behavior</option>
+                    <option value="fake_evidence">Fake evidence</option>
+                    <option value="payment_disagreement">Payment disagreement</option>
+                    <option value="other">Other</option>
+                  </select>
+                </Field>
+              </div>
+              {selectedBooking && (
+                <div className="selectedReportBooking">
+                  <div>
+                    <span>Selected booking</span>
+                    <strong>Booking #{selectedBooking.booking_id || selectedBooking.id}</strong>
+                  </div>
+                  <p>{selectedBooking.address || selectedBooking.description || "No address"}</p>
+                  <div>
+                    <small>{selectedBooking.final_price ? `${formatMoney(parseMoney(selectedBooking.final_price))} KZT` : "Price was set in chat"}</small>
+                    <span className={`statusPill ${selectedBooking.status || ""}`}>{selectedBooking.status || "booking"}</span>
+                  </div>
+                </div>
+              )}
+              <Field label="Description" light><textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Explain what happened..." required /></Field>
+              <div className="reportUploadRow">
+                <label className="fileButton reportFileButton" aria-label="Attach proof files" title="Attach proof files">
+                  <span aria-hidden="true">+</span>
+                  <strong>Attach proof</strong>
+                  <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files || []))} />
+                </label>
+                <span title={fileSummary}>{fileSummary}</span>
+              </div>
+              <button className="reportCreateButton" disabled={!form.booking_id}>Create report</button>
+            </form>
+          )}
+          <aside className="reportList" aria-label={reportListTitle}>
+            <div className="reportListHeader">
+              <strong>{reportListTitle}</strong>
+              <span>{reports.length}</span>
+            </div>
+            {reports.length === 0 && <EmptyState title="No reports" text="Reports will appear here." />}
+            {reports.map((report) => (
+              <button key={report.report_id} className={String(activeID) === String(report.report_id) ? "active" : ""} onClick={() => {
+                setActiveID(String(report.report_id));
+              }}>
+                <div className="reportCardTop">
+                  <strong>Report #{report.report_id}</strong>
+                  <span className={`statusPill ${report.status || ""}`}>{reportStatusLabel(report.status)}</span>
+                </div>
+                <span>{reportReasonLabel(report.reason)}</span>
+                <small>{staff ? `${report.reporter_name || "Reporter"} -> ${report.reported_name || "Reported"}` : `Booking #${report.booking_id || "-"}`}</small>
+              </button>
+            ))}
+          </aside>
+        </div>
         <section className="reportDetail">
-          {!activeReport && <EmptyState title="Choose report" text="Select a report from the list." />}
+          {!activeReport && <EmptyState title={reports.length === 0 ? "No reports yet" : "Choose report"} text={reports.length === 0 ? "Create a support case and it will appear here." : "Select a report from the list."} />}
           {activeReport && (
             <>
               <div className="toolCard reportSummary">
@@ -2826,16 +2887,27 @@ function ReportsPanel({ token, role, staff = false }) {
                     <h3>Report #{activeReport.report_id}</h3>
                     <small>Booking #{activeReport.booking_id || "-"} | {activeReport.reporter_name || "Reporter"} {"->"} {activeReport.reported_name || "Reported"}</small>
                   </div>
-                  <span className={`statusPill ${activeReport.status}`}>{activeReport.status}</span>
+                  <div className="reportSummaryActions">
+                    <span className={`statusPill ${activeReport.status || ""}`}>{reportStatusLabel(activeReport.status)}</span>
+                    <button className="reportChatOpenButton" type="button" onClick={() => setSupportChatOpen(true)} aria-label="Open support chat" title="Open support chat">
+                      <span aria-hidden="true" />
+                      Chat
+                    </button>
+                  </div>
+                </div>
+                <div className="reportInfoGrid">
+                  <span>
+                    <small>Reason</small>
+                    <strong>{reportReasonLabel(activeReport.reason)}</strong>
+                  </span>
+                  <span>
+                    <small>Booking</small>
+                    <strong>#{activeReport.booking_id || "-"}</strong>
+                  </span>
                 </div>
                 <p>{activeReport.description || "No description"}</p>
-                <div className="rowActions">
-                  <button type="button" className={viewMode === "chat" ? "" : "secondaryButton"} onClick={() => setViewMode(viewMode === "chat" ? "details" : "chat")}>
-                    {viewMode === "chat" ? "Hide chat" : "Open support chat"}
-                  </button>
-                </div>
               </div>
-              {staff && viewMode !== "chat" && (
+              {staff && (
                 <div className="toolCard reportPenaltyBox">
                   <h3>Support decision</h3>
                   <div className="toolbarGrid">
@@ -2857,34 +2929,37 @@ function ReportsPanel({ token, role, staff = false }) {
                   </div>
                 </div>
               )}
-              {viewMode === "chat" && (
-                <div className="reportChatPanel">
-                  <div className="sectionTitleRow">
-                    <strong>Support chat</strong>
-                    <span>{staff ? "Manager desk" : "Dispute conversation"}</span>
-                  </div>
-                  <div className="reportMessageList">
-                    {messages.length === 0 && <EmptyState title="No dispute messages" text="Write a message to start the support chat." />}
-                    {messages.map((msg) => (
-                      <ReportChatBubble
-                        key={msg.message_id}
-                        msg={msg}
-                        own={Number(msg.sender_user_id) === tokenUserID(token)}
-                        staff={Number(msg.sender_user_id) !== Number(activeReport.reporter_user_id) && Number(msg.sender_user_id) !== Number(activeReport.reported_user_id)}
-                      />
-                    ))}
-                  </div>
-                  <form className="chatComposer" onSubmit={sendReportMessage}>
-                    <textarea value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Write to dispute chat..." />
-                    <label className="fileButton chatFileButton">Attach<input type="file" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label>
-                    <button disabled={!messageText.trim() && !attachment}>Send</button>
-                  </form>
-                </div>
-              )}
             </>
           )}
         </section>
       </div>
+      {activeReport && supportChatOpen && (
+        <div className="reportChatPanel" role="dialog" aria-label="Support chat" aria-modal="false">
+          <div className="reportChatHeader">
+            <div>
+              <strong>Support chat</strong>
+              <span>Report #{activeReport.report_id} · {staff ? "Manager desk" : "Dispute conversation"}</span>
+            </div>
+            <button className="reportChatCloseButton" type="button" onClick={() => setSupportChatOpen(false)} aria-label="Close support chat" title="Close support chat">×</button>
+          </div>
+          <div className="reportMessageList">
+            {messages.length === 0 && <EmptyState title="No dispute messages" text="Write a message to start the support chat." />}
+            {messages.map((msg) => (
+              <ReportChatBubble
+                key={msg.message_id}
+                msg={msg}
+                own={Number(msg.sender_user_id) === tokenUserID(token)}
+                staff={Number(msg.sender_user_id) !== Number(activeReport.reporter_user_id) && Number(msg.sender_user_id) !== Number(activeReport.reported_user_id)}
+              />
+            ))}
+          </div>
+          <form className="reportMessageForm" onSubmit={sendReportMessage}>
+            <textarea value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Write to support..." />
+            <label className="fileButton reportMessageFileButton">Attach<input type="file" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label>
+            <button disabled={!messageText.trim() && !attachment}>Send</button>
+          </form>
+        </div>
+      )}
     </section>
   );
 }
@@ -2906,6 +2981,14 @@ function ReportChatBubble({ msg, own, staff }) {
       </div>
     </article>
   );
+}
+
+function reportReasonLabel(reason) {
+  return reportReasonLabels[String(reason || "").toLowerCase()] || reason || "Other";
+}
+
+function reportStatusLabel(status) {
+  return reportStatusLabels[String(status || "").toLowerCase()] || status || "Open";
 }
 
 function initialsOf(name) {
@@ -3147,47 +3230,75 @@ function CustomerProfilePanel({ token, onNavigate }) {
   };
 
   const photoURL = profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "";
+  const customerName = profile?.full_name || profile?.customer_name || profile?.name || "Customer";
+  const savedAddressLabel = form.address || "No saved address yet";
 
   return (
-    <section className="pagePanel workerProfilePage">
+    <section className="pagePanel profilePage customerProfilePage">
       <SectionHeader title="Customer profile" text="Photo, address and booking preferences." />
-      <div className="workerProfileHero">
-        <div className="profilePhotoBlock">
-          <div className="profilePhoto">
-            <span>WM</span>
-            {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+      <div className="customerProfileShell">
+        <section className="profileHeroCard customerProfileHero">
+          <div className="profileIdentity">
+            <div className="profilePhoto">
+              <span>WM</span>
+              {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+            </div>
+            <div>
+              <span className="profileRoleBadge">Customer</span>
+              <h3>{customerName}</h3>
+              <p>Keep your address and booking notes ready for workers.</p>
+            </div>
           </div>
-          <label className="fileButton">
+          <label className="fileButton profileUploadButton">
             Upload photo
             <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
           </label>
           {photo && <span className="muted">{photo.name}</span>}
-        </div>
-        <form className="profileEditForm" onSubmit={submit}>
+        </section>
+        <form className="profileEditorCard customerProfileForm" onSubmit={submit}>
+          <div className="profileFormHeader">
+            <div>
+              <h3>Booking preferences</h3>
+              <p>Notes here help workers arrive prepared and avoid extra messages.</p>
+            </div>
+            <button type="button" className="secondaryButton profileLocationButton" onClick={useCurrentLocation}>Use current location</button>
+          </div>
           <Field label="About me" light>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
           </Field>
-          <Field label="Saved address" light>
-            <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
-          </Field>
-          <div className="rowActions">
-            <button type="button" className="secondaryButton" onClick={useCurrentLocation}>Use current location</button>
-            <button>Save profile</button>
+          <div className="profileAddressRow">
+            <Field label="Saved address" light>
+              <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
+            </Field>
+            <div className="profileAddressPreview">
+              <small>Current saved address</small>
+              <strong title={savedAddressLabel}>{savedAddressLabel}</strong>
+            </div>
           </div>
+          <button className="profileSaveButton">Save profile</button>
         </form>
       </div>
-      <div className="profileLinks">
+      <div className="profileLinks profileShortcutGrid">
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("bookings")}>
-          <strong>My bookings</strong>
-          <span>Open all customer bookings</span>
+          <span className="profileShortcutIcon" aria-hidden="true">B</span>
+          <span>
+            <strong>My bookings</strong>
+            <small>Open all customer bookings</small>
+          </span>
         </button>
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("requests")}>
-          <strong>My requests</strong>
-          <span>Track created service requests</span>
+          <span className="profileShortcutIcon" aria-hidden="true">R</span>
+          <span>
+            <strong>My requests</strong>
+            <small>Track created service requests</small>
+          </span>
         </button>
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("find")}>
-          <strong>Find worker</strong>
-          <span>Back to map search</span>
+          <span className="profileShortcutIcon" aria-hidden="true">M</span>
+          <span>
+            <strong>Find worker</strong>
+            <small>Back to map search</small>
+          </span>
         </button>
       </div>
       <PaymentMethodPanel token={token} />
@@ -3245,36 +3356,51 @@ function WorkerProfilePanel({ token, onNavigate }) {
   };
 
   const photoURL = profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "";
+  const workerName = profile?.worker_name || profile?.full_name || profile?.name || "Worker";
+  const verifiedSkills = profile?.verified_skills || [];
 
   return (
-    <section className="pagePanel workerProfilePage">
+    <section className="pagePanel profilePage workerProfilePage">
       <SectionHeader title="Worker profile" text="Profile photo, bio, verified skills and income analytics." />
-      <div className="workerProfileHero">
-        <div className="profilePhotoBlock">
-          <div className="profilePhoto">
-            <span>WM</span>
-            {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+      <div className="workerDashboardHero">
+        <section className="profileHeroCard workerIdentityCard">
+          <div className="profileIdentity">
+            <div className="profilePhoto">
+              <span>WM</span>
+              {photoURL ? <img src={photoURL} alt="" onError={(event) => event.currentTarget.remove()} /> : null}
+            </div>
+            <div>
+              <span className="profileRoleBadge">Worker</span>
+              <h3>{workerName}</h3>
+              <p>{verifiedSkills.length} verified services ready for customer bookings.</p>
+            </div>
           </div>
-          <label className="fileButton">
+          <label className="fileButton profileUploadButton">
             Upload photo
             <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
           </label>
           {photo && <span className="muted">{photo.name}</span>}
-        </div>
-        <form className="profileEditForm" onSubmit={submit}>
+        </section>
+        <form className="profileEditorCard workerBioCard" onSubmit={submit}>
+          <div className="profileFormHeader">
+            <div>
+              <h3>Public bio</h3>
+              <p>Tell customers where you work, how you approach jobs and what you do best.</p>
+            </div>
+            <button className="profileSaveButton">Save profile</button>
+          </div>
           <Field label="About me" light>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
           </Field>
-          <button>Save profile</button>
         </form>
       </div>
-      <div className="profileStatsGrid">
+      <div className="profileStatsGrid workerKpiGrid">
         <StatCard title="This week" value={formatMoney(stats.weekTotal) + " KZT"} text={stats.weekCompleted + " completed jobs"} />
         <StatCard title="This month" value={formatMoney(stats.monthTotal) + " KZT"} text={stats.monthCompleted + " completed jobs"} />
         <StatCard title="Rating" value={renderStars(profile?.rating || 0)} text={`${Number(profile?.rating || 0).toFixed(1)} average from customer reviews`} />
         <StatCard title="Average check" value={formatMoney(stats.average) + " KZT"} text="Completed jobs this month" />
       </div>
-      <section className="profileSection">
+      <section className="profileSection incomeSection">
         <div className="sectionTitleRow">
           <h3>Monthly income</h3>
           <span>{stats.monthCompleted} jobs</span>
@@ -3289,33 +3415,46 @@ function WorkerProfilePanel({ token, onNavigate }) {
           ))}
         </div>
       </section>
-      <section className="profileSection">
+      <section className="profileSection skillsOverviewSection">
         <div className="sectionTitleRow">
           <h3>Verified skills</h3>
           <button className="secondaryButton fitButton" onClick={() => onNavigate("skills")}>Add service</button>
         </div>
         <div className="verifiedSkillsGrid">
-          {(profile?.verified_skills || []).length === 0 && <EmptyState title="No verified skills yet" text="Add a service and attach qualification evidence." />}
-          {(profile?.verified_skills || []).map((skill) => (
+          {verifiedSkills.length === 0 && <EmptyState title="No verified skills yet" text="Add a service and attach qualification evidence." />}
+          {verifiedSkills.map((skill) => (
             <article className="verifiedSkillCard" key={skill.worker_skill_id}>
-              <strong>{categoryTitle(skill.category_name)}</strong>
-              <span>{skill.experience_level} - price agreed in chat</span>
+              <div>
+                <strong>{categoryTitle(skill.category_name)}</strong>
+                <span className="verifiedBadge">Verified</span>
+              </div>
+              <span>{String(skill.experience_level || "level").replace("_", " ")}</span>
+              <small>Price agreed in chat</small>
             </article>
           ))}
         </div>
       </section>
-      <div className="profileLinks">
+      <div className="profileLinks profileShortcutGrid">
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("jobs")}>
-          <strong>My jobs</strong>
-          <span>Open assigned bookings</span>
+          <span className="profileShortcutIcon" aria-hidden="true">J</span>
+          <span>
+            <strong>My jobs</strong>
+            <small>Open assigned bookings</small>
+          </span>
         </button>
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("pro")}>
-          <strong>Map</strong>
-          <span>Return to online mode and job search</span>
+          <span className="profileShortcutIcon" aria-hidden="true">M</span>
+          <span>
+            <strong>Map</strong>
+            <small>Return to online mode and job search</small>
+          </span>
         </button>
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("skills")}>
-          <strong>Services</strong>
-          <span>Manage verified skills</span>
+          <span className="profileShortcutIcon" aria-hidden="true">S</span>
+          <span>
+            <strong>Services</strong>
+            <small>Manage verified skills</small>
+          </span>
         </button>
       </div>
       <PaymentMethodPanel token={token} />
@@ -3369,7 +3508,7 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
   };
 
   return (
-    <section className={compact ? "paymentGateSection" : "profileSection"}>
+    <section className={compact ? "paymentGateSection" : "profilePaymentCard"}>
       <div className="sectionTitleRow">
         <h3>Payment card</h3>
         {method?.has_payment_method && <span>{method.provider || "Stripe"} {method.last4 ? `•••• ${method.last4}` : "linked"}</span>}
@@ -3391,6 +3530,7 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
 
 function WorkerSkillsPanel({ token }) {
   const [categories, setCategories] = useState([]);
+  const [workerProfile, setWorkerProfile] = useState(null);
   const [profileID, setProfileID] = useState("");
   const [form, setForm] = useState({ category_id: "", experience_level: "junior", price: "", evidence_note: "" });
   const [files, setFiles] = useState([]);
@@ -3408,8 +3548,14 @@ function WorkerSkillsPanel({ token }) {
       .catch((err) => setError(err.message));
 
     apiGet("/api/worker/profile", token)
-      .then((data) => setProfileID(data.worker_profile_id || ""))
-      .catch(() => setProfileID(""));
+      .then((data) => {
+        setWorkerProfile(data);
+        setProfileID(data.worker_profile_id || "");
+      })
+      .catch(() => {
+        setWorkerProfile(null);
+        setProfileID("");
+      });
   }, [token]);
 
   const submit = async (event) => {
@@ -3419,7 +3565,9 @@ function WorkerSkillsPanel({ token }) {
     try {
       if (!profileID) {
         const createdProfile = await apiPost("/api/worker/profile", token, { bio: "" });
-        setProfileID(createdProfile.worker_profile_id || createdProfile.id || "created");
+        const nextProfileID = createdProfile.worker_profile_id || createdProfile.id || "created";
+        setProfileID(nextProfileID);
+        setWorkerProfile((current) => ({ ...(current || {}), ...createdProfile, worker_profile_id: nextProfileID }));
       }
       const body = new FormData();
       body.append("category_id", form.category_id);
@@ -3428,6 +3576,13 @@ function WorkerSkillsPanel({ token }) {
       body.append("evidence_note", form.evidence_note);
       files.forEach((file) => body.append("evidence_files", file));
       await apiMultipart("/api/worker/skills", token, body);
+      try {
+        const refreshedProfile = await apiGet("/api/worker/profile", token);
+        setWorkerProfile(refreshedProfile);
+        setProfileID(refreshedProfile.worker_profile_id || "");
+      } catch {
+        // The service request was already created; profile refresh is only for the summary cards.
+      }
       setFiles([]);
       setMessage("Service request sent. Admin will review qualification evidence.");
     } catch (err) {
@@ -3435,41 +3590,78 @@ function WorkerSkillsPanel({ token }) {
     }
   };
 
+  const selectedCategory = categories.find((category) => String(category.category_id) === String(form.category_id));
+  const verifiedSkills = workerProfile?.verified_skills || [];
+  const profileStatus = workerProfile?.verification_status || (profileID ? "pending" : "not created");
+  const selectedSummary = selectedCategory ? `${categoryTitle(selectedCategory.name)} / ${form.experience_level}` : "Choose a category and level";
+
   return (
     <section className="pagePanel skillsPage">
       <SectionHeader title="Services" text="Choose a category, level and attach qualification evidence. Price is agreed in chat for each booking." />
-      <div className="skillStatusGrid">
-        <article className="skillStatusCard">
-          <span>Verification</span>
-          <strong>Attach certificates, work photos, diplomas or portfolio files. Admin approval is required before going online.</strong>
-        </article>
-      </div>
+      <article className="skillVerificationBanner">
+        <span className="skillVerificationIcon" aria-hidden="true">i</span>
+        <div>
+          <strong>Verification required</strong>
+          <p>Attach certificates, work photos, diplomas or portfolio files. Admin approval is required before going online.</p>
+        </div>
+        <span className="skillVerificationStatus">{profileStatus}</span>
+      </article>
       <form className="skillForm" onSubmit={submit}>
-        <Field label="Service category" light>
-          <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
-            {categories.length === 0 && <option value="">Categories are not loaded</option>}
-            {categories.map((category) => <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>)}
-          </select>
-        </Field>
-        <div className="field light">
-          <span>Level</span>
-          <div className="segmentedControl">
-            {["junior", "middle", "senior"].map((level) => (
-              <button key={level} type="button" className={form.experience_level === level ? "active" : ""} onClick={() => setForm({ ...form, experience_level: level })}>{level}</button>
-            ))}
+        <div className="skillFormTop">
+          <Field label="Service category" light>
+            <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
+              {categories.length === 0 && <option value="">Categories are not loaded</option>}
+              {categories.map((category) => <option key={category.category_id} value={category.category_id}>{categoryTitle(category.name)}</option>)}
+            </select>
+          </Field>
+          <div className="field light skillLevelField">
+            <span>Level</span>
+            <div className="segmentedControl">
+              {["junior", "middle", "senior"].map((level) => (
+                <button key={level} type="button" className={form.experience_level === level ? "active" : ""} onClick={() => setForm({ ...form, experience_level: level })}>{level}</button>
+              ))}
+            </div>
+          </div>
+          <div className="field light skillEvidenceField">
+            <span>Qualification evidence</span>
+            <label className="fileButton skillEvidenceButton">
+              <span aria-hidden="true">+</span>
+              Attach evidence
+              <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
+            </label>
+            <div className="selectedFiles">
+              {files.length === 0 ? <span>No files selected</span> : files.map((file) => <span key={file.name}>{file.name}</span>)}
+            </div>
           </div>
         </div>
-        <button>Add service</button>
-        <Field label="Qualification evidence" light>
-          <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
-        </Field>
         <Field label="Admin note" light>
           <textarea value={form.evidence_note} onChange={(e) => setForm({ ...form, evidence_note: e.target.value })} placeholder="Example: 3 years of experience, certificate attached, recent work photos..." />
         </Field>
-        <div className="selectedFiles">
-          {files.length === 0 ? <span>No files selected</span> : files.map((file) => <span key={file.name}>{file.name}</span>)}
+        <div className="skillFormFooter">
+          <p>{selectedSummary}</p>
+          <button className="skillSubmitButton">Add service</button>
         </div>
       </form>
+      <section className="skillServicesPanel">
+        <div className="sectionTitleRow">
+          <h3>Your services</h3>
+          <span>{verifiedSkills.length} verified</span>
+        </div>
+        <div className="workerServiceSummaryGrid">
+          <article className="workerServiceSummaryCard pending">
+            <strong>Pending review</strong>
+            <span>New services stay hidden from customers until admin approves the evidence.</span>
+          </article>
+          {verifiedSkills.length === 0 ? (
+            <EmptyState title="No verified services yet" text="Add a service with evidence, then it will appear here after approval." />
+          ) : verifiedSkills.map((skill) => (
+            <article className="workerServiceSummaryCard" key={skill.worker_skill_id || `${skill.category_name}-${skill.experience_level}`}>
+              <strong>{categoryTitle(skill.category_name || skill.name || "Service")}</strong>
+              <span>{skill.experience_level || "level not set"}</span>
+            </article>
+          ))}
+        </div>
+      </section>
       <div className="skillCategoryGrid">
         {categories.map((category) => (
           <article key={category.category_id} className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"} onClick={() => setForm({ ...form, category_id: String(category.category_id) })}>

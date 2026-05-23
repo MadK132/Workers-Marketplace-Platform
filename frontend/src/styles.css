@@ -1,3 +1,4 @@
+/* База всего приложения: этот файл подключен один раз в main.jsx и влияет на все экраны. */
 :root {
   color-scheme: light;
   font-family:
@@ -18,6 +19,7 @@ body {
   min-height: 100vh;
 }
 
+/* Экран аварийной ошибки React, используется в ErrorBoundary.jsx. */
 .fatalScreen {
   display: grid;
   min-height: 100vh;
@@ -42,6 +44,7 @@ body {
   margin: 0;
 }
 
+/* Общие элементы форм: любые изменения здесь затронут почти все кнопки и поля. */
 button,
 input,
 select {
@@ -101,12 +104,14 @@ textarea {
   padding: 12px;
 }
 
+/* Старый/общий двухколоночный layout: панель управления + рабочая область. */
 .appShell {
   display: grid;
   grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
   min-height: 100vh;
 }
 
+/* Авторизация: login/register/forgot/reset экран из AuthScreen в App.jsx. */
 .authShell {
   display: grid;
   grid-template-columns: minmax(280px, 0.9fr) minmax(320px, 520px);
@@ -226,6 +231,7 @@ textarea {
   line-height: 1.45;
 }
 
+/* Общий dashboard-layout для страниц с боковой навигацией. */
 .dashboardShell {
   display: grid;
   grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
@@ -244,6 +250,7 @@ textarea {
   background: #f5f2ea;
 }
 
+/* Админка и менеджер: верхняя панель, вкладки и рабочая область. */
 .adminShell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -307,11 +314,13 @@ textarea {
   color: #fffaf2;
 }
 
+/* Полноэкранная оболочка для customer/worker режимов. */
 .workerFullscreen {
   min-height: 100vh;
   background: #0f1715;
 }
 
+/* Экран запроса геолокации перед картой клиента или воркера. */
 .geoGate {
   display: grid;
   min-height: 100vh;
@@ -374,6 +383,7 @@ textarea {
   background: rgba(255, 250, 242, 0.18);
 }
 
+/* Основные layout-обертки клиентского и worker pro интерфейса. */
 .customerGrid,
 .proLayout {
   display: grid;
@@ -381,6 +391,7 @@ textarea {
   min-height: 100vh;
 }
 
+/* Клиентские экраны: карта поиска, вкладки, нижняя панель поиска и список предложений. */
 .customerPhoneShell {
   min-height: 100vh;
   background: #f5f2ea;
@@ -439,10 +450,14 @@ textarea {
 }
 
 .customerOffersDrawer {
-  max-height: min(78vh, 720px);
+  gap: 16px;
+  max-height: min(82vh, 760px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  transform: translateY(calc(100% - 164px));
+  border: 1px solid rgba(224, 232, 228, 0.96);
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.96);
+  transform: translateY(calc(100% - 176px));
   transition: transform 180ms ease, box-shadow 180ms ease;
   scrollbar-gutter: stable;
 }
@@ -450,11 +465,7 @@ textarea {
 .customerOffersDrawer:hover,
 .customerOffersDrawer:focus-within {
   transform: translateY(0);
-  box-shadow: 0 -22px 58px rgba(16, 35, 31, 0.18);
-}
-
-.customerOffersDrawer .walletButton {
-  width: 96px;
+  box-shadow: 0 -20px 48px rgba(16, 35, 31, 0.13);
 }
 
 .dockHeader {
@@ -470,17 +481,58 @@ textarea {
 }
 
 .dockHeader h2 {
-  font-size: 26px;
+  color: #17211f;
+  font-size: 32px;
+  line-height: 1.05;
 }
 
 .dockHeader p {
-  color: #6f716b;
+  margin-top: 8px;
+  color: #68736d;
+  font-size: 17px;
+}
+
+.customerSearchPanel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #e0e8e4;
+  border-radius: 8px;
+  padding: 16px;
+  background: #fbfcfb;
+}
+
+.customerSearchPanel .field {
+  gap: 7px;
+}
+
+.customerSearchPanel .field span {
+  color: #59645f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.customerSearchPanel input,
+.customerSearchPanel select {
+  min-height: 50px;
+  border-color: #d9e3de;
+  background: #fff;
+  color: #17211f;
+}
+
+.customerSearchPanel input::placeholder {
+  color: #87918c;
+}
+
+.customerSearchPanel input:focus,
+.customerSearchPanel select:focus {
+  border-color: #2e7d6f;
+  box-shadow: 0 0 0 3px rgba(46, 125, 111, 0.12);
 }
 
 .customerSearchGrid {
   display: grid;
-  grid-template-columns: minmax(180px, 0.9fr) minmax(180px, 1fr) minmax(220px, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(170px, 0.72fr) minmax(260px, 1.08fr) minmax(240px, 0.96fr) auto;
+  gap: 12px;
   align-items: end;
 }
 
@@ -491,18 +543,86 @@ textarea {
 }
 
 .locationModeTabs button {
-  min-height: 34px;
+  min-height: 36px;
   border-radius: 999px;
-  padding: 0 12px;
-  background: #f0eadc;
+  padding: 0 14px;
+  background: #eef3f0;
   color: #17221f;
   font-size: 13px;
+  box-shadow: none;
 }
 
 .locationModeTabs button.active,
 .locationModeTabs button:hover {
   background: #10231f;
   color: #fffaf2;
+}
+
+.customerSearchButton {
+  min-width: 138px;
+  min-height: 50px;
+  border-radius: 8px;
+  background: #10231f;
+  box-shadow: none;
+}
+
+.customerSearchButton:hover {
+  background: #1c4139;
+}
+
+.customerSearchButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+}
+
+.customerSearchPanel .statusStack {
+  display: inline-flex;
+  width: fit-content;
+  gap: 8px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: #eef5f2;
+  color: #53615b;
+}
+
+.customerSearchPanel .statusStack span:first-child::before {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #2e7d6f;
+  content: "";
+}
+
+.customerSearchPanel .messageStack {
+  max-width: 720px;
+}
+
+.customerOffersDrawer .workerList {
+  min-height: 0;
+}
+
+.customerOffersDrawer .emptyState {
+  min-height: 190px;
+  border: 1px solid #e1e8e4;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(46, 125, 111, 0.04), transparent),
+    #fff;
+}
+
+.customerOffersDrawer .emptyState strong {
+  color: #23302c;
+  font-size: 18px;
+}
+
+.customerOffersDrawer .emptyState p {
+  color: #6f7974;
+  font-size: 16px;
+  line-height: 1.45;
 }
 
 .customerInnerPage {
@@ -515,6 +635,7 @@ textarea {
   border-radius: 8px;
 }
 
+/* Worker/Customer map-phone experience: полноэкранная карта с плавающими кнопками. */
 .proPhoneShell {
   display: grid;
   grid-template-columns: minmax(320px, 1fr);
@@ -564,6 +685,7 @@ textarea {
   pointer-events: none !important;
 }
 
+/* Верхние вкладки поверх карты: у клиента и воркера переиспользуется один стиль. */
 .workerPhoneTabs {
   position: absolute;
   top: 48px;
@@ -596,6 +718,7 @@ textarea {
   top: 24px;
 }
 
+/* Плавающие элементы worker-карты: рейтинг, деньги, аватар, поиск, zoom/GPS. */
 .proScoreBubble {
   position: absolute;
   z-index: 4;
@@ -730,6 +853,7 @@ textarea {
   font-weight: 900;
 }
 
+/* Плашка активного маршрута для воркера во время движения к заказу. */
 .navigationOverlay {
   position: absolute;
   top: 118px;
@@ -847,6 +971,7 @@ textarea {
   animation-delay: 0.76s;
 }
 
+/* Нижний drawer поверх карты: показывает активные заказы/поиск/краткую информацию. */
 .offersDrawer {
   position: absolute;
   z-index: 20;
@@ -889,6 +1014,7 @@ textarea {
   font-weight: 900;
 }
 
+/* Анимации для геолокации и поиска на карте. */
 @keyframes geoPulse {
   from {
     opacity: 0.95;
@@ -911,6 +1037,7 @@ textarea {
   }
 }
 
+/* Компактная версия списка работ внутри нижнего drawer на worker-карте. */
 .jobBoard.compact {
   max-height: 150px;
   overflow: auto;
@@ -958,6 +1085,7 @@ textarea {
   border-radius: 8px;
 }
 
+/* Обертки карты в desktop/tablet layout, если экран не в phone-mode. */
 .mapArea,
 .proMap {
   position: sticky;
@@ -1007,6 +1135,7 @@ textarea {
   background: #55a576;
 }
 
+/* Карточки активных работ воркера. */
 .jobBoard {
   display: grid;
   gap: 12px;
@@ -1040,62 +1169,149 @@ textarea {
   color: #5d665f;
 }
 
+/* Быстрые ссылки внутри профилей клиента/воркера. */
 .profileLinks {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
 
 .profileLinkCard {
   display: grid;
-  gap: 6px;
-  min-height: 92px;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  min-height: 78px;
+  align-items: center;
   justify-items: start;
-  align-content: center;
-  border: 1px solid #ddd4c2;
+  border: 1px solid #d9ddd7;
   border-radius: 8px;
   padding: 14px;
-  background: #fffaf2;
+  background: rgba(255, 255, 255, 0.58);
   color: #16211e;
   text-align: left;
+  box-shadow: none;
 }
 
 .profileLinkCard:hover {
-  background: #f0eadc;
+  border-color: #b8cbc3;
+  background: rgba(255, 255, 255, 0.84);
   color: #16211e;
 }
 
-.profileLinkCard span {
-  color: #6f716b;
+.profileLinkCard strong,
+.profileLinkCard small {
+  display: block;
+}
+
+.profileLinkCard strong {
+  color: #10231f;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.profileLinkCard > span:not(.profileShortcutIcon) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.profileLinkCard small,
+.profileLinkCard > span:not(.profileShortcutIcon) {
+  color: #64716c;
   font-size: 13px;
   font-weight: 650;
+  line-height: 1.35;
 }
 
-.workerProfilePage {
-  gap: 20px;
-}
-
-.workerProfileHero {
+.profileShortcutIcon {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef5f2;
+  color: #2f5a53;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+/* Профиль клиента/воркера: фото, форма редактирования, статистика и секции. */
+.profilePage {
+  gap: 18px;
+}
+
+.customerProfileShell,
+.workerDashboardHero {
+  display: grid;
   gap: 16px;
   align-items: stretch;
+  min-width: 0;
 }
 
-.profilePhotoBlock,
+.customerProfileShell {
+  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+}
+
+.workerDashboardHero {
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+}
+
+.profileHeroCard,
+.profileEditorCard,
 .profileSection,
+.profilePaymentCard,
 .statCard {
-  border: 1px solid #ddd4c2;
+  border: 1px solid #d9ddd7;
   border-radius: 8px;
   padding: 16px;
-  background: #fffaf2;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: none;
 }
 
-.profilePhotoBlock {
+.profileHeroCard,
+.profileEditorCard {
   display: grid;
-  gap: 12px;
-  justify-items: center;
+  gap: 14px;
+}
+
+.profileHeroCard {
   align-content: start;
+}
+
+.profileIdentity {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.profileIdentity h3,
+.profileIdentity p {
+  margin: 0;
+}
+
+.profileIdentity h3 {
+  margin-top: 6px;
+  color: #10231f;
+  font-size: 24px;
+}
+
+.profileIdentity p {
+  color: #64716c;
+  line-height: 1.4;
+}
+
+.profileRoleBadge,
+.verifiedBadge {
+  display: inline-grid;
+  width: fit-content;
+  min-height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #eef5f2;
+  color: #2f5a53;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .profileRating {
@@ -1119,14 +1335,15 @@ textarea {
 .profilePhoto {
   position: relative;
   display: grid;
-  width: 132px;
-  height: 132px;
+  width: 118px;
+  height: 118px;
   place-items: center;
   overflow: hidden;
+  border: 4px solid #eef5f2;
   border-radius: 50%;
-  background: #82d9e5;
+  background: linear-gradient(135deg, #7ed7e2, #8ad9c3);
   color: #10231f;
-  font-size: 30px;
+  font-size: 28px;
   font-weight: 900;
 }
 
@@ -1160,26 +1377,107 @@ textarea {
   display: none;
 }
 
-.profileEditForm {
+.profileUploadButton {
+  width: fit-content;
+  min-height: 38px;
+  border-radius: 999px;
+  padding: 0 15px;
+  background: #10231f;
+}
+
+.profileFormHeader {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.profileFormHeader h3,
+.profileFormHeader p {
+  margin: 0;
+}
+
+.profileFormHeader h3 {
+  color: #10231f;
+  font-size: 20px;
+}
+
+.profileFormHeader p {
+  margin-top: 4px;
+  color: #64716c;
+  line-height: 1.4;
+}
+
+.profileEditorCard textarea {
+  min-height: 108px;
+  background: #fbfbfa;
+}
+
+.profileEditorCard input {
+  background: #fbfbfa;
+}
+
+.profileAddressRow {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(180px, 0.24fr);
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
   gap: 12px;
   align-items: end;
 }
 
-.profileEditForm textarea {
-  min-height: 118px;
+.profileAddressPreview {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid #d9ddd7;
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #f8faf8;
 }
 
-.profileLocationGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.profileAddressPreview small {
+  color: #718079;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.profileAddressPreview strong {
+  overflow: hidden;
+  color: #10231f;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileSaveButton,
+.profileLocationButton {
+  width: fit-content;
+  min-height: 42px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.profileSaveButton {
+  background: #2e8477;
+}
+
+.profileSaveButton:hover {
+  background: #246c61;
+}
+
+.profileLocationButton {
+  background: #eef5f2;
+  color: #214d45;
+}
+
+.profileLocationButton:hover {
+  background: #dcebe5;
+  color: #214d45;
 }
 
 .profileStatsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
   gap: 12px;
 }
 
@@ -1191,16 +1489,24 @@ textarea {
 .statCard span,
 .statCard small,
 .sectionTitleRow span {
-  color: #6f716b;
+  color: #64716c;
   font-weight: 750;
 }
 
 .statCard strong {
+  overflow-wrap: anywhere;
   color: #10231f;
-  font-size: 28px;
+  font-size: 24px;
+  line-height: 1.15;
 }
 
-.profileSection {
+.workerKpiGrid .statCard:nth-child(3) strong {
+  color: #2e8477;
+  letter-spacing: 1px;
+}
+
+.profileSection,
+.profilePaymentCard {
   display: grid;
   gap: 14px;
 }
@@ -1225,137 +1531,268 @@ textarea {
 
 .incomeBars {
   display: grid;
-  gap: 10px;
+  gap: 9px;
 }
 
 .incomeBar {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) 90px;
+  grid-template-columns: 42px minmax(0, 1fr) 90px;
   gap: 12px;
   align-items: center;
 }
 
 .incomeBar div {
   overflow: hidden;
-  height: 12px;
+  height: 9px;
   border-radius: 999px;
-  background: #f0eadc;
+  background: #dfe7e3;
 }
 
 .incomeBar b {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #ffd900;
+  background: #2e8477;
 }
 
 .verifiedSkillsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 12px;
-}
-
-.verifiedSkillCard {
-  display: grid;
-  gap: 6px;
-  border: 1px solid #ddd4c2;
-  border-radius: 8px;
-  padding: 14px;
-  background: #fff;
-}
-
-.verifiedSkillCard span {
-  color: #6f716b;
-  font-weight: 700;
-}
-
-.skillsPage {
-  gap: 20px;
-}
-
-.skillStatusGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.skillStatusCard {
-  display: grid;
-  gap: 6px;
-  border: 1px solid #ddd4c2;
-  border-radius: 8px;
-  padding: 14px;
-  background: #fffaf2;
-}
-
-.skillStatusCard span {
-  color: #6f716b;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.skillStatusCard strong {
-  color: #17221f;
-}
-
-.skillForm {
-  display: grid;
-  grid-template-columns: minmax(240px, 1.2fr) minmax(260px, 1fr) minmax(180px, 0.8fr) minmax(160px, 0.6fr);
-  gap: 12px;
-  align-items: end;
-  border: 1px solid #ddd4c2;
-  border-radius: 8px;
-  padding: 16px;
-  background: #fffaf2;
-}
-
-.segmentedControl {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-}
-
-.segmentedControl button {
-  min-height: 44px;
-  border: 1px solid #d9d0be;
-  background: #f0eadc;
-  color: #39413d;
-}
-
-.segmentedControl button.active,
-.segmentedControl button:hover {
-  border-color: #10231f;
-  background: #10231f;
-  color: #fffaf2;
-}
-
-.skillCategoryGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
 
-.categoryTile {
+.verifiedSkillCard {
   display: grid;
   gap: 8px;
-  min-height: 112px;
-  align-content: start;
-  border: 1px solid #ddd4c2;
+  border: 1px solid #d9ddd7;
   border-radius: 8px;
   padding: 14px;
-  background: #fffaf2;
+  background: #fbfbfa;
+}
+
+.verifiedSkillCard > div {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.verifiedSkillCard span,
+.verifiedSkillCard small {
+  color: #64716c;
+  font-weight: 700;
+}
+
+.profilePaymentCard {
+  min-height: 104px;
+  align-content: center;
+}
+
+.profilePaymentCard p {
+  margin: 0;
+}
+
+/* Страница услуг воркера: выбор категории, уровень, доказательства квалификации. */
+.skillsPage {
+  gap: 20px;
+}
+
+.skillVerificationBanner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #ffffff;
+}
+
+.skillVerificationIcon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 999px;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 850;
+}
+
+.skillVerificationBanner strong {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.skillVerificationBanner p {
+  margin: 0;
+  color: #656565;
+  line-height: 1.4;
+}
+
+.skillVerificationStatus {
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #eeeeee;
+  color: #303030;
+  font-size: 13px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.skillForm {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.skillFormTop {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(260px, 0.9fr) minmax(260px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.skillLevelField,
+.skillEvidenceField {
+  align-content: start;
+}
+
+.segmentedControl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 4px;
+  background: #f3f3f3;
+}
+
+.segmentedControl button {
+  min-height: 42px;
+  border: 0;
+  background: transparent;
+  color: #303030;
+  box-shadow: none;
+}
+
+.segmentedControl button.active,
+.segmentedControl button:hover {
+  background: #111111;
+  color: #ffffff;
+}
+
+.skillEvidenceButton {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-content: center;
+  width: 100%;
+  min-height: 52px;
+  gap: 8px;
+  border-radius: 8px;
+  background: #111111;
+  color: #ffffff;
+}
+
+.skillEvidenceButton span[aria-hidden="true"] {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  line-height: 1;
+}
+
+.skillFormFooter {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #d8d8d8;
+  padding-top: 12px;
+}
+
+.skillFormFooter p {
+  margin: 0;
+  color: #656565;
+  font-weight: 750;
+}
+
+.skillSubmitButton {
+  min-width: 180px;
+}
+
+.skillCategoryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.categoryTile {
+  display: grid;
+  gap: 6px;
+  min-height: 94px;
+  align-content: start;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 13px;
+  background: #ffffff;
   cursor: pointer;
 }
 
 .categoryTile:hover,
 .categoryTile.active {
-  border-color: #2e7d6f;
-  box-shadow: 0 14px 34px rgba(16, 35, 31, 0.08);
+  border-color: #111111;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.06);
 }
 
 .categoryTile span {
-  color: #6f716b;
+  color: #656565;
   line-height: 1.4;
+}
+
+.skillServicesPanel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.workerServiceSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.workerServiceSummaryCard {
+  display: grid;
+  gap: 8px;
+  min-height: 92px;
+  align-content: start;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f8f8f8;
+}
+
+.workerServiceSummaryCard.pending {
+  background: #f1f1f1;
+}
+
+.workerServiceSummaryCard span {
+  color: #656565;
+  line-height: 1.4;
+}
+
+.workerServiceSummaryGrid .emptyState {
+  grid-column: 1 / -1;
+  min-height: 120px;
 }
 
 .selectedFiles,
@@ -1365,12 +1802,17 @@ textarea {
   gap: 8px;
 }
 
+.selectedFiles {
+  margin-top: 8px;
+  min-height: 31px;
+}
+
 .selectedFiles span,
 .evidenceLinks a {
   border-radius: 8px;
   padding: 7px 9px;
-  background: #f0eadc;
-  color: #39413d;
+  background: #eeeeee;
+  color: #303030;
   font-size: 13px;
   font-weight: 750;
 }
@@ -1380,6 +1822,7 @@ textarea {
   text-decoration: none;
 }
 
+/* Внутренние страницы админки: верификация, пользователи, создание staff-аккаунтов. */
 .adminVerifyGrid {
   display: grid;
   grid-template-columns: minmax(300px, 1fr) minmax(300px, 1fr);
@@ -1515,6 +1958,7 @@ textarea {
   align-content: start;
 }
 
+/* Левая панель старого marketplace layout: бренд, фильтры, навигация, статус. */
 .controlPanel {
   display: flex;
   flex-direction: column;
@@ -1566,6 +2010,7 @@ textarea {
   color: rgba(255, 250, 242, 0.72);
 }
 
+/* Универсальные формы и состояния сообщений, используются почти во всех страницах. */
 .field {
   display: grid;
   gap: 8px;
@@ -1652,6 +2097,7 @@ textarea {
   color: #ffc2b6;
 }
 
+/* Правая рабочая зона старого marketplace layout: карта сверху, результаты снизу. */
 .workspace {
   display: grid;
   grid-template-rows: minmax(360px, 58vh) minmax(280px, 1fr);
@@ -1662,6 +2108,7 @@ textarea {
   grid-template-rows: minmax(0, 1fr);
 }
 
+/* Компонент MapView.jsx: контейнер карты 2GIS, canvas и fallback overlay. */
 .mapShell {
   position: relative;
   min-height: 360px;
@@ -1694,6 +2141,7 @@ textarea {
   color: rgba(255, 250, 242, 0.72);
 }
 
+/* Общие панели страниц: заголовки, гриды форм, карточки, списки данных. */
 .resultsPanel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1776,6 +2224,7 @@ textarea {
   color: #6f716b;
 }
 
+/* Заявки/бронирования/статусы: карточки, бейджи и действия в строках. */
 .requestGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -1839,6 +2288,24 @@ textarea {
   color: #fffaf2;
 }
 
+.statusPill.open,
+.statusPill.pending,
+.statusPill.reviewing {
+  background: #eef5f2;
+  color: #2f5a53;
+}
+
+.statusPill.resolved {
+  background: #dff0e8;
+  color: #245348;
+}
+
+.statusPill.rejected,
+.statusPill.closed {
+  background: #f0eadc;
+  color: #5d5547;
+}
+
 .rowActions {
   display: flex;
   flex-wrap: wrap;
@@ -1849,6 +2316,7 @@ textarea {
   min-height: 38px;
 }
 
+/* Отзывы после завершения заказа: форма, звезды, фото и read-only состояние. */
 .reviewForm {
   display: grid;
   gap: 10px;
@@ -1896,6 +2364,7 @@ textarea {
   object-fit: cover;
 }
 
+/* Публичный профиль воркера, который клиент открывает из списка результатов. */
 .workerPublicProfile {
   gap: 16px;
 }
@@ -1952,75 +2421,165 @@ textarea {
   white-space: pre-wrap;
 }
 
-.messageList {
+/* ==========================================================================
+   Chat
+
+   Structure in App.jsx:
+   .chatInnerPage
+     .chatPage
+       .chatLayout
+         .chatList
+         .chatConversation
+           .chatPriceBar / .chatPriceDecision
+           .chatMessageList
+           .chatComposer
+
+   Edit guide:
+   - Page size and columns: .chatPage, .chatLayout, .chatConversation
+   - Booking list on the left/top: .chatList
+   - Message bubbles: .chatBubble, .chatBubbleBody, .chatAvatar, .chatMeta
+   - Bottom message input: .chatComposer, .chatFileButton, .chatSendButton
+   ========================================================================== */
+
+/* Chat screen shell: keeps the message composer inside the visible viewport. */
+.chatInnerPage {
   display: grid;
-  align-content: start;
-  gap: 8px;
-  min-height: 260px;
-  max-height: 54vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 10px;
-  border: 1px solid #e2d9c8;
-  border-radius: 8px;
-  background: #f7f1e6;
+  height: calc(100dvh - 152px);
+  min-height: 0;
+  margin-bottom: 20px;
+  overflow: hidden;
 }
 
+.chatInnerPage .chatPage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Message scroll area. Only this block should scroll when many messages exist. */
+.chatMessageList {
+  /* Row 2 sits between optional price controls and the composer. */
+  grid-row: 2;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 18px 8px 8px;
+  background: transparent;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(92, 122, 113, 0.5) transparent;
+  scrollbar-width: thin;
+}
+
+/* Soft, low-contrast scrollbar for Chromium/WebKit browsers. */
+.chatMessageList::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chatMessageList::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chatMessageList::-webkit-scrollbar-thumb {
+  border: 2px solid #f5f2ea;
+  border-radius: 999px;
+  background: rgba(92, 122, 113, 0.42);
+}
+
+.chatMessageList:hover::-webkit-scrollbar-thumb {
+  background: rgba(64, 96, 88, 0.62);
+}
+
+.chatMessageList::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* One message row: avatar + bubble. Own messages flip the columns below. */
 .chatBubble {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   gap: 8px;
   justify-self: start;
-  max-width: min(520px, 92%);
+  align-items: end;
+  max-width: min(480px, 64%);
   overflow-wrap: anywhere;
   word-break: break-word;
+  animation: chatBubbleIn 170ms ease-out;
 }
 
 .chatBubble.own {
+  grid-template-columns: minmax(0, 1fr) 28px;
   justify-self: end;
 }
 
+/* Bubble surface. Keep padding/radius here so incoming and outgoing stay aligned. */
+.chatBubbleBody {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid #e0e5df;
+  border-radius: 12px 12px 12px 5px;
+  padding: 8px 10px;
+  background: #fbfbfa;
+}
+
 .chatBubble.own .chatBubbleBody {
-  background: #e9f5ef;
+  border-color: #2f7c70;
+  border-radius: 12px 12px 5px 12px;
+  background: #2f7c70;
+}
+
+.chatBubble.supportBubble .chatBubbleBody {
+  border-color: #c7ddd5;
+}
+
+/* Circular initials beside each bubble. */
+.chatAvatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: #2e8477;
+  color: #fffaf2;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: none;
 }
 
 .chatBubble.own .chatAvatar {
   order: 2;
-  background: #ffd300;
+  background: #f3d21b;
+  color: #10231f;
 }
 
 .chatBubble.supportBubble .chatAvatar {
   background: linear-gradient(135deg, #10231f, #2e8477);
 }
 
-.chatBubble.supportBubble .chatBubbleBody {
-  border: 1px solid #c9ddd6;
-}
-
-.chatBubbleBody {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fffaf2;
-}
-
-.chatAvatar {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 50%;
-  background: #2e8477;
-  color: #fffaf2;
-  font-weight: 900;
-  box-shadow: 0 8px 18px rgba(16, 35, 31, 0.12);
-}
-
+/* Sender label and message text. */
 .chatBubble small {
-  color: #6f716b;
+  color: #718079;
+  font-size: 11px;
   font-weight: 800;
+  letter-spacing: 0;
+}
+
+.chatBubble.own small,
+.chatBubble.own span {
+  color: rgba(255, 250, 242, 0.92);
+}
+
+.chatBubble span {
+  color: #26322e;
+  font-size: 16px;
+  line-height: 1.35;
 }
 
 .chatBubble a {
@@ -2028,31 +2587,34 @@ textarea {
   font-weight: 850;
 }
 
-.chatBubble span {
-  color: #39413d;
-}
-
+/* Timestamp and read-check marks inside the bubble. */
 .chatMeta {
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 6px;
-  margin-top: 2px;
-  color: #8a8d87;
-  font-size: 12px;
+  margin-top: 0;
+  color: #87928d;
+  font-size: 10px;
   font-weight: 750;
 }
 
+.chatBubble.own .chatMeta,
+.chatBubble.own .chatMeta time {
+  color: rgba(255, 250, 242, 0.68);
+}
+
 .chatMeta span {
-  color: #8a8d87;
+  color: #9aa39f;
   font-size: 13px;
-  letter-spacing: -2px;
+  letter-spacing: 0;
 }
 
 .chatMeta span.read {
-  color: #2b9de8;
+  color: #66d3ff;
 }
 
+/* Attachments inside message bubbles. */
 .chatAttachment.media,
 .chatAttachment.file {
   display: inline-grid;
@@ -2061,168 +2623,434 @@ textarea {
 .chatAttachment.media img,
 .chatAttachment.video {
   display: block;
-  width: min(340px, 100%);
-  max-height: 260px;
+  width: min(300px, 100%);
+  max-height: 220px;
   border-radius: 8px;
   object-fit: cover;
   background: #10231f;
 }
 
 .chatAttachment.file {
+  width: fit-content;
+  border: 1px solid #d5e2dc;
   border-radius: 8px;
   padding: 8px 10px;
-  background: #f0eadc;
+  background: #f5f8f7;
+  color: #1d5f55;
 }
 
+/* Chat page frame: controls the height of the whole chat screen. */
 .chatPage {
+  display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  height: calc(100vh - 150px);
-  min-height: 620px;
+  gap: 14px;
+  width: min(1480px, calc(100% - 32px));
+  height: clamp(460px, calc(100vh - 320px), 560px);
+  min-height: 0;
+  margin: 0 auto;
   align-content: stretch;
   overflow: hidden;
+  padding: 0;
+  background: #f5f2ea;
 }
 
+.chatPage .resultsHeader {
+  padding: 0;
+}
+
+.chatPage .resultsHeader h2 {
+  color: #10231f;
+  font-size: 26px;
+}
+
+.chatPage .resultsHeader p {
+  color: #63706a;
+}
+
+.chatPage .messageStack {
+  width: min(720px, 100%);
+}
+
+/* Main chat columns: booking list + conversation. */
 .chatLayout {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(230px, 300px) minmax(0, 1fr);
+  gap: 18px;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #f5f2ea;
+  box-shadow: none;
 }
 
+/* Booking selector list. On mobile it becomes a horizontal strip. */
 .chatList {
   display: grid;
   align-content: start;
-  grid-auto-rows: minmax(72px, auto);
-  gap: 8px;
-  overflow: auto;
+  grid-auto-rows: minmax(62px, auto);
+  gap: 10px;
   min-height: 0;
-  padding-right: 10px;
+  overflow: auto;
+  border-right: 1px solid #d9ddd7;
+  padding: 4px 16px 4px 0;
+  background: #f5f2ea;
   scrollbar-gutter: stable;
 }
 
+/* One booking item in the chat list. */
 .chatList button {
+  position: relative;
   display: grid;
   grid-template-rows: auto auto;
   gap: 6px;
   justify-items: start;
   align-content: center;
-  min-height: 72px;
-  height: 72px;
-  border: 1px solid #ddd4c2;
+  min-height: 62px;
+  height: auto;
+  border: 1px solid transparent;
   border-radius: 8px;
-  padding: 12px;
-  background: #fffaf2;
+  padding: 11px 12px;
+  background: transparent;
   color: #10231f;
   text-align: left;
   overflow: hidden;
+  box-shadow: none;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
+}
+
+.chatList button:hover {
+  border-color: #cfd8d2;
+  background: rgba(255, 255, 255, 0.55);
+  transform: none;
+}
+
+.chatList button.active {
+  border-color: #c8d6cf;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: none;
+}
+
+.chatList button.active::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 3px;
+  border-radius: 999px;
+  background: #2e8477;
+  content: "";
 }
 
 .chatList strong {
   display: block;
-  line-height: 1.18;
-  white-space: nowrap;
   max-width: 100%;
   overflow: hidden;
+  color: #17221f;
+  font-size: 15px;
+  line-height: 1.18;
   text-overflow: ellipsis;
-}
-
-.chatList button.active {
-  border-color: #2e7d6f;
-  box-shadow: 0 12px 26px rgba(16, 35, 31, 0.08);
+  white-space: nowrap;
 }
 
 .chatList span {
   display: block;
-  color: #6f716b;
-  font-size: 13px;
-  line-height: 1.2;
-  white-space: nowrap;
   max-width: 100%;
   overflow: hidden;
+  color: #718079;
+  font-size: 13px;
+  line-height: 1.2;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* Conversation grid rows: price controls, messages, composer. */
 .chatConversation {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
-}
-
-.chatPage .messageList {
-  min-height: 0;
-  max-height: none;
   height: 100%;
+  overflow: hidden;
+  padding: 0;
+  background: #f5f2ea;
 }
 
-.priceComposer {
+/* Price controls: worker sets price, customer accepts or rejects it. */
+.chatPriceBar {
+  /* Row 1 stays above messages when price controls are visible. */
+  grid-row: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: end;
-  border: 1px solid #e2d9c8;
+  border: 1px solid #d9ddd7;
   border-radius: 8px;
   padding: 10px;
-  background: #fffaf2;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: none;
 }
 
-.priceDecision {
+.chatPriceDecision {
+  /* Row 1 stays above messages when price controls are visible. */
+  grid-row: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
-  border: 1px solid #e2d9c8;
+  border: 1px solid #d9ddd7;
   border-radius: 8px;
-  padding: 12px;
-  background: #fffaf2;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: none;
 }
 
-.priceDecision > div:first-child {
+.chatPriceDecision > div:first-child {
   display: grid;
   gap: 4px;
 }
 
-.priceDecision span {
+.chatPriceDecision span {
   color: #6f716b;
 }
 
+.chatPriceBar button,
+.chatPriceDecision button {
+  border-radius: 8px;
+}
+
+/* Message composer: bottom input row. This is the main place to edit the input. */
 .chatComposer {
+  /* Row 3 keeps the composer visible below the message list. */
+  grid-row: 3;
+  position: relative;
+  z-index: 2;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 100px 88px;
+  grid-template-columns: minmax(0, 1fr) 44px 44px;
   gap: 8px;
-  align-items: end;
+  align-items: center;
+  border: 0;
+  border-top: 1px solid #d9ddd7;
+  border-radius: 0;
+  padding: 10px 0 0;
+  background: #f5f2ea;
+  box-shadow: none;
 }
 
 .chatComposer textarea {
-  min-height: 54px;
-  max-height: 120px;
+  min-height: 44px;
+  max-height: 98px;
+  border-color: #d9ddd7;
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #fbfbfa;
 }
 
+.chatComposer textarea:focus {
+  border-color: #2e7d6f;
+}
+
+/* File button: visual plus icon is drawn with ::before/::after. */
 .chatFileButton {
-  min-height: 54px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  place-items: center;
+  border: 1px solid #d9ddd7;
+  border-radius: 999px;
+  padding: 0;
+  background: #fbfbfa;
+  color: #2f5a53;
+  font-size: 0;
+  font-weight: 600;
+  line-height: 0;
 }
 
+.chatFileButton > span[aria-hidden="true"] {
+  position: relative;
+  display: block;
+  width: 16px;
+  height: 16px;
+  font-size: 0;
+}
+
+.chatFileButton > span[aria-hidden="true"]::before,
+.chatFileButton > span[aria-hidden="true"]::after {
+  position: absolute;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.chatFileButton > span[aria-hidden="true"]::before {
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 3px;
+  transform: translateY(-50%);
+}
+
+.chatFileButton > span[aria-hidden="true"]::after {
+  top: 0;
+  left: 50%;
+  width: 3px;
+  height: 16px;
+  transform: translateX(-50%);
+}
+
+.chatFileButton:hover {
+  background: #eef4f1;
+}
+
+/* Send button: paper-plane shape is drawn with clip-path. */
+.chatSendButton {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0;
+  background: #78a092;
+}
+
+.chatSendButton:hover {
+  background: #669083;
+}
+
+.chatSendButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.chatSendButton > span[aria-hidden="true"] {
+  display: block;
+  width: 19px;
+  height: 17px;
+  clip-path: polygon(0 0, 100% 50%, 0 100%, 23% 54%);
+  background: #fff8de;
+  transform: translateX(1px);
+}
+
+.chatComposer .muted {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: #eef5f2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Empty state inside the chat area. */
+.chatPage .emptyState {
+  min-height: 140px;
+  border-color: #d9ddd7;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* Chat responsive layout: list moves above the conversation on narrow screens. */
+@media (max-width: 760px) {
+  .chatLayout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .chatList {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(150px, 1fr);
+    grid-auto-rows: 66px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid #d9ddd7;
+    padding: 0 0 10px;
+  }
+
+  .chatList button {
+    min-height: 66px;
+    height: 66px;
+  }
+
+  .chatConversation {
+    min-height: 0;
+  }
+
+  .chatBubble {
+    max-width: min(360px, calc(100% - 42px));
+  }
+
+  .chatBubble span {
+    font-size: 15px;
+  }
+
+  .chatComposer {
+    grid-template-columns: minmax(0, 1fr) 42px 42px;
+  }
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Small entrance animation for newly rendered bubbles. */
+@keyframes chatBubbleIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Reports/жалобы: создание жалобы, список, detail view, чат поддержки и штрафы. */
 .reportsPage {
+  width: min(1180px, calc(100% - 32px));
   min-height: calc(100vh - 160px);
+  margin: 0 auto;
+  overflow-x: hidden;
 }
 
 .reportCreateForm,
 .reportSummary,
 .reportPenaltyBox {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .reportCreateForm {
-  border-color: #d9cdb7;
-  padding: 20px;
-  background:
-    linear-gradient(135deg, rgba(255, 211, 0, 0.08), transparent 32%),
-    #fffaf2;
+  border: 1px solid #d9ddd7;
+  border-radius: 8px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: none;
+}
+
+.reportCreateForm input,
+.reportCreateForm select,
+.reportCreateForm textarea {
+  background: #fbfbfa;
+}
+
+.reportCreateForm textarea {
+  min-height: 92px;
+  max-height: 150px;
 }
 
 .reportFormHeader {
@@ -2239,109 +3067,272 @@ textarea {
 
 .reportFormHeader p {
   margin-top: 4px;
-  color: #6f716b;
+  color: #64716c;
   font-size: 0.98rem;
+  line-height: 1.35;
+}
+
+.reportHintBadge {
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: #eef5f2;
+  color: #2f5a53;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .reportFormGrid {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.55fr);
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 .selectedReportBooking {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  border: 1px solid #e2d9c8;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #d9ddd7;
   border-radius: 8px;
   padding: 12px;
-  background: #f3ecdf;
+  background: #f7f4ec;
 }
 
-.selectedReportBooking span {
+.selectedReportBooking > div:first-child {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.selectedReportBooking > div:first-child span {
+  color: #718079;
+  font-size: 12px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.selectedReportBooking p {
+  min-width: 0;
+  margin: 0;
   overflow: hidden;
-  color: #4f5b56;
+  color: #42504b;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.selectedReportBooking > div:last-child {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .selectedReportBooking small {
-  color: #6f716b;
+  color: #64716c;
   font-weight: 800;
 }
 
 .reportUploadRow {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 1fr;
+  gap: 8px;
   align-items: center;
-  border: 1px dashed #d0c5b4;
+  border: 1px dashed #cbd7d1;
   border-radius: 8px;
   padding: 10px;
-  background: #fbf5ec;
+  background: #f8faf8;
 }
 
 .reportUploadRow span {
   overflow: hidden;
-  color: #6f716b;
+  color: #64716c;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .reportFileButton {
-  min-height: 44px;
+  display: inline-grid;
+  grid-template-columns: auto 1fr;
+  width: fit-content;
+  min-height: 38px;
+  gap: 8px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 13px;
+  background: #eef5f2;
+  color: #214d45;
+  box-shadow: none;
+}
+
+.reportFileButton span[aria-hidden="true"] {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
   background: #2e8477;
+  color: #fffaf2;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.reportCreateButton {
+  width: 100%;
+  min-height: 46px;
+  border-radius: 8px;
+  background: #10231f;
+  box-shadow: none;
+}
+
+.reportsPage .statusPill.completed {
+  background: #e4eee9;
+  color: #2f5a53;
+}
+
+.reportCreateLauncher {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #d9ddd7;
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.reportCreateLauncher button {
+  min-height: 40px;
+  border-radius: 999px;
+  padding: 0 16px;
+  background: #10231f;
+  box-shadow: none;
+}
+
+.reportCreateLauncher span {
+  min-width: 0;
+  color: #64716c;
+  line-height: 1.35;
 }
 
 .reportsLayout {
   display: grid;
+  grid-template-columns: minmax(300px, 410px) minmax(0, 1fr);
+  gap: 18px;
+  min-width: 0;
+  min-height: 560px;
+}
+
+.staffReportsLayout {
   grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
-  gap: 16px;
-  min-height: 520px;
+}
+
+.reportSidebar {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
 }
 
 .reportList {
   display: grid;
   align-content: start;
-  gap: 8px;
-  max-height: 72vh;
-  overflow: auto;
-  padding-right: 8px;
+  gap: 10px;
+  min-width: 0;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-color: rgba(92, 122, 113, 0.45) transparent;
+  scrollbar-width: thin;
+}
+
+.reportListHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  color: #17221f;
+}
+
+.reportListHeader span {
+  display: grid;
+  min-width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eef5f2;
+  color: #2f5a53;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .reportList button {
+  position: relative;
   display: grid;
   gap: 6px;
   justify-items: start;
-  border: 1px solid #ddd4c2;
+  min-width: 0;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 12px;
-  background: #fffaf2;
+  background: rgba(255, 255, 255, 0.5);
   color: #10231f;
   text-align: left;
+  box-shadow: none;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
 }
 
 .reportList button.active {
-  border-color: #2e7d6f;
-  box-shadow: 0 14px 30px rgba(16, 35, 31, 0.08);
+  border-color: #c8d6cf;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.reportList button.active::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 3px;
+  border-radius: 999px;
+  background: #2e8477;
+  content: "";
+}
+
+.reportCardTop {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.reportCardTop strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reportList span,
 .reportList small {
   max-width: 100%;
   overflow: hidden;
-  color: #6f716b;
+  color: #64716c;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .reportDetail {
   display: grid;
-  grid-template-rows: auto auto minmax(260px, 1fr);
+  grid-template-rows: auto auto;
   gap: 12px;
   min-width: 0;
+  align-content: start;
 }
 
 .reportSummaryTop {
@@ -2349,6 +3340,49 @@ textarea {
   gap: 16px;
   align-items: start;
   justify-content: space-between;
+}
+
+.reportSummaryActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.reportChatOpenButton {
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  min-height: 34px;
+  gap: 8px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #10231f;
+  color: #fffaf2;
+  box-shadow: none;
+}
+
+.reportChatOpenButton span {
+  position: relative;
+  display: block;
+  width: 15px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-radius: 6px;
+}
+
+.reportChatOpenButton span::after {
+  position: absolute;
+  right: 1px;
+  bottom: -6px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  border-bottom-right-radius: 2px;
+  content: "";
+  transform: rotate(30deg);
 }
 
 .reportSummaryTop h3,
@@ -2359,25 +3393,232 @@ textarea {
 
 .reportSummaryTop small {
   margin-top: 4px;
-  color: #6f716b;
+  color: #64716c;
+}
+
+.reportInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reportInfoGrid > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid #e0e6e1;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8faf8;
+}
+
+.reportInfoGrid small {
+  color: #718079;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.reportInfoGrid strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #17221f;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reportChatPanel {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 70;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(440px, calc(100vw - 32px));
+  height: min(620px, calc(100dvh - 120px));
+  gap: 10px;
+  min-height: 420px;
+  min-width: 0;
+  border: 1px solid #d9ddd7;
+  border-radius: 8px;
+  padding: 14px;
+  background: #f5f2ea;
+  box-shadow: 0 26px 80px rgba(16, 35, 31, 0.2);
+  overflow: hidden;
+}
+
+.reportChatHeader {
+  display: flex;
   gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.reportChatHeader > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.reportChatHeader strong {
+  color: #10231f;
+  font-size: 18px;
+}
+
+.reportChatHeader span {
+  overflow: hidden;
+  color: #64716c;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reportChatCloseButton {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  padding: 0;
+  background: #eef5f2;
+  color: #214d45;
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: none;
 }
 
 .reportMessageList {
   display: grid;
   align-content: start;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 0;
+  border-top: 1px solid #d9ddd7;
+  border-bottom: 1px solid #d9ddd7;
+  border-radius: 0;
+  padding: 12px 18px 12px 8px;
+  background: transparent;
+  scrollbar-color: rgba(92, 122, 113, 0.5) transparent;
+  scrollbar-width: thin;
+}
+
+.reportMessageForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
-  min-height: 260px;
-  max-height: 52vh;
-  overflow: auto;
-  border: 1px solid #e2d9c8;
+  align-items: center;
+  min-width: 0;
+}
+
+.reportMessageForm textarea {
+  min-height: 46px;
+  max-height: 110px;
+  border-color: #d9ddd7;
   border-radius: 8px;
-  padding: 10px;
-  background: #f7f1e6;
+  background: #fbfbfa;
+}
+
+.reportMessageFileButton {
+  min-height: 46px;
+  border-radius: 999px;
+  padding: 0 14px;
+  background: #eef5f2;
+  color: #214d45;
+  box-shadow: none;
+}
+
+.reportMessageForm button {
+  min-height: 46px;
+  border-radius: 8px;
+  background: #78a092;
+  color: #fff8de;
+  box-shadow: none;
+}
+
+.reportMessageForm button:hover {
+  background: #669083;
+}
+
+.reportMessageForm button:disabled {
+  opacity: 0.45;
+  transform: none;
+}
+
+@media (max-width: 920px) {
+  .reportsPage {
+    width: min(100%, calc(100% - 32px));
+  }
+
+  .reportsLayout,
+  .staffReportsLayout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .reportSidebar,
+  .reportDetail,
+  .reportCreateForm,
+  .reportSummary,
+  .reportPenaltyBox,
+  .reportChatPanel {
+    min-width: 0;
+  }
+
+  .reportList {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .reportInfoGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .reportsPage {
+    width: calc(100% - 32px);
+  }
+
+  .reportCreateForm {
+    padding: 16px;
+  }
+
+  .reportFormHeader,
+  .reportSummaryTop,
+  .reportSummaryActions,
+  .reportCardTop,
+  .selectedReportBooking > div:first-child,
+  .selectedReportBooking > div:last-child {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .reportMessageForm {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .reportMessageForm textarea {
+    grid-column: 1 / -1;
+  }
+
+  .reportMessageFileButton,
+  .reportMessageForm button {
+    width: 100%;
+  }
+
+  .reportChatPanel {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    height: min(620px, calc(100dvh - 80px));
+    min-height: 360px;
+  }
 }
 
 .jsonBox,
@@ -2398,6 +3639,7 @@ textarea {
   color: rgba(255, 250, 242, 0.74);
 }
 
+/* Повторяемый заголовок секции: title + description + иногда счетчик справа. */
 .resultsHeader {
   display: flex;
   align-items: center;
@@ -2424,6 +3666,7 @@ textarea {
   font-weight: 850;
 }
 
+/* WorkerList.jsx: карточки найденных исполнителей, рейтинг, мета и кнопки. */
 .workerList {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -2517,6 +3760,7 @@ textarea {
   margin: 0;
 }
 
+/* Всплывающие уведомления поверх всех экранов. */
 .notificationToastStack {
   position: fixed;
   top: 18px;
@@ -2577,6 +3821,7 @@ textarea {
   font-weight: 850;
 }
 
+/* Пустые состояния и loader, переиспользуются в списках, поиске и ожидании API. */
 .emptyState {
   display: grid;
   min-height: 180px;
@@ -2610,13 +3855,13 @@ textarea {
   }
 }
 
+/* Адаптив до планшета: большинство сеток становятся одной колонкой. */
 @media (max-width: 920px) {
   .authShell,
   .adminTopbar,
   .dashboardShell,
   .customerGrid,
   .customerSearchGrid,
-  .chatLayout,
   .adminActionGrid,
   .adminTwoColumn,
   .proLayout,
@@ -2679,8 +3924,31 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .workerProfileHero,
-  .profileEditForm,
+  .skillFormTop {
+    grid-template-columns: 1fr;
+  }
+
+  .skillVerificationBanner {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .skillVerificationStatus {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .skillFormFooter {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .skillSubmitButton {
+    width: 100%;
+  }
+
+  .customerProfileShell,
+  .workerDashboardHero,
+  .profileAddressRow,
   .profileStatsGrid {
     grid-template-columns: 1fr;
   }
@@ -2697,6 +3965,7 @@ textarea {
   }
 }
 
+/* Мобильный режим: карта и панели занимают весь экран, формы упрощаются. */
 @media (max-width: 560px) {
   .authShell {
     padding: 16px;
@@ -2768,11 +4037,404 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .chatComposer {
+  .profileFormHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .profileSaveButton,
+  .profileLocationButton,
+  .profileUploadButton {
+    width: 100%;
+  }
+
+  .profileLinkCard {
     grid-template-columns: 1fr;
   }
 
-  .priceComposer {
-    grid-template-columns: 1fr;
+  .profileShortcutIcon {
+    width: 32px;
+    height: 32px;
   }
+
+  .incomeBar {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  .incomeBar strong {
+    grid-column: 2;
+  }
+
+}
+
+/* Scoped responsive tweaks: Search drawer only, без изменений карты, Alerts и Requests. */
+@media (max-width: 920px) {
+  .customerOffersDrawer {
+    max-height: min(84vh, 760px);
+    padding: 16px;
+  }
+
+  .customerSearchPanel {
+    padding: 14px;
+  }
+
+  .customerSearchButton,
+  .customerSearchPanel .statusStack {
+    width: 100%;
+  }
+}
+
+/* Monochrome theme override: page and card backgrounds across all screens. */
+:root {
+  background: #f3f3f3;
+  color: #151515;
+}
+
+body,
+.fatalScreen,
+.authShell,
+.dashboardBody,
+.adminShell,
+.geoGate,
+.customerPhoneShell,
+.customerMapScreen,
+.customerPageScreen,
+.proPhoneShell,
+.proPhone,
+.workerPagePhone,
+.workerFullscreen,
+.fullApp,
+.workspace,
+.pagePanel,
+.profilePage,
+.reportsPage,
+.chatPage,
+.skillsPage,
+.customerInnerPage .pagePanel,
+.workerInnerPage .pagePanel {
+  background: #f3f3f3;
+}
+
+.authCard,
+.fatalScreen section,
+.adminTopbar,
+.geoGateCard,
+.customerSearchDock,
+.customerSearchPanel,
+.customerOffersDrawer,
+.offersDrawer,
+.proCompanion,
+.jobCard,
+.profileHeroCard,
+.profileEditorCard,
+.profileSection,
+.profilePaymentCard,
+.statCard,
+.profileLinkCard,
+.skillVerificationBanner,
+.skillForm,
+.skillServicesPanel,
+.workerServiceSummaryCard,
+.categoryTile,
+.toolCard,
+.reportCreateForm,
+.reportSummary,
+.reportPenaltyBox,
+.reportCreateLauncher,
+.reportList button,
+.reportInfoGrid > span,
+.reportChatPanel,
+.chatList button,
+.chatBubbleBody,
+.emptyState,
+.notificationToast,
+.selectedReportBooking,
+.reportUploadRow,
+.selectedFiles,
+.dataRow,
+.dataList > article,
+.bookingCard,
+.requestCard,
+.paymentGateSection {
+  border-color: #d8d8d8;
+  background: #ffffff;
+}
+
+.customerSearchPanel,
+.profileAddressPreview,
+.verifiedSkillCard,
+.reportInfoGrid > span,
+.reportMessageForm textarea,
+.chatComposer textarea,
+input,
+select,
+textarea {
+  border-color: #d8d8d8;
+  background: #ffffff;
+}
+
+button {
+  background: #111111;
+  color: #ffffff;
+}
+
+button:hover {
+  background: #000000;
+  color: #ffffff;
+}
+
+.appIcon {
+  background: #111111;
+  color: #ffffff;
+}
+
+.authTabs button,
+.adminTabs button,
+.customerPhoneTabs button,
+.workerPhoneTabs button,
+.locationModeTabs button,
+.profileRoleBadge,
+.verifiedBadge,
+.profileShortcutIcon,
+.statusPill,
+.customerSearchPanel .statusStack,
+.reportHintBadge,
+.reportListHeader span,
+.reportFileButton,
+.reportMessageFileButton,
+.chatFileButton,
+.profileLocationButton {
+  background: #eeeeee;
+  color: #161616;
+}
+
+.authTabs button.active,
+.authTabs button:hover,
+.adminTabs button.active,
+.adminTabs button:hover,
+.customerPhoneTabs button.active,
+.customerPhoneTabs button:hover,
+.workerPhoneTabs button.active,
+.workerPhoneTabs button:hover,
+.locationModeTabs button.active,
+.locationModeTabs button:hover,
+.customerSearchButton,
+.profileUploadButton,
+.profileSaveButton,
+.reportCreateLauncher button,
+.reportCreateButton,
+.reportChatOpenButton,
+.fileButton,
+.lineSearchButton,
+.lineButton,
+.walletButton {
+  background: #111111;
+  color: #ffffff;
+}
+
+.customerSearchButton:hover,
+.profileSaveButton:hover,
+.profileUploadButton:hover,
+.reportCreateLauncher button:hover,
+.reportCreateButton:hover,
+.reportChatOpenButton:hover,
+.fileButton:hover,
+.lineSearchButton:hover,
+.lineButton:hover,
+.walletButton:hover {
+  background: #000000;
+  color: #ffffff;
+}
+
+.secondaryButton,
+.profileLocationButton:hover,
+.reportChatCloseButton,
+.notificationToast button {
+  background: #e7e7e7;
+  color: #161616;
+}
+
+.proPhone .mapShell,
+.proMap,
+.mapArea {
+  background: #e7e7e7;
+}
+
+.incomeBar div,
+.loader {
+  background: #e1e1e1;
+}
+
+.incomeBar b,
+.liveDot.online,
+.customerSearchPanel .statusStack span:first-child::before {
+  background: #111111;
+}
+
+/* Chat monochrome cleanup: remove the old warm chat surface. */
+.chatPage,
+.chatLayout,
+.chatList,
+.chatConversation,
+.chatComposer {
+  background: #f3f3f3;
+}
+
+.chatMessageList {
+  scrollbar-color: rgba(0, 0, 0, 0.28) transparent;
+}
+
+.chatMessageList::-webkit-scrollbar-thumb {
+  border-color: #f3f3f3;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.chatMessageList:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.chatList {
+  border-color: #d8d8d8;
+}
+
+.chatList button:hover,
+.chatList button.active {
+  border-color: #d2d2d2;
+  background: #ffffff;
+}
+
+.chatList button.active::before {
+  background: #111111;
+}
+
+.chatBubble {
+  max-width: min(560px, 58%);
+}
+
+.chatBubbleBody {
+  border-color: #d8d8d8;
+  background: #ffffff;
+}
+
+.chatBubble.own .chatBubbleBody {
+  border-color: #1f1f1f;
+  background: #1f1f1f;
+}
+
+.chatBubble.supportBubble .chatBubbleBody {
+  border-color: #d0d0d0;
+}
+
+.chatBubble span {
+  color: #202020;
+}
+
+.chatBubble small,
+.chatMeta,
+.chatMeta time {
+  color: #6a6a6a;
+}
+
+.chatBubble.own small,
+.chatBubble.own span,
+.chatBubble.own .chatMeta,
+.chatBubble.own .chatMeta time {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.chatMeta span,
+.chatMeta span.read {
+  color: #dcdcdc;
+}
+
+.chatAvatar,
+.chatBubble.supportBubble .chatAvatar {
+  background: #5f5f5f;
+  color: #ffffff;
+}
+
+.chatBubble.own .chatAvatar {
+  background: #111111;
+  color: #ffffff;
+}
+
+.chatComposer {
+  border-color: #d8d8d8;
+}
+
+.chatComposer textarea {
+  border-color: #d0d0d0;
+  background: #ffffff;
+}
+
+.chatComposer textarea:focus {
+  border-color: #111111;
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.12);
+}
+
+.chatFileButton {
+  border-color: #d0d0d0;
+  background: #ffffff;
+  color: #111111;
+}
+
+.chatFileButton:hover {
+  background: #eeeeee;
+}
+
+.chatSendButton {
+  background: #111111;
+}
+
+.chatSendButton:hover {
+  background: #000000;
+}
+
+.chatSendButton:disabled {
+  background: #cfcfcf;
+  opacity: 1;
+}
+
+.chatSendButton > span[aria-hidden="true"] {
+  background: #ffffff;
+}
+
+.chatComposer .muted,
+.softMessage {
+  background: #eeeeee;
+  color: #303030;
+}
+
+/* Services controls must stay lighter than the global button theme. */
+.segmentedControl button {
+  background: transparent;
+  color: #303030;
+  transform: none;
+}
+
+.segmentedControl button.active,
+.segmentedControl button:hover {
+  background: #111111;
+  color: #ffffff;
+  transform: none;
+}
+
+.skillEvidenceButton,
+.skillSubmitButton {
+  background: #111111;
+  color: #ffffff;
+}
+
+.skillEvidenceButton:hover,
+.skillSubmitButton:hover {
+  background: #000000;
+  color: #ffffff;
+}
+
+.workerServiceSummaryCard {
+  background: #f8f8f8;
+}
+
+.workerServiceSummaryCard.pending {
+  background: #f1f1f1;
 }
