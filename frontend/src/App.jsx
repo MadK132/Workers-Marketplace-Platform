@@ -117,7 +117,7 @@ async function cropAvatarDraft(draft) {
   return new File([blob], draft.file.name.replace(/\.[^.]+$/, "") + "-avatar.png", { type: "image/png" });
 }
 
-function AvatarCropper({ draft, onChange, onClose }) {
+function AvatarCropper({ draft, onChange, onClose, onCancel }) {
   if (!draft) return null;
 
   const stageRef = useRef(null);
@@ -141,7 +141,7 @@ function AvatarCropper({ draft, onChange, onClose }) {
       <div className="avatarEditorModal" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <strong>Edit image</strong>
-          <button type="button" aria-label="Close editor" onClick={onClose}>×</button>
+          <button type="button" aria-label="Cancel image upload" onClick={onCancel}>×</button>
         </header>
         <div
           className="avatarCropStage"
@@ -161,7 +161,13 @@ function AvatarCropper({ draft, onChange, onClose }) {
             draggingRef.current = false;
           }}
         >
-          <img src={draft.previewURL} alt="" style={imageStyle} />
+          <img
+            src={draft.previewURL}
+            alt=""
+            style={imageStyle}
+            draggable="false"
+            onDragStart={(event) => event.preventDefault()}
+          />
           <div className="avatarCropRing" aria-hidden="true" />
         </div>
         <div className="avatarCropControls">
@@ -204,6 +210,8 @@ export default function App() {
     } else if (item.action_type === "report" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_report", String(item.action_ref));
       setActiveTab("reports");
+    } else if (item.action_type === "verify") {
+      setActiveTab("verify");
     }
     const id = item.notification_id || item.id;
     if (id) {
@@ -454,6 +462,14 @@ function AuthScreen({ onAuth }) {
   }));
   const [activationToken] = useState(() => tokenFromURL());
 
+  const updateRegisterPhone = (value) => {
+    const trimmed = value.trimStart();
+    const phone = trimmed === "" || trimmed.startsWith("+")
+      ? trimmed
+      : `+${trimmed.replace(/^\++/, "")}`;
+    setRegister((current) => ({ ...current, phone }));
+  };
+
   async function run(action) {
     setBusy(true);
     setError("");
@@ -571,16 +587,16 @@ function AuthScreen({ onAuth }) {
 
         {mode === "signup" && (
           <form className="formStack" onSubmit={submitRegister}>
-            <Field label="Full name"><input value={register.full_name} onChange={(e) => setRegister({ ...register, full_name: e.target.value })} required /></Field>
-            <Field label="Email"><input value={register.email} onChange={(e) => setRegister({ ...register, email: e.target.value })} type="email" required /></Field>
-            <Field label="Phone"><input value={register.phone} onChange={(e) => setRegister({ ...register, phone: e.target.value })} required /></Field>
+            <Field label="Full name"><input value={register.full_name} onChange={(e) => setRegister({ ...register, full_name: e.target.value })} placeholder="Test User" required /></Field>
+            <Field label="Email"><input value={register.email} onChange={(e) => setRegister({ ...register, email: e.target.value })} type="email" placeholder="test@example.com" required /></Field>
+            <Field label="Phone"><input value={register.phone} onChange={(e) => updateRegisterPhone(e.target.value)} type="tel" inputMode="tel" pattern="^\+[0-9]{7,15}$" title="Phone must start with + and contain 7-15 digits." placeholder="+77001234567" required /></Field>
             <Field label="Role">
               <select value={register.role} onChange={(e) => setRegister({ ...register, role: e.target.value })}>
                 <option value="customer">Customer</option>
                 <option value="worker">Worker</option>
               </select>
             </Field>
-            <Field label="Password"><input value={register.password} onChange={(e) => setRegister({ ...register, password: e.target.value })} type="password" required /></Field>
+            <Field label="Password"><input value={register.password} onChange={(e) => setRegister({ ...register, password: e.target.value })} type="password" placeholder="StrongPass123" required /></Field>
             <button disabled={busy}>Create account</button>
           </form>
         )}
@@ -1101,9 +1117,10 @@ function AppFrame({ token, role, session, activeTab, onTab, onSignOut, children 
       return null;
     }
     const stats = adminNavData.overview?.stats || {};
+    const pendingIdentities = adminNavData.overview?.pending_identities?.length || 0;
     const pendingSkills = adminNavData.overview?.pending_skills?.length || Number(stats.pending_worker_skills || 0);
     const pendingUpgrades = adminNavData.overview?.pending_skill_upgrades?.length || 0;
-    if (id === "verify") return pendingSkills + pendingUpgrades;
+    if (id === "verify") return pendingIdentities + pendingSkills + pendingUpgrades;
     if (id === "users") return Number(stats.users_total || adminNavData.users.length || 0);
     if (id === "reports") return adminNavData.reports.filter((report) => isOpenReportStatus(report.status)).length;
     if (id === "accounts") return adminNavData.users.filter((user) => user.role === "admin" || user.role === "manager").length;
@@ -2016,6 +2033,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
   const [reports, setReports] = useState([]);
+  const [staffProfileUserID, setStaffProfileUserID] = useState("");
   const [staffForm, setStaffForm] = useState({ full_name: "", email: "", phone: "", password: "", role: "manager" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -2042,15 +2060,28 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     }
   }, [activeTab, loadOverview, loadReports, loadUsers]);
 
+  useEffect(() => {
+    setStaffProfileUserID("");
+  }, [activeTab]);
+
+  const openStaffProfile = (userID) => {
+    if (!userID) return;
+    setStaffProfileUserID(String(userID));
+  };
+
+  if (staffProfileUserID) {
+    return <StaffUserProfilePanel token={token} userID={staffProfileUserID} onBack={() => setStaffProfileUserID("")} />;
+  }
+
   if (activeTab === "notifications") return <NotificationsPanel token={token} onNavigate={onNavigate} />;
-  if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff />;
+  if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff onOpenProfile={openStaffProfile} />;
 
   const verifySkill = async (id) => {
     setError("");
     setMessage("");
     try {
       await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(id) });
-      setMessage("Skill verified. Worker profile was verified automatically.");
+      setMessage("Skill verified. Worker becomes verified after ID document is verified too.");
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2064,6 +2095,52 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     try {
       await apiPost("/api/admin/verify-skill-upgrade", token, { upgrade_request_id: Number(id) });
       setMessage("Skill level upgraded.");
+      loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const verifyIdentityDocument = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/verify-identity-document", token, { identity_document_id: Number(id) });
+      setMessage("Identity document verified.");
+      loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const assignIdentityDocument = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/assign-identity-document", token, { identity_document_id: Number(id) });
+      setMessage("Identity document assigned to you.");
+      loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const rejectIdentityDocument = async (id) => {
+    const reason = window.prompt("Why should this identity document be rejected?");
+    if (reason === null) {
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/reject-identity-document", token, {
+        identity_document_id: Number(id),
+        reason,
+      });
+      setMessage("Identity document rejected. Worker was notified.");
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2129,11 +2206,16 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
       {activeTab === "verify" && (
         <AdminVerificationPanel
           overview={overview}
+          role={role}
+          currentUserID={tokenUserID(token)}
+          assignIdentityDocument={assignIdentityDocument}
+          verifyIdentityDocument={verifyIdentityDocument}
+          rejectIdentityDocument={rejectIdentityDocument}
           verifySkill={verifySkill}
           verifySkillUpgrade={verifySkillUpgrade}
         />
       )}
-      {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={deleteUser} canDelete={isAdmin} />}
+      {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={deleteUser} canDelete={isAdmin} onOpenProfile={openStaffProfile} />}
       {activeTab === "accounts" && isAdmin && (
         <AdminCreatePanel
           admins={admins}
@@ -2152,17 +2234,18 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
 
 function AdminOverviewPanel({ overview, users, reports, onNavigate, isAdmin }) {
   const stats = overview?.stats || {};
+  const pendingIdentities = overview?.pending_identities || [];
   const pendingSkills = overview?.pending_skills || [];
   const pendingUpgrades = overview?.pending_skill_upgrades || [];
   const openReports = reports.filter((report) => isOpenReportStatus(report.status));
   const staffCount = users.filter((user) => user.role === "admin" || user.role === "manager").length;
-  const pendingQueueCount = pendingSkills.length + pendingUpgrades.length;
+  const pendingQueueCount = pendingIdentities.length + pendingSkills.length + pendingUpgrades.length;
 
   return (
     <div className="adminOverview">
       <div className="adminKpiGrid">
         <AdminKpiCard title="Users" value={stats.users_total || users.length || 0} text={`${stats.customers_total || 0} customers, ${stats.workers_total || 0} workers`} />
-        <AdminKpiCard title="Queue" value={pendingQueueCount} text={`${pendingSkills.length} new skills, ${pendingUpgrades.length} upgrades`} tone={pendingQueueCount > 0 ? "warning" : ""} />
+        <AdminKpiCard title="Queue" value={pendingQueueCount} text={`${pendingIdentities.length} ID, ${pendingSkills.length} skills, ${pendingUpgrades.length} upgrades`} tone={pendingQueueCount > 0 ? "warning" : ""} />
         <AdminKpiCard title="Reports" value={openReports.length} text="Open support cases" tone={openReports.length > 0 ? "warning" : ""} />
         <AdminKpiCard title="Bookings" value={stats.bookings_total || 0} text={`${stats.bookings_in_progress || 0} in progress`} />
       </div>
@@ -2213,6 +2296,130 @@ function AdminOverviewPanel({ overview, users, reports, onNavigate, isAdmin }) {
   );
 }
 
+function StaffUserProfilePanel({ token, userID, onBack }) {
+  const [profile, setProfile] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setError("");
+    setProfile(null);
+    apiGet(`/api/admin/users/${userID}/profile`, token)
+      .then(setProfile)
+      .catch((err) => setError(err.message));
+  }, [token, userID]);
+
+  const user = profile?.user || {};
+  const customer = profile?.customer_profile;
+  const worker = profile?.worker_profile;
+  const rawAvatarURL = customer?.profile_photo_url || worker?.profile_photo_url || "";
+  const avatarURL = rawAvatarURL ? apiURL(rawAvatarURL) : "";
+  const penalties = Array.isArray(profile?.penalties) ? profile.penalties : [];
+  const identityDocuments = Array.isArray(profile?.identity_documents) ? profile.identity_documents : [];
+  const activeWarnings = Number(profile?.warning_count || 0);
+
+  return (
+    <section className="adminWorkspace staffProfilePage">
+      <button className="secondaryButton staffBackButton" type="button" onClick={onBack}>Back</button>
+      <SectionHeader title="User profile" text="Staff-only account view with warnings, penalties and verified worker data." />
+      <Messages error={error} />
+      {!profile && !error && <EmptyState title="Loading profile" text="Fetching user details..." />}
+      {profile && (
+        <div className="staffProfileLayout">
+          <section className="toolCard staffProfileHero">
+            <div className="staffProfileAvatar">
+              {avatarURL ? <img src={avatarURL} alt="" /> : initialsOf(user.full_name || user.email)}
+            </div>
+            <div>
+              <span className={`rolePill ${user.role || ""}`}>{user.role}</span>
+              <h2>{user.full_name || "User"}</h2>
+              <p>{user.email}</p>
+              <div className="staffProfileMeta">
+                <span className={`statusPill ${String(user.status || "").toLowerCase()}`}>{user.status}</span>
+                <span>{user.phone || "No phone"}</span>
+                <span>Created {user.created_at || "-"}</span>
+              </div>
+            </div>
+          </section>
+
+          <section className={activeWarnings > 0 ? "toolCard staffWarningCard warning" : "toolCard staffWarningCard"}>
+            <span>Warnings</span>
+            <strong>{activeWarnings}</strong>
+            <p>{activeWarnings > 0 ? "Active warning penalties are visible to staff here." : "No active warnings for this user."}</p>
+          </section>
+
+          {customer && (
+            <section className="toolCard staffProfileSection">
+              <h3>Customer details</h3>
+              <p>{customer.bio || "No customer bio."}</p>
+              <small>{customer.address || "No saved address."}</small>
+            </section>
+          )}
+
+          {worker && (
+            <section className="toolCard staffProfileSection">
+              <h3>Worker details</h3>
+              <div className="staffProfileMeta">
+                <span>Rating {Number(worker.rating || 0).toFixed(1)}</span>
+                <span>{worker.verification_status}</span>
+                <span>{worker.is_available ? "Online" : "Offline"}</span>
+              </div>
+              <p>{worker.bio || "No worker bio."}</p>
+              <div className="staffSkillGrid">
+                {(profile.verified_skills || []).length === 0 && <AdminEmptyState title="No verified skills" text="Verified services will appear here." />}
+                {(profile.verified_skills || []).map((skill) => (
+                  <article key={skill.worker_skill_id}>
+                    <strong>{categoryTitle(skill.category_name)}</strong>
+                    <span>{skill.experience_level}</span>
+                    <small>{formatMoney(parseMoney(skill.price_base))} KZT</small>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {worker && (
+            <section className="toolCard staffProfileSection">
+              <div className="sectionTitleRow">
+                <h3>Identity documents</h3>
+                <span>{identityDocuments.length}</span>
+              </div>
+              {identityDocuments.length === 0 && <AdminEmptyState title="No ID document" text="Worker has not uploaded an identity document yet." />}
+              {identityDocuments.map((doc) => (
+                <article className="staffPenaltyRow" key={doc.identity_document_id}>
+                  <div>
+                    <strong>{doc.file_name || "Identity document"}</strong>
+                    <span>{doc.uploaded_at || "Uploaded"}</span>
+                  </div>
+                  <span className={`statusPill ${doc.status || ""}`}>{doc.status}</span>
+                  <EvidenceLinks value={doc.file_path} />
+                </article>
+              ))}
+            </section>
+          )}
+
+          <section className="toolCard staffProfileSection staffPenaltySection">
+            <div className="sectionTitleRow">
+              <h3>Penalties</h3>
+              <span>{penalties.length}</span>
+            </div>
+            {penalties.length === 0 && <AdminEmptyState title="No penalties" text="Warnings and suspensions will appear here." />}
+            {penalties.map((item) => (
+              <article className="staffPenaltyRow" key={item.penalty_id}>
+                <div>
+                  <strong>{String(item.penalty_type || "").replaceAll("_", " ")}</strong>
+                  <span>{item.reason || "No reason"}</span>
+                </div>
+                <span className={`statusPill ${item.status || ""}`}>{item.status}</span>
+                <small>{item.report_id ? `Report #${item.report_id}` : "No report"}</small>
+              </article>
+            ))}
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function AdminKpiCard({ title, value, text, tone = "" }) {
   return (
     <article className={tone ? `adminKpiCard ${tone}` : "adminKpiCard"}>
@@ -2255,7 +2462,7 @@ function AdminEmptyState({ title, text }) {
   );
 }
 
-function AdminUsersPanel({ users, onActivate, onDelete, canDelete }) {
+function AdminUsersPanel({ users, onActivate, onDelete, canDelete, onOpenProfile }) {
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const queryText = query.trim().toLowerCase();
@@ -2301,13 +2508,19 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete }) {
         {filteredUsers.length === 0 && <AdminEmptyState title="No users found" text="Try another search or filter." />}
         {filteredUsers.map((user) => (
           <article className="adminUserRow" key={user.user_id}>
-            <div className="adminUserIdentity">
+            <button
+              className="adminUserIdentity adminUserIdentityButton"
+              type="button"
+              disabled={!["customer", "worker"].includes(user.role)}
+              onClick={() => onOpenProfile(user.user_id)}
+              title={["customer", "worker"].includes(user.role) ? "Open profile" : ""}
+            >
               <span className="adminUserAvatar">{initialsOf(user.full_name || user.email)}</span>
               <div>
                 <strong>{user.full_name}</strong>
                 <span>{user.email}</span>
               </div>
-            </div>
+            </button>
             <span className={`rolePill ${user.role}`}>{user.role}</span>
             <span className={`statusPill ${String(user.status || "").toLowerCase()}`}>{user.status}</span>
             <div className="adminUserActions">
@@ -2406,13 +2619,24 @@ function RequestsPanel({ token }) {
 
 function AdminVerificationPanel({
   overview,
+  role,
+  currentUserID,
+  assignIdentityDocument,
+  verifyIdentityDocument,
+  rejectIdentityDocument,
   verifySkill,
   verifySkillUpgrade,
 }) {
+  const pendingIdentities = overview?.pending_identities || [];
+  const visibleIdentities = role === "manager"
+    ? pendingIdentities.filter((doc) => !doc.assigned_manager_id || Number(doc.assigned_manager_id) === Number(currentUserID))
+    : pendingIdentities;
   const pendingSkills = overview?.pending_skills || [];
   const pendingUpgrades = overview?.pending_skill_upgrades || [];
-  const [queueMode, setQueueMode] = useState("skills");
+  const [queueMode, setQueueMode] = useState("identity");
+  const showingIdentity = queueMode === "identity";
   const showingSkills = queueMode === "skills";
+  const showingUpgrades = queueMode === "upgrades";
 
   return (
     <div className="adminVerifyGrid">
@@ -2423,17 +2647,49 @@ function AdminVerificationPanel({
             <p className="muted">Approve evidence before services become visible to customers.</p>
           </div>
           <div className="adminFilterTabs" aria-label="Queue type">
+            <button type="button" className={showingIdentity ? "active" : ""} onClick={() => setQueueMode("identity")}>
+              Identity
+              <small>{visibleIdentities.length}</small>
+            </button>
             <button type="button" className={showingSkills ? "active" : ""} onClick={() => setQueueMode("skills")}>
               New skills
               <small>{pendingSkills.length}</small>
             </button>
-            <button type="button" className={!showingSkills ? "active" : ""} onClick={() => setQueueMode("upgrades")}>
+            <button type="button" className={showingUpgrades ? "active" : ""} onClick={() => setQueueMode("upgrades")}>
               Upgrades
               <small>{pendingUpgrades.length}</small>
             </button>
           </div>
         </div>
         <div className="dataList adminQueueList">
+          {showingIdentity && visibleIdentities.length === 0 && <AdminEmptyState title="No pending ID documents" text="Worker identity documents will appear here." />}
+          {showingIdentity && visibleIdentities.map((doc) => {
+            const assignedToMe = Number(doc.assigned_manager_id) === Number(currentUserID);
+            const unassigned = !doc.assigned_manager_id;
+            const canReview = role === "admin" || assignedToMe;
+            return (
+            <article className="adminQueueRow" key={doc.identity_document_id}>
+              <div>
+                <strong>Identity document</strong>
+                <span>{doc.worker_full_name} - {doc.worker_user_email}</span>
+              </div>
+              <div className="adminQueueMeta">
+                <span>Worker #{doc.worker_profile_id}</span>
+                <span>Document #{doc.identity_document_id}</span>
+                {unassigned && <span className="statusPill pending">unassigned</span>}
+                {assignedToMe && <span className="statusPill in_review">assigned to me</span>}
+                {!unassigned && !assignedToMe && <span className="statusPill in_review">assigned #{doc.assigned_manager_id}</span>}
+                {doc.created_at && <span>{formatDateTime(doc.created_at)}</span>}
+              </div>
+              <EvidenceLinks value={doc.file_path} />
+              <div className="rowActions">
+                {unassigned && <button type="button" className="secondaryButton" onClick={() => assignIdentityDocument(doc.identity_document_id)}>Take case</button>}
+                {canReview && <button type="button" onClick={() => verifyIdentityDocument(doc.identity_document_id)}>Verify identity</button>}
+                {canReview && <button type="button" className="dangerButton subtleDangerButton" onClick={() => rejectIdentityDocument(doc.identity_document_id)}>Reject</button>}
+              </div>
+            </article>
+            );
+          })}
           {showingSkills && pendingSkills.length === 0 && <AdminEmptyState title="No pending skills" text="New worker skills will appear here." />}
           {showingSkills && pendingSkills.map((skill) => (
             <article className="adminQueueRow" key={skill.worker_skill_id}>
@@ -2447,11 +2703,11 @@ function AdminVerificationPanel({
                 <span>Skill #{skill.worker_skill_id}</span>
               </div>
               <EvidenceLinks value={skill.evidence_files} />
-              <button type="button" onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill and worker</button>
+              <button type="button" onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill</button>
             </article>
           ))}
-          {!showingSkills && pendingUpgrades.length === 0 && <AdminEmptyState title="No upgrade requests" text="Requests for junior to middle or senior will appear here." />}
-          {!showingSkills && pendingUpgrades.map((request) => (
+          {showingUpgrades && pendingUpgrades.length === 0 && <AdminEmptyState title="No upgrade requests" text="Requests for junior to middle or senior will appear here." />}
+          {showingUpgrades && pendingUpgrades.map((request) => (
             <article className="adminQueueRow" key={request.upgrade_request_id}>
               <div>
                 <strong>{categoryTitle(request.category_name)}</strong>
@@ -2576,18 +2832,20 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
                 {String(item.status).toLowerCase() === "in_progress" && <button className="secondaryButton" onClick={() => onProgress(item.booking_id || item.id, "complete")}>Send proof</button>}
               </div>
             )}
-            {canConfirm && canChatBooking(item) && (
-              <div className="rowActions">
-                <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
-                <button className="secondaryButton" onClick={() => {
-                  localStorage.setItem("workers_marketplace_report_booking", String(item.booking_id || item.id));
-                  onNavigate?.("reports");
-                }}>Report</button>
-              </div>
-            )}
-            {canConfirm && String(item.status).toLowerCase() === "awaiting_confirmation" && (
-              <div className="rowActions">
-                <button onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
+            {canConfirm && (canChatBooking(item) || String(item.status).toLowerCase() === "awaiting_confirmation") && (
+              <div className="rowActions bookingActions">
+                {canChatBooking(item) && (
+                  <>
+                    <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
+                    <button className="secondaryButton" onClick={() => {
+                      localStorage.setItem("workers_marketplace_report_booking", String(item.booking_id || item.id));
+                      onNavigate?.("reports");
+                    }}>Report</button>
+                  </>
+                )}
+                {String(item.status).toLowerCase() === "awaiting_confirmation" && (
+                  <button className="primaryBookingAction" onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
+                )}
               </div>
             )}
             {canConfirm && String(item.status).toLowerCase() === "completed" && (
@@ -2723,6 +2981,7 @@ function ChatPanel({ token, role }) {
   const [content, setContent] = useState("");
   const [attachment, setAttachment] = useState(null);
   const [priceDraft, setPriceDraft] = useState("");
+  const [chatFolder, setChatFolder] = useState("active");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [selfAvatarURL, setSelfAvatarURL] = useState("");
@@ -2736,9 +2995,13 @@ function ChatPanel({ token, role }) {
     [activeChat?.booking_id, bookings],
   );
   const activeBookingStatus = String(activeBooking?.status || activeBooking?.booking_status || "").toLowerCase();
+  const activeChatArchived = isArchivedBookingStatus(activeChat?.status) || isArchivedBookingStatus(activeChat?.booking_status || activeBookingStatus);
   const activeBookingPrice = parseMoney(activeBooking?.final_price || 0);
   const partnerAvatarURL = activeBooking?.counterparty_photo_url ? apiURL(activeBooking.counterparty_photo_url) : "";
   const messageListRef = useRef(null);
+  const activeChats = useMemo(() => chats.filter((chat) => !isArchivedBookingStatus(chat.status) && !isArchivedBookingStatus(chat.booking_status)), [chats]);
+  const archivedChats = useMemo(() => chats.filter((chat) => isArchivedBookingStatus(chat.status) || isArchivedBookingStatus(chat.booking_status)), [chats]);
+  const visibleChats = useMemo(() => (chatFolder === "archived" ? archivedChats : activeChats), [activeChats, archivedChats, chatFolder]);
 
   const loadChats = useCallback(() => {
     setError("");
@@ -2790,6 +3053,16 @@ function ChatPanel({ token, role }) {
   }, [role, token]);
 
   useEffect(() => {
+    if (visibleChats.length === 0) {
+      setActiveChatID("");
+      return;
+    }
+    if (!visibleChats.some((chat) => String(chat.chat_id) === String(activeChatID))) {
+      setActiveChatID(String(visibleChats[0].chat_id));
+    }
+  }, [activeChatID, visibleChats]);
+
+  useEffect(() => {
     loadMessages(activeChatID);
     if (activeChatID) {
       localStorage.setItem("workers_marketplace_active_chat", String(activeChatID));
@@ -2838,6 +3111,9 @@ function ChatPanel({ token, role }) {
 
   const postChatText = async (text) => {
     if (!activeChatID) return null;
+    if (activeChatArchived) {
+      throw new Error("This chat is archived.");
+    }
     const sent = await apiPost(`/api/chats/${activeChatID}/messages`, token, { content: text });
     setMessages((current) => [...current.filter((msg) => msg.message_id !== sent.message_id), sent]);
     return sent;
@@ -2846,6 +3122,11 @@ function ChatPanel({ token, role }) {
   const send = async (event) => {
     event.preventDefault();
     if (!activeChatID) return;
+    if (!content.trim() && !attachment) return;
+    if (activeChatArchived) {
+      setError("This chat is archived. You can read it, but cannot send new messages.");
+      return;
+    }
     setError("");
     setMessage("");
     try {
@@ -2924,8 +3205,8 @@ function ChatPanel({ token, role }) {
     }
   };
 
-  const canWorkerSetPrice = role === "worker" && (activeBookingStatus === "price_pending" || activeBookingStatus === "scheduled");
-  const canCustomerDecidePrice = role === "customer" && activeBookingStatus === "price_pending";
+  const canWorkerSetPrice = !activeChatArchived && role === "worker" && (activeBookingStatus === "price_pending" || activeBookingStatus === "scheduled");
+  const canCustomerDecidePrice = !activeChatArchived && role === "customer" && activeBookingStatus === "price_pending";
 
   return (
     <section className="pagePanel chatPage">
@@ -2933,8 +3214,21 @@ function ChatPanel({ token, role }) {
       <Messages message={message} error={error} />
       <div className="chatLayout">
         <aside className="chatList">
-          {chats.length === 0 && <EmptyState title="No chats yet" text="Open a chat from a booking card." />}
-          {chats.map((chat) => (
+          <div className="chatFolderTabs" role="tablist" aria-label="Chat folders">
+            <button type="button" className={chatFolder === "active" ? "active" : ""} onClick={() => setChatFolder("active")}>
+              Active <span>{activeChats.length}</span>
+            </button>
+            <button type="button" className={chatFolder === "archived" ? "active" : ""} onClick={() => setChatFolder("archived")}>
+              Completed <span>{archivedChats.length}</span>
+            </button>
+          </div>
+          {visibleChats.length === 0 && (
+            <EmptyState
+              title={chatFolder === "active" ? "No active chats" : "No completed chats"}
+              text={chatFolder === "active" ? "Open a chat from a booking card." : "Completed booking chats will stay here as history."}
+            />
+          )}
+          {visibleChats.map((chat) => (
             <button
               key={chat.chat_id}
               className={String(activeChatID) === String(chat.chat_id) ? "active" : ""}
@@ -2942,11 +3236,16 @@ function ChatPanel({ token, role }) {
               onClick={() => setActiveChatID(String(chat.chat_id))}
             >
               <strong>Booking #{chat.booking_id}</strong>
-              <span>{chat.unread_count ? `${chat.unread_count} unread` : chat.status}</span>
+              <span>{chat.unread_count ? `${chat.unread_count} unread` : chat.booking_status || chat.status}</span>
             </button>
           ))}
         </aside>
         <div className="chatConversation">
+          {activeChatArchived && (
+            <div className="chatArchiveNotice">
+              This booking is completed. The chat is kept as history and is read-only.
+            </div>
+          )}
           {canWorkerSetPrice && (
             <form className="chatPriceBar" onSubmit={setBookingPrice}>
               <Field label="Booking price, KZT" light>
@@ -2981,14 +3280,14 @@ function ChatPanel({ token, role }) {
               />
             ))}
           </div>
-          <form className="chatComposer" onSubmit={send}>
-            <textarea value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write a message..." />
+          <form className={activeChatArchived ? "chatComposer archived" : "chatComposer"} onSubmit={send}>
+            <textarea value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={submitTextareaOnEnter} placeholder={activeChatArchived ? "This chat is archived" : "Write a message..."} disabled={activeChatArchived} />
             <label className="fileButton chatFileButton" aria-label="Attach file" title="Attach file">
               <span aria-hidden="true">+</span>
               <span className="visuallyHidden">Attach file</span>
-              <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
+              <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" disabled={activeChatArchived} onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
             </label>
-            <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={!activeChatID || (!content.trim() && !attachment)}>
+            <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={activeChatArchived || !activeChatID || (!content.trim() && !attachment)}>
               <span aria-hidden="true" />
               <span className="visuallyHidden">Send</span>
             </button>
@@ -3002,7 +3301,7 @@ function ChatPanel({ token, role }) {
 
 function ChatBubble({ msg, own, ownAvatarURL, partnerAvatarURL }) {
   const label = own ? "You" : "Partner";
-  const avatarURL = own ? ownAvatarURL : partnerAvatarURL;
+  const avatarURL = msg.sender_avatar_url ? apiURL(msg.sender_avatar_url) : own ? ownAvatarURL : partnerAvatarURL;
   return (
     <article className={own ? "chatBubble own" : "chatBubble"}>
       <div className="chatAvatar" aria-hidden="true">
@@ -3057,10 +3356,12 @@ function AttachmentPreview({ msg }) {
   );
 }
 
-function ReportsPanel({ token, role, staff = false }) {
+function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
   const [reports, setReports] = useState([]);
   const [reportBookings, setReportBookings] = useState([]);
   const [activeID, setActiveID] = useState(() => localStorage.getItem("workers_marketplace_active_report") || "");
+  const [activeSide, setActiveSide] = useState(() => localStorage.getItem("workers_marketplace_active_report_side") || "reporter");
+  const [reportPerspective, setReportPerspective] = useState("created");
   const [showCreateForm, setShowCreateForm] = useState(() => Boolean(localStorage.getItem("workers_marketplace_report_booking")));
   const [supportChatOpen, setSupportChatOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -3106,12 +3407,12 @@ function ReportsPanel({ token, role, staff = false }) {
       .catch((err) => setError(err.message));
   }, [staff, token]);
 
-  const loadMessages = useCallback((reportID) => {
+  const loadMessages = useCallback((reportID, side) => {
     if (!reportID) {
       setMessages([]);
       return;
     }
-    apiGet(`/api/reports/${reportID}/messages`, token)
+    apiGet(`/api/reports/${reportID}/messages?side=${encodeURIComponent(side || "reporter")}`, token)
       .then((data) => setMessages(Array.isArray(data) ? data : data.messages || []))
       .catch((err) => setError(err.message));
   }, [token]);
@@ -3127,17 +3428,46 @@ function ReportsPanel({ token, role, staff = false }) {
   }, [loadReportBookings]);
 
   useEffect(() => {
-    loadMessages(activeID);
+    loadMessages(activeID, activeSide);
     if (!activeID) return undefined;
     localStorage.setItem("workers_marketplace_active_report", String(activeID));
-    const intervalID = window.setInterval(() => loadMessages(activeID), 4000);
+    localStorage.setItem("workers_marketplace_active_report_side", String(activeSide));
+    const intervalID = window.setInterval(() => loadMessages(activeID, activeSide), 4000);
     return () => window.clearInterval(intervalID);
-  }, [activeID, loadMessages]);
+  }, [activeID, activeSide, loadMessages]);
 
-  const activeReport = reports.find((item) => String(item.report_id) === String(activeID));
+  const currentUserID = tokenUserID(token);
+  const createdReports = reports.filter((item) => Number(item.reporter_user_id) === Number(currentUserID));
+  const againstReports = reports.filter((item) => Number(item.reported_user_id) === Number(currentUserID));
+  const staffVisibleReports = staff && role === "manager"
+    ? reports.filter((item) => !item.assigned_manager_id || Number(item.assigned_manager_id) === Number(currentUserID))
+    : reports;
+  const visibleReports = staff ? staffVisibleReports : reportPerspective === "against" ? againstReports : createdReports;
+  const activeReport = (staff ? reports : visibleReports).find((item) => String(item.report_id) === String(activeID));
+  const activeUserSide = activeReport && Number(activeReport.reported_user_id) === Number(currentUserID) ? "reported" : "reporter";
   const selectedBooking = reportBookings.find((item) => String(item.booking_id || item.id) === String(form.booking_id));
   const fileSummary = files.length === 0 ? "No files selected" : files.map((file) => file.name).join(", ");
   const reportListTitle = staff ? "Report queue" : "My cases";
+  const reporterLabel = (report) => report?.reporter_email || report?.reporter_name || "Reporter";
+  const reportedLabel = (report) => report?.reported_email || report?.reported_name || "Reported";
+  const activeReportClosed = activeReport ? !isOpenReportStatus(activeReport.status) : false;
+
+  useEffect(() => {
+    if (staff || !activeReport) return;
+    if (activeSide !== activeUserSide) {
+      setActiveSide(activeUserSide);
+    }
+  }, [activeReport, activeSide, activeUserSide, staff]);
+
+  useEffect(() => {
+    if (visibleReports.length === 0) {
+      if (!staff) setActiveID("");
+      return;
+    }
+    if (!visibleReports.some((report) => String(report.report_id) === String(activeID))) {
+      setActiveID(String(visibleReports[0].report_id));
+    }
+  }, [activeID, staff, visibleReports]);
 
   const createReport = async (event) => {
     event.preventDefault();
@@ -3167,6 +3497,11 @@ function ReportsPanel({ token, role, staff = false }) {
   const sendReportMessage = async (event) => {
     event.preventDefault();
     if (!activeID) return;
+    if (!messageText.trim() && !attachment) return;
+    if (activeReportClosed) {
+      setError("This support case is closed. You can read it, but cannot send new messages.");
+      return;
+    }
     setError("");
     try {
       let sent;
@@ -3174,9 +3509,9 @@ function ReportsPanel({ token, role, staff = false }) {
         const body = new FormData();
         body.append("message_text", messageText);
         body.append("attachment", attachment);
-        sent = await apiMultipart(`/api/reports/${activeID}/messages`, token, body);
+        sent = await apiMultipart(`/api/reports/${activeID}/messages?side=${encodeURIComponent(activeSide)}`, token, body);
       } else {
-        sent = await apiPost(`/api/reports/${activeID}/messages`, token, { message_text: messageText });
+        sent = await apiPost(`/api/reports/${activeID}/messages?side=${encodeURIComponent(activeSide)}`, token, { message_text: messageText });
       }
       setMessages((current) => [...current, sent]);
       setMessageText("");
@@ -3221,6 +3556,23 @@ function ReportsPanel({ token, role, staff = false }) {
     }
   };
 
+  const assignReport = async () => {
+    if (!activeReport) return;
+    setError("");
+    setMessage("");
+    try {
+      const assigned = await apiPatch(`/api/admin/reports/${activeReport.report_id}/assign`, token, {});
+      setReports((current) => current.map((item) => (
+        Number(item.report_id) === Number(assigned.report_id) ? assigned : item
+      )));
+      setMessage("Report assigned to you.");
+      loadReports();
+      window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
     <section className="pagePanel reportsPage">
       <SectionHeader title={staff ? "Reports" : "My reports"} text={staff ? "Review disputes and apply penalties when needed." : "Create a support case for a booking issue."} />
@@ -3233,6 +3585,26 @@ function ReportsPanel({ token, role, staff = false }) {
                 {showCreateForm ? "Close form" : "+ New case"}
               </button>
               <span>{showCreateForm ? "Fill the case details below." : "Need help? Start a case, then chat with support."}</span>
+            </div>
+          )}
+          {!staff && (
+            <div className="reportPerspectiveTabs" role="tablist" aria-label="Report folders">
+              <button
+                type="button"
+                className={reportPerspective === "created" ? "active" : ""}
+                onClick={() => setReportPerspective("created")}
+              >
+                My reports
+                <span>{createdReports.length}</span>
+              </button>
+              <button
+                type="button"
+                className={reportPerspective === "against" ? "active" : ""}
+                onClick={() => setReportPerspective("against")}
+              >
+                Against me
+                <span>{againstReports.length}</span>
+              </button>
             </div>
           )}
           {!staff && showCreateForm && (
@@ -3294,41 +3666,91 @@ function ReportsPanel({ token, role, staff = false }) {
           <aside className="reportList" aria-label={reportListTitle}>
             <div className="reportListHeader">
               <strong>{reportListTitle}</strong>
-              <span>{reports.length}</span>
+              <span>{visibleReports.length}</span>
             </div>
-            {reports.length === 0 && <EmptyState title="No reports" text="Reports will appear here." />}
-            {reports.map((report) => (
+            {visibleReports.length === 0 && <EmptyState title="No reports" text="Reports will appear here." />}
+            {visibleReports.map((report) => (
               <button key={report.report_id} className={String(activeID) === String(report.report_id) ? "active" : ""} onClick={() => {
                 setActiveID(String(report.report_id));
+                setActiveSide(staff ? activeSide : Number(report.reported_user_id) === Number(currentUserID) ? "reported" : "reporter");
               }}>
                 <div className="reportCardTop">
                   <strong>Report #{report.report_id}</strong>
                   <span className={`statusPill ${report.status || ""}`}>{reportStatusLabel(report.status)}</span>
                 </div>
                 <span>{reportReasonLabel(report.reason)}</span>
-                <small>{staff ? `${report.reporter_name || "Reporter"} -> ${report.reported_name || "Reported"}` : `Booking #${report.booking_id || "-"}`}</small>
+                <small>{staff ? `${reporterLabel(report)} -> ${reportedLabel(report)}` : `Booking #${report.booking_id || "-"}`}</small>
               </button>
             ))}
           </aside>
         </div>
         <section className="reportDetail">
-          {!activeReport && <EmptyState title={reports.length === 0 ? "No reports yet" : "Choose report"} text={reports.length === 0 ? "Create a support case and it will appear here." : "Select a report from the list."} />}
+          {!activeReport && <EmptyState title={visibleReports.length === 0 ? "No reports yet" : "Choose report"} text={visibleReports.length === 0 ? "Create a support case and it will appear here." : "Select a report from the list."} />}
           {activeReport && (
             <>
               <div className="toolCard reportSummary">
                 <div className="reportSummaryTop">
                   <div>
                     <h3>Report #{activeReport.report_id}</h3>
-                    <small>Booking #{activeReport.booking_id || "-"} | {activeReport.reporter_name || "Reporter"} {"->"} {activeReport.reported_name || "Reported"}</small>
+                    <small>Booking #{activeReport.booking_id || "-"} | {reporterLabel(activeReport)} {"->"} {reportedLabel(activeReport)}</small>
                   </div>
                   <div className="reportSummaryActions">
                     <span className={`statusPill ${activeReport.status || ""}`}>{reportStatusLabel(activeReport.status)}</span>
-                    <button className="reportChatOpenButton" type="button" onClick={() => setSupportChatOpen(true)} aria-label="Open support chat" title="Open support chat">
-                      <span aria-hidden="true" />
-                      Chat
-                    </button>
+                    {staff && !activeReport.assigned_manager_id && (
+                      <button className="secondaryButton" type="button" onClick={assignReport}>Take case</button>
+                    )}
+                    {staff && activeReport.assigned_manager_id && (
+                      <span className="statusPill in_review">
+                        {Number(activeReport.assigned_manager_id) === Number(currentUserID) ? "Assigned to me" : `Assigned #${activeReport.assigned_manager_id}`}
+                      </span>
+                    )}
+                    {staff ? (
+                      <div className="reportConversationButtons">
+                        <button
+                          className={activeSide === "reporter" ? "reportChatOpenButton active" : "reportChatOpenButton"}
+                          type="button"
+                          onClick={() => {
+                            setActiveSide("reporter");
+                            setSupportChatOpen(true);
+                          }}
+                          aria-label="Open reporter chat"
+                          title="Open reporter chat"
+                        >
+                          <span aria-hidden="true" />
+                          Reporter
+                        </button>
+                        <button
+                          className={activeSide === "reported" ? "reportChatOpenButton active" : "reportChatOpenButton"}
+                          type="button"
+                          onClick={() => {
+                            setActiveSide("reported");
+                            setSupportChatOpen(true);
+                          }}
+                          aria-label="Open reported user chat"
+                          title="Open reported user chat"
+                        >
+                          <span aria-hidden="true" />
+                          Reported
+                        </button>
+                      </div>
+                    ) : (
+                      <button className="reportChatOpenButton" type="button" onClick={() => setSupportChatOpen(true)} aria-label="Open support chat" title="Open support chat">
+                        <span aria-hidden="true" />
+                        Support chat
+                      </button>
+                    )}
                   </div>
                 </div>
+                {staff && (
+                  <div className="reportParticipantLinks">
+                    <button type="button" className="secondaryButton" onClick={() => onOpenProfile?.(activeReport.reporter_user_id)}>
+                      Reporter: {reporterLabel(activeReport)}
+                    </button>
+                    <button type="button" className="secondaryButton" onClick={() => onOpenProfile?.(activeReport.reported_user_id)}>
+                      Reported: {reportedLabel(activeReport)}
+                    </button>
+                  </div>
+                )}
                 <div className="reportInfoGrid">
                   <span>
                     <small>Reason</small>
@@ -3372,7 +3794,11 @@ function ReportsPanel({ token, role, staff = false }) {
           <div className="reportChatHeader">
             <div>
               <strong>Support chat</strong>
-              <span>Report #{activeReport.report_id} · {staff ? "Manager desk" : "Dispute conversation"}</span>
+              <span>
+                Report #{activeReport.report_id} · {staff
+                  ? activeSide === "reported" ? `With ${reportedLabel(activeReport)}` : `With ${reporterLabel(activeReport)}`
+                  : activeSide === "reported" ? "You were reported" : "Your report"}
+              </span>
             </div>
             <button className="reportChatCloseButton" type="button" onClick={() => setSupportChatOpen(false)} aria-label="Close support chat" title="Close support chat">×</button>
           </div>
@@ -3384,40 +3810,70 @@ function ReportsPanel({ token, role, staff = false }) {
                 msg={msg}
                 own={Number(msg.sender_user_id) === tokenUserID(token)}
                 staff={Number(msg.sender_user_id) !== Number(activeReport.reporter_user_id) && Number(msg.sender_user_id) !== Number(activeReport.reported_user_id)}
+                onOpenProfile={staff ? onOpenProfile : undefined}
               />
             ))}
           </div>
-          <form className="reportMessageForm" onSubmit={sendReportMessage}>
-            <textarea value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Write to support..." />
-            <label className="fileButton reportMessageFileButton">Attach<input type="file" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label>
-            <button disabled={!messageText.trim() && !attachment}>Send</button>
-          </form>
+          {activeReportClosed ? (
+            <div className="chatArchiveNotice">
+              This support case is closed. The chat is kept as history and is read-only.
+            </div>
+          ) : (
+            <form className="reportMessageForm" onSubmit={sendReportMessage}>
+              <textarea value={messageText} onChange={(event) => setMessageText(event.target.value)} onKeyDown={submitTextareaOnEnter} placeholder="Write to support..." />
+              <label className="fileButton chatFileButton reportMessageFileButton" aria-label="Attach file" title="Attach file">
+                <span aria-hidden="true">+</span>
+                <span className="visuallyHidden">Attach file</span>
+                <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
+              </label>
+              <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={!messageText.trim() && !attachment}>
+                <span aria-hidden="true" />
+                <span className="visuallyHidden">Send</span>
+              </button>
+              {attachment && <span className="muted">{attachment.name}</span>}
+            </form>
+          )}
         </div>
       )}
     </section>
   );
 }
 
-function ReportChatBubble({ msg, own, staff }) {
+function ReportChatBubble({ msg, own, staff, onOpenProfile }) {
   const label = staff ? "Support" : own ? "You" : msg.sender_name || "User";
   const initials = staff ? "M" : own ? "Y" : initialsOf(msg.sender_name || "U");
+  const avatarURL = staff ? STAFF_AVATAR_URL : msg.sender_avatar_url ? apiURL(msg.sender_avatar_url) : "";
+  const canOpenProfile = Boolean(onOpenProfile && !staff && ["customer", "worker"].includes(String(msg.sender_role || "")));
+  const avatar = (
+    <>
+      {avatarURL ? <img src={avatarURL} alt="" /> : initials}
+    </>
+  );
   return (
     <article className={`${own ? "chatBubble own" : "chatBubble"} ${staff ? "supportBubble" : ""}`}>
-      <div className={`chatAvatar ${staff ? "staffAvatar" : ""}`} aria-hidden="true">
-        {staff ? <img src={STAFF_AVATAR_URL} alt="" /> : initials}
-      </div>
+      {canOpenProfile ? (
+        <button
+          className={`chatAvatar chatAvatarButton ${staff ? "staffAvatar" : ""}`}
+          type="button"
+          onClick={() => onOpenProfile(msg.sender_user_id)}
+          aria-label={`Open ${msg.sender_email || msg.sender_name || "user"} profile`}
+          title={`Open ${msg.sender_email || msg.sender_name || "user"} profile`}
+        >
+          {avatar}
+        </button>
+      ) : (
+        <div className={`chatAvatar ${staff ? "staffAvatar" : ""}`} aria-hidden="true">
+          {avatar}
+        </div>
+      )}
       <div className="chatBubbleBody">
         <small>{label}</small>
         {msg.message_text && <span>{msg.message_text}</span>}
-        {msg.attachment_url && (
-          <button
-            className="chatAttachment file"
-            type="button"
-            onClick={() => openFilePreview({ url: apiURL(msg.attachment_url), name: msg.attachment_name || "Attachment", type: msg.attachment_type || "" })}
-          >
-            {msg.attachment_name || "Attachment"}
-          </button>
-        )}
+        {msg.attachment_url && <AttachmentPreview msg={{
+          attachment_url: msg.attachment_url,
+          attachment_name: msg.attachment_name || "Attachment",
+          attachment_type: msg.attachment_type || "",
+        }} />}
         <footer className="chatMeta">
           <time dateTime={msg.created_at || ""}>{formatChatTime(msg.created_at)}</time>
           {own && <span className={msg.read_at ? "read" : ""}>{msg.read_at ? "✓✓" : "✓"}</span>}
@@ -3437,6 +3893,10 @@ function reportStatusLabel(status) {
 
 function isOpenReportStatus(status) {
   return !["closed", "rejected", "resolved"].includes(String(status || "open").toLowerCase());
+}
+
+function isArchivedBookingStatus(status) {
+  return ["completed", "cancelled", "closed"].includes(String(status || "").toLowerCase());
 }
 
 function initialsOf(name) {
@@ -3711,6 +4171,25 @@ function CustomerProfilePanel({ token, onNavigate }) {
 
   useEffect(() => () => revokeAvatarDraft(avatarDraft), [avatarDraft?.previewURL]);
 
+  const cancelAvatarUpload = () => {
+    revokeAvatarDraft(avatarDraft);
+    setAvatarDraft(null);
+    setAvatarEditorOpen(false);
+  };
+
+  const assignReport = async () => {
+    if (!activeReport) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/admin/reports/${activeReport.report_id}/assign`, token, {});
+      setMessage("Case assigned to you.");
+      loadReports();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const useCurrentLocation = async () => {
     const nextPosition = await locate();
     if (nextPosition) {
@@ -3807,7 +4286,14 @@ function CustomerProfilePanel({ token, onNavigate }) {
           <Field label="About me" light>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
           </Field>
-          {avatarEditorOpen && <AvatarCropper draft={avatarDraft} onChange={setAvatarDraft} onClose={() => setAvatarEditorOpen(false)} />}
+          {avatarEditorOpen && (
+            <AvatarCropper
+              draft={avatarDraft}
+              onChange={setAvatarDraft}
+              onClose={() => setAvatarEditorOpen(false)}
+              onCancel={cancelAvatarUpload}
+            />
+          )}
           <div className="profileAddressRow">
             <Field label="Saved address" light>
               <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
@@ -3855,6 +4341,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
   const [form, setForm] = useState({ bio: "" });
   const [avatarDraft, setAvatarDraft] = useState(null);
   const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [identityFile, setIdentityFile] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -3878,6 +4365,12 @@ function WorkerProfilePanel({ token, onNavigate }) {
   }, [loadProfile, token]);
 
   useEffect(() => () => revokeAvatarDraft(avatarDraft), [avatarDraft?.previewURL]);
+
+  const cancelAvatarUpload = () => {
+    revokeAvatarDraft(avatarDraft);
+    setAvatarDraft(null);
+    setAvatarEditorOpen(false);
+  };
 
   const stats = useMemo(() => buildIncomeStats(bookings), [bookings]);
 
@@ -3903,6 +4396,25 @@ function WorkerProfilePanel({ token, onNavigate }) {
     }
   };
 
+  const uploadIdentityDocument = async () => {
+    if (!identityFile) {
+      setError("Choose an identity document first.");
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("identity_document", identityFile);
+      const doc = await apiMultipart("/api/worker/identity-document", token, body);
+      setProfile((current) => ({ ...(current || {}), identity_document: doc, verification_status: "pending" }));
+      setIdentityFile(null);
+      setMessage("Identity document sent. Admin will verify it before you can go online.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const photoURL = avatarDraft?.previewURL || (profile?.profile_photo_url ? apiURL(profile.profile_photo_url) : "");
   const avatarStyle = avatarDraft ? {
     objectPosition: `${avatarDraft.x}% ${avatarDraft.y}%`,
@@ -3911,6 +4423,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
   } : undefined;
   const workerName = profile?.worker_name || profile?.full_name || profile?.name || "Worker";
   const verifiedSkills = profile?.verified_skills || [];
+  const identityDocument = profile?.identity_document;
 
   return (
     <section className="pagePanel profilePage workerProfilePage">
@@ -3960,7 +4473,14 @@ function WorkerProfilePanel({ token, onNavigate }) {
           <Field label="About me" light>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
           </Field>
-          {avatarEditorOpen && <AvatarCropper draft={avatarDraft} onChange={setAvatarDraft} onClose={() => setAvatarEditorOpen(false)} />}
+          {avatarEditorOpen && (
+            <AvatarCropper
+              draft={avatarDraft}
+              onChange={setAvatarDraft}
+              onClose={() => setAvatarEditorOpen(false)}
+              onCancel={cancelAvatarUpload}
+            />
+          )}
         </form>
       </div>
       <div className="profileStatsGrid workerKpiGrid">
@@ -4001,6 +4521,29 @@ function WorkerProfilePanel({ token, onNavigate }) {
               <small>Price agreed in chat</small>
             </article>
           ))}
+        </div>
+      </section>
+      <section className="profileSection identityDocumentSection">
+        <div className="sectionTitleRow">
+          <h3>Identity verification</h3>
+          <span className={`statusPill ${identityDocument?.status || "missing"}`}>{identityDocument?.status || "not uploaded"}</span>
+        </div>
+        <p className="muted">Upload an ID card or passport. Only admin and manager accounts can view this file.</p>
+        {identityDocument?.file_name && (
+          <span className="muted">Last uploaded: {identityDocument.file_name}</span>
+        )}
+        <div className="identityUploadRow">
+          <label className="fileButton skillEvidenceButton">
+            <span aria-hidden="true">+</span>
+            Attach ID document
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,application/pdf"
+              onChange={(event) => setIdentityFile(event.target.files?.[0] || null)}
+            />
+          </label>
+          <span className="muted">{identityFile ? identityFile.name : "No file selected"}</span>
+          <button className="secondaryButton" type="button" onClick={uploadIdentityDocument} disabled={!identityFile}>Send for review</button>
         </div>
       </section>
       <div className="profileLinks profileShortcutGrid">
@@ -4542,6 +5085,14 @@ function formatChatTime(value) {
     return "";
   }
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function submitTextareaOnEnter(event) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
+    return;
+  }
+  event.preventDefault();
+  event.currentTarget.form?.requestSubmit();
 }
 
 function renderStars(value) {

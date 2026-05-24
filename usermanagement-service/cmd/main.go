@@ -82,6 +82,9 @@ func main() {
 	if err := workerSkillRepo.EnsureEvidenceTable(ctx); err != nil {
 		log.Printf("Worker skill evidence bootstrap skipped: %v", err)
 	}
+	if err := workerProfileRepo.EnsureProfileColumns(ctx); err != nil {
+		log.Printf("Worker profile bootstrap skipped: %v", err)
+	}
 	if err := paymentMethodRepo.EnsureTable(ctx); err != nil {
 		log.Printf("Payment method bootstrap skipped: %v", err)
 	}

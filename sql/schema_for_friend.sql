@@ -127,6 +127,21 @@ CREATE TABLE IF NOT EXISTS worker_skill_upgrade_requests (
   reviewed_by_user_id integer REFERENCES users(user_id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS worker_identity_documents (
+  identity_document_id serial PRIMARY KEY,
+  worker_profile_id integer NOT NULL REFERENCES worker_profiles(worker_profile_id) ON DELETE CASCADE,
+  file_name varchar(255) NOT NULL,
+  file_path text NOT NULL,
+  content_type varchar(100),
+  status varchar(20) NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'verified', 'rejected', 'replaced')),
+  rejection_reason text,
+  created_at timestamp with time zone DEFAULT now(),
+  reviewed_at timestamp with time zone,
+  reviewed_by_user_id integer REFERENCES users(user_id) ON DELETE SET NULL,
+  assigned_manager_id integer REFERENCES users(user_id) ON DELETE SET NULL
+);
+
 CREATE TABLE IF NOT EXISTS bookings (
   booking_id serial PRIMARY KEY,
   request_id integer REFERENCES service_requests(request_id) ON DELETE RESTRICT,
@@ -294,6 +309,9 @@ CREATE INDEX IF NOT EXISTS idx_worker_profiles_current_location
 
 CREATE INDEX IF NOT EXISTS idx_worker_skill_evidence_skill_id
   ON worker_skill_evidence(worker_skill_id);
+
+CREATE INDEX IF NOT EXISTS idx_worker_identity_documents_profile_status
+  ON worker_identity_documents(worker_profile_id, status, created_at DESC);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_worker_skill_upgrade_pending_unique
   ON worker_skill_upgrade_requests(worker_skill_id)

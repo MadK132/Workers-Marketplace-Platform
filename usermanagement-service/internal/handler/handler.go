@@ -40,14 +40,20 @@ type AuthService interface {
 	RequestWorkerSkillUpgrade(ctx context.Context, userID int, workerSkillID int, requestedLevel string, evidenceFiles string, note string) (int, error)
 	VerifyWorkerSkill(ctx context.Context, skillID int) error
 	VerifyWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error
+	AddWorkerIdentityDocument(ctx context.Context, userID int, fileName string, filePath string, contentType string) (repository.WorkerIdentityDocument, error)
+	VerifyWorkerIdentityDocument(ctx context.Context, documentID int, reviewerUserID int) error
+	RejectWorkerIdentityDocument(ctx context.Context, documentID int, reviewerUserID int, reason string) error
+	AssignWorkerIdentityDocument(ctx context.Context, documentID int, managerUserID int) error
 	SetAvailability(ctx context.Context, userID int, available bool) error
 	FindWorkers(ctx context.Context, categoryID int) ([]repository.WorkerSearchResult, error)
 	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
 	GetWorkerProfile(ctx context.Context, userID int) (*model.WorkerProfile, error)
 	ListVerifiedWorkerSkills(ctx context.Context, userID int) ([]repository.VerifiedWorkerSkill, error)
+	GetWorkerIdentityDocument(ctx context.Context, userID int) (*repository.WorkerIdentityDocument, error)
 	GetCategories(ctx context.Context) ([]repository.ServiceCategory, error)
-	GetAdminOverview(ctx context.Context) (repository.AdminOverview, error)
+	GetAdminOverview(ctx context.Context, userID int, role string) (repository.AdminOverview, error)
 	ListUsers(ctx context.Context) ([]repository.UserSummary, error)
+	GetStaffUserProfile(ctx context.Context, userID int) (repository.StaffUserProfile, error)
 	DeleteUser(ctx context.Context, userID int) error
 	ActivateUser(ctx context.Context, userID int) error
 	CreateAdmin(ctx context.Context, input service.RegisterInput) (model.User, error)
@@ -57,11 +63,12 @@ type AuthService interface {
 	HasPaymentMethod(ctx context.Context, userID int) (bool, error)
 	CreateReport(ctx context.Context, reporterUserID int, role string, bookingID *int, reportedUserID int, reason string, description string) (repository.Report, error)
 	AddReportFile(ctx context.Context, reportID int, userID int, fileName string, filePath string, contentType string) error
-	ListReports(ctx context.Context, userID int, staff bool) ([]repository.Report, error)
-	AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error)
-	ListReportMessages(ctx context.Context, reportID int, userID int, staff bool) ([]repository.ReportMessage, error)
+	ListReports(ctx context.Context, userID int, staff bool, role string) ([]repository.Report, error)
+	AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, conversationSide string, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error)
+	ListReportMessages(ctx context.Context, reportID int, userID int, staff bool, conversationSide string) ([]repository.ReportMessage, error)
 	ApplyReportPenalty(ctx context.Context, reportID int, targetUserID int, issuedByUserID int, penaltyType string, reason string, expiresAt *time.Time) (repository.Penalty, error)
 	CloseReport(ctx context.Context, reportID int, status string, resolution string) error
+	AssignReport(ctx context.Context, reportID int, managerUserID int) (repository.Report, error)
 }
 
 type AuthHandler struct {
@@ -573,6 +580,14 @@ func saveEvidenceFile(ctx context.Context, file *multipart.FileHeader) (string, 
 	})
 }
 
+func saveIdentityDocument(ctx context.Context, file *multipart.FileHeader) (string, error) {
+	return filestorage.SaveUploadedFile(ctx, file, filestorage.SaveOptions{
+		Prefix:      "identity-documents",
+		MaxSize:     10 * 1024 * 1024,
+		AllowedExts: map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".pdf": true},
+	})
+}
+
 func saveProfilePhoto(ctx context.Context, file *multipart.FileHeader) (string, error) {
 	return filestorage.SaveUploadedFile(ctx, file, filestorage.SaveOptions{
 		Prefix:      "profiles",
@@ -671,6 +686,118 @@ func (h *AuthHandler) VerifyWorkerSkillUpgrade(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "skill upgrade approved"})
 }
 
+func (h *AuthHandler) UploadWorkerIdentityDocument(c *gin.Context) {
+	if !strings.HasPrefix(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "multipart/form-data is required"})
+		return
+	}
+
+	file, err := c.FormFile("identity_document")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "identity document is required"})
+		return
+	}
+
+	storedPath, err := saveIdentityDocument(c.Request.Context(), file)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	doc, err := h.auth.AddWorkerIdentityDocument(
+		c.Request.Context(),
+		c.GetInt("user_id"),
+		file.Filename,
+		storedPath,
+		file.Header.Get("Content-Type"),
+	)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, doc)
+}
+
+func (h *AuthHandler) VerifyWorkerIdentityDocument(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	var req struct {
+		IdentityDocumentID int `json:"identity_document_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	if req.IdentityDocumentID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "identity_document_id must be positive"})
+		return
+	}
+
+	if err := h.auth.VerifyWorkerIdentityDocument(c.Request.Context(), req.IdentityDocumentID, c.GetInt("user_id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "identity document verified"})
+}
+
+func (h *AuthHandler) RejectWorkerIdentityDocument(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	var req struct {
+		IdentityDocumentID int    `json:"identity_document_id"`
+		Reason             string `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	if req.IdentityDocumentID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "identity_document_id must be positive"})
+		return
+	}
+
+	if err := h.auth.RejectWorkerIdentityDocument(c.Request.Context(), req.IdentityDocumentID, c.GetInt("user_id"), req.Reason); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "identity document rejected"})
+}
+
+func (h *AuthHandler) AssignWorkerIdentityDocument(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	var req struct {
+		IdentityDocumentID int `json:"identity_document_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	if req.IdentityDocumentID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "identity_document_id must be positive"})
+		return
+	}
+
+	if err := h.auth.AssignWorkerIdentityDocument(c.Request.Context(), req.IdentityDocumentID, c.GetInt("user_id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "identity document assigned"})
+}
+
 func (h *AuthHandler) CreateReport(c *gin.Context) {
 	userID := c.GetInt("user_id")
 	role := c.GetString("role")
@@ -742,7 +869,7 @@ func (h *AuthHandler) CreateReport(c *gin.Context) {
 }
 
 func (h *AuthHandler) ListReports(c *gin.Context) {
-	reports, err := h.auth.ListReports(c.Request.Context(), c.GetInt("user_id"), isStaffRole(c))
+	reports, err := h.auth.ListReports(c.Request.Context(), c.GetInt("user_id"), isStaffRole(c), c.GetString("role"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -756,7 +883,7 @@ func (h *AuthHandler) ListReportMessages(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report_id"})
 		return
 	}
-	messages, err := h.auth.ListReportMessages(c.Request.Context(), reportID, c.GetInt("user_id"), isStaffRole(c))
+	messages, err := h.auth.ListReportMessages(c.Request.Context(), reportID, c.GetInt("user_id"), isStaffRole(c), c.Query("side"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -800,8 +927,12 @@ func (h *AuthHandler) AddReportMessage(c *gin.Context) {
 		text = req.MessageText
 	}
 
-	msg, err := h.auth.AddReportMessage(c.Request.Context(), reportID, c.GetInt("user_id"), isStaffRole(c), text, attachmentURL, attachmentName, attachmentType)
+	msg, err := h.auth.AddReportMessage(c.Request.Context(), reportID, c.GetInt("user_id"), isStaffRole(c), c.Query("side"), text, attachmentURL, attachmentName, attachmentType)
 	if err != nil {
+		if errors.Is(err, repository.ErrReportClosed) {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -871,6 +1002,25 @@ func (h *AuthHandler) CloseReport(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "report closed"})
 }
+
+func (h *AuthHandler) AssignReport(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+	reportID, err := strconv.Atoi(c.Param("report_id"))
+	if err != nil || reportID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report_id"})
+		return
+	}
+	report, err := h.auth.AssignReport(c.Request.Context(), reportID, c.GetInt("user_id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, report)
+}
+
 func (h *AuthHandler) SetAvailability(c *gin.Context) {
 	var req struct {
 		IsAvailable bool `json:"is_available"`
@@ -1184,6 +1334,7 @@ func (h *AuthHandler) GetWorkerProfile(c *gin.Context) {
 	if err != nil {
 		skills = []repository.VerifiedWorkerSkill{}
 	}
+	identityDoc, _ := h.auth.GetWorkerIdentityDocument(c.Request.Context(), userID)
 
 	c.JSON(200, gin.H{
 		"worker_profile_id":   profile.ID,
@@ -1196,6 +1347,7 @@ func (h *AuthHandler) GetWorkerProfile(c *gin.Context) {
 		"current_longitude":   profile.CurrentLongitude,
 		"profile_photo_url":   profile.ProfilePhotoURL,
 		"verified_skills":     skills,
+		"identity_document":   identityDoc,
 	})
 }
 
@@ -1215,7 +1367,7 @@ func (h *AuthHandler) AdminOverview(c *gin.Context) {
 		return
 	}
 
-	result, err := h.auth.GetAdminOverview(c.Request.Context())
+	result, err := h.auth.GetAdminOverview(c.Request.Context(), c.GetInt("user_id"), c.GetString("role"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
@@ -1236,6 +1388,26 @@ func (h *AuthHandler) AdminUsers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, users)
+}
+
+func (h *AuthHandler) AdminUserProfile(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	userID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || userID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user_id"})
+		return
+	}
+
+	profile, err := h.auth.GetStaffUserProfile(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, profile)
 }
 
 func (h *AuthHandler) AdminDeleteUser(c *gin.Context) {

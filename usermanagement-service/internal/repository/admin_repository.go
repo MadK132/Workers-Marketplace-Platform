@@ -28,6 +28,19 @@ type PendingWorker struct {
 	VerificationStatus string `json:"verification_status"`
 }
 
+type PendingIdentityDocument struct {
+	IdentityDocumentID int    `json:"identity_document_id"`
+	WorkerProfileID    int    `json:"worker_profile_id"`
+	WorkerUserID       int    `json:"worker_user_id"`
+	AssignedManagerID  *int   `json:"assigned_manager_id,omitempty"`
+	WorkerFullName     string `json:"worker_full_name"`
+	WorkerUserEmail    string `json:"worker_user_email"`
+	FileName           string `json:"file_name"`
+	FilePath           string `json:"file_path"`
+	ContentType        string `json:"content_type"`
+	CreatedAt          string `json:"created_at"`
+}
+
 type PendingSkill struct {
 	WorkerSkillID   int    `json:"worker_skill_id"`
 	WorkerProfileID int    `json:"worker_profile_id"`
@@ -57,10 +70,11 @@ type PendingSkillUpgrade struct {
 }
 
 type AdminOverview struct {
-	Stats                AdminStats            `json:"stats"`
-	PendingWorkers       []PendingWorker       `json:"pending_workers"`
-	PendingSkills        []PendingSkill        `json:"pending_skills"`
-	PendingSkillUpgrades []PendingSkillUpgrade `json:"pending_skill_upgrades"`
+	Stats                AdminStats                `json:"stats"`
+	PendingWorkers       []PendingWorker           `json:"pending_workers"`
+	PendingIdentities    []PendingIdentityDocument `json:"pending_identities"`
+	PendingSkills        []PendingSkill            `json:"pending_skills"`
+	PendingSkillUpgrades []PendingSkillUpgrade     `json:"pending_skill_upgrades"`
 }
 
 type AdminRepository struct {
@@ -71,7 +85,7 @@ func NewAdminRepository(db *pgxpool.Pool) *AdminRepository {
 	return &AdminRepository{db: db}
 }
 
-func (r *AdminRepository) GetOverview(ctx context.Context) (AdminOverview, error) {
+func (r *AdminRepository) GetOverview(ctx context.Context, userID int, role string) (AdminOverview, error) {
 	var stats AdminStats
 	err := r.db.QueryRow(ctx, `
 		SELECT
@@ -106,6 +120,7 @@ func (r *AdminRepository) GetOverview(ctx context.Context) (AdminOverview, error
 	overview := AdminOverview{
 		Stats:                stats,
 		PendingWorkers:       make([]PendingWorker, 0),
+		PendingIdentities:    make([]PendingIdentityDocument, 0),
 		PendingSkills:        make([]PendingSkill, 0),
 		PendingSkillUpgrades: make([]PendingSkillUpgrade, 0),
 	}
@@ -142,6 +157,60 @@ func (r *AdminRepository) GetOverview(ctx context.Context) (AdminOverview, error
 		overview.PendingWorkers = append(overview.PendingWorkers, item)
 	}
 	if err := workerRows.Err(); err != nil {
+		return AdminOverview{}, err
+	}
+
+	identityQuery := `
+		SELECT
+			wid.identity_document_id,
+			wid.worker_profile_id,
+			u.user_id,
+			wid.assigned_manager_id,
+			u.full_name,
+			u.email,
+			wid.file_name,
+			wid.file_path,
+			COALESCE(wid.content_type, ''),
+			COALESCE(to_char(wid.created_at, 'YYYY-MM-DD HH24:MI'), '') AS created_at
+		FROM worker_identity_documents wid
+		JOIN worker_profiles wp ON wp.worker_profile_id = wid.worker_profile_id
+		JOIN users u ON u.user_id = wp.user_id
+		WHERE wid.status = 'pending'
+	`
+	identityArgs := []any{}
+	if role == "manager" {
+		identityQuery += ` AND (wid.assigned_manager_id IS NULL OR wid.assigned_manager_id = $1)`
+		identityArgs = append(identityArgs, userID)
+	}
+	identityQuery += `
+		ORDER BY wid.created_at DESC, wid.identity_document_id DESC
+		LIMIT 200
+	`
+	identityRows, err := r.db.Query(ctx, identityQuery, identityArgs...)
+	if err != nil {
+		return AdminOverview{}, err
+	}
+	defer identityRows.Close()
+
+	for identityRows.Next() {
+		var item PendingIdentityDocument
+		if err := identityRows.Scan(
+			&item.IdentityDocumentID,
+			&item.WorkerProfileID,
+			&item.WorkerUserID,
+			&item.AssignedManagerID,
+			&item.WorkerFullName,
+			&item.WorkerUserEmail,
+			&item.FileName,
+			&item.FilePath,
+			&item.ContentType,
+			&item.CreatedAt,
+		); err != nil {
+			return AdminOverview{}, err
+		}
+		overview.PendingIdentities = append(overview.PendingIdentities, item)
+	}
+	if err := identityRows.Err(); err != nil {
 		return AdminOverview{}, err
 	}
 
