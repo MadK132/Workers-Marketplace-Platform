@@ -13,6 +13,7 @@ import (
 var (
 	ErrChatNotFound    = errors.New("chat not found")
 	ErrBookingNotFound = errors.New("booking not found")
+	ErrChatClosed      = errors.New("chat is closed")
 )
 
 type BookingParticipants struct {
@@ -160,7 +161,7 @@ func (r *ChatRepository) UpsertChat(
 }
 
 func (r *ChatRepository) ListByUser(ctx context.Context, userID int64) ([]model.Chat, error) {
-	if err := r.deleteCancelledChats(ctx); err != nil {
+	if err := r.syncClosedChats(ctx); err != nil {
 		return nil, err
 	}
 
@@ -171,6 +172,7 @@ func (r *ChatRepository) ListByUser(ctx context.Context, userID int64) ([]model.
 			c.customer_user_id,
 			c.worker_user_id,
 			c.status,
+			b.status AS booking_status,
 			c.created_at,
 			c.updated_at,
 			(
@@ -183,7 +185,6 @@ func (r *ChatRepository) ListByUser(ctx context.Context, userID int64) ([]model.
 		FROM chats c
 		JOIN bookings b ON b.booking_id = c.booking_id
 		WHERE (c.customer_user_id = $1 OR c.worker_user_id = $1)
-		  AND b.status <> 'cancelled'
 		ORDER BY c.updated_at DESC, c.chat_id DESC
 	`, userID)
 	if err != nil {
@@ -200,6 +201,7 @@ func (r *ChatRepository) ListByUser(ctx context.Context, userID int64) ([]model.
 			&chat.CustomerUserID,
 			&chat.WorkerUserID,
 			&chat.Status,
+			&chat.BookingStatus,
 			&chat.CreatedAt,
 			&chat.UpdatedAt,
 			&chat.UnreadCount,
@@ -220,21 +222,25 @@ func (r *ChatRepository) GetByIDForUser(
 	chatID int64,
 	userID int64,
 ) (model.Chat, error) {
+	if err := r.syncClosedChats(ctx); err != nil {
+		return model.Chat{}, err
+	}
+
 	var chat model.Chat
 	err := r.db.QueryRow(ctx, `
 		SELECT c.chat_id, c.booking_id, c.customer_user_id, c.worker_user_id,
-			c.status, c.created_at, c.updated_at
+			c.status, b.status AS booking_status, c.created_at, c.updated_at
 		FROM chats c
 		JOIN bookings b ON b.booking_id = c.booking_id
 		WHERE c.chat_id = $1
 		  AND (c.customer_user_id = $2 OR c.worker_user_id = $2)
-		  AND b.status <> 'cancelled'
 	`, chatID, userID).Scan(
 		&chat.ChatID,
 		&chat.BookingID,
 		&chat.CustomerUserID,
 		&chat.WorkerUserID,
 		&chat.Status,
+		&chat.BookingStatus,
 		&chat.CreatedAt,
 		&chat.UpdatedAt,
 	)
@@ -257,6 +263,10 @@ func (r *ChatRepository) CreateMessage(
 	attachmentName string,
 	attachmentType string,
 ) (model.Message, error) {
+	if err := r.syncClosedChats(ctx); err != nil {
+		return model.Message{}, err
+	}
+
 	var msg model.Message
 	err := r.db.QueryRow(ctx, `
 		WITH allowed_chat AS (
@@ -266,7 +276,7 @@ func (r *ChatRepository) CreateMessage(
 			WHERE c.chat_id = $1
 			  AND c.status = 'active'
 			  AND (c.customer_user_id = $2 OR c.worker_user_id = $2)
-			  AND b.status <> 'cancelled'
+			  AND b.status NOT IN ('completed', 'cancelled')
 		), inserted AS (
 			INSERT INTO chat_messages (chat_id, sender_user_id, content, attachment_url, attachment_name, attachment_type)
 			SELECT chat_id, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, '')
@@ -277,14 +287,19 @@ func (r *ChatRepository) CreateMessage(
 			SET updated_at = NOW()
 			WHERE chat_id IN (SELECT chat_id FROM inserted)
 		)
-		SELECT message_id, chat_id, sender_user_id, content,
+		SELECT i.message_id, i.chat_id, i.sender_user_id,
+			COALESCE(cp.profile_photo_url, wp.profile_photo_url, '') AS sender_avatar_url,
+			i.content,
 			COALESCE(attachment_url, ''), COALESCE(attachment_name, ''), COALESCE(attachment_type, ''),
-			created_at, read_at
-		FROM inserted
+			i.created_at, i.read_at
+		FROM inserted i
+		LEFT JOIN customer_profiles cp ON cp.user_id = i.sender_user_id
+		LEFT JOIN worker_profiles wp ON wp.user_id = i.sender_user_id
 	`, chatID, senderUserID, content, attachmentURL, attachmentName, attachmentType).Scan(
 		&msg.MessageID,
 		&msg.ChatID,
 		&msg.SenderUserID,
+		&msg.SenderAvatarURL,
 		&msg.Content,
 		&msg.AttachmentURL,
 		&msg.AttachmentName,
@@ -293,7 +308,7 @@ func (r *ChatRepository) CreateMessage(
 		&msg.ReadAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return model.Message{}, ErrChatNotFound
+		return model.Message{}, ErrChatClosed
 	}
 	if err != nil {
 		return model.Message{}, err
@@ -311,14 +326,16 @@ func (r *ChatRepository) ListMessages(
 ) ([]model.Message, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT m.message_id, m.chat_id, m.sender_user_id, m.content,
+			COALESCE(cp.profile_photo_url, wp.profile_photo_url, '') AS sender_avatar_url,
 			COALESCE(m.attachment_url, ''), COALESCE(m.attachment_name, ''), COALESCE(m.attachment_type, ''),
 			m.created_at, m.read_at
 		FROM chat_messages m
 		JOIN chats c ON c.chat_id = m.chat_id
 		JOIN bookings b ON b.booking_id = c.booking_id
+		LEFT JOIN customer_profiles cp ON cp.user_id = m.sender_user_id
+		LEFT JOIN worker_profiles wp ON wp.user_id = m.sender_user_id
 		WHERE m.chat_id = $1
 		  AND (c.customer_user_id = $2 OR c.worker_user_id = $2)
-		  AND b.status <> 'cancelled'
 		  AND ($3::BIGINT = 0 OR m.message_id < $3)
 		ORDER BY m.message_id DESC
 		LIMIT $4
@@ -336,6 +353,7 @@ func (r *ChatRepository) ListMessages(
 			&msg.ChatID,
 			&msg.SenderUserID,
 			&msg.Content,
+			&msg.SenderAvatarURL,
 			&msg.AttachmentURL,
 			&msg.AttachmentName,
 			&msg.AttachmentType,
@@ -380,12 +398,15 @@ func (r *ChatRepository) MarkRead(
 	return tag.RowsAffected(), nil
 }
 
-func (r *ChatRepository) deleteCancelledChats(ctx context.Context) error {
+func (r *ChatRepository) syncClosedChats(ctx context.Context) error {
 	_, err := r.db.Exec(ctx, `
-		DELETE FROM chats c
-		USING bookings b
+		UPDATE chats c
+		SET status = 'closed',
+		    updated_at = NOW()
+		FROM bookings b
 		WHERE c.booking_id = b.booking_id
-		  AND b.status = 'cancelled'
+		  AND b.status IN ('completed', 'cancelled')
+		  AND c.status <> 'closed'
 	`)
 	return err
 }

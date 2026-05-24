@@ -353,6 +353,8 @@ func respondError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	case errors.Is(err, chatservice.ErrForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+	case errors.Is(err, repository.ErrChatClosed):
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, repository.ErrChatNotFound), errors.Is(err, repository.ErrBookingNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	default:

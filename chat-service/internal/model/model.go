@@ -8,19 +8,21 @@ type Chat struct {
 	CustomerUserID int64     `json:"customer_user_id"`
 	WorkerUserID   int64     `json:"worker_user_id"`
 	Status         string    `json:"status"`
+	BookingStatus  string    `json:"booking_status,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	UnreadCount    int64     `json:"unread_count,omitempty"`
 }
 
 type Message struct {
-	MessageID      int64      `json:"message_id"`
-	ChatID         int64      `json:"chat_id"`
-	SenderUserID   int64      `json:"sender_user_id"`
-	Content        string     `json:"content"`
-	AttachmentURL  string     `json:"attachment_url,omitempty"`
-	AttachmentName string     `json:"attachment_name,omitempty"`
-	AttachmentType string     `json:"attachment_type,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	ReadAt         *time.Time `json:"read_at,omitempty"`
+	MessageID       int64      `json:"message_id"`
+	ChatID          int64      `json:"chat_id"`
+	SenderUserID    int64      `json:"sender_user_id"`
+	SenderAvatarURL string     `json:"sender_avatar_url,omitempty"`
+	Content         string     `json:"content"`
+	AttachmentURL   string     `json:"attachment_url,omitempty"`
+	AttachmentName  string     `json:"attachment_name,omitempty"`
+	AttachmentType  string     `json:"attachment_type,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	ReadAt          *time.Time `json:"read_at,omitempty"`
 }

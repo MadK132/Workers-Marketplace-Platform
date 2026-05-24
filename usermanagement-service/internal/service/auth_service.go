@@ -129,6 +129,9 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 	if input.Phone != nil {
 		trimmed := strings.TrimSpace(*input.Phone)
 		if trimmed != "" {
+			if !strings.HasPrefix(trimmed, "+") {
+				return RegisterResult{}, &ValidationError{Field: "phone", Message: "must start with +"}
+			}
 			phone = &trimmed
 		}
 	}
@@ -510,6 +513,48 @@ func (s *AuthService) VerifyWorkerSkillUpgrade(ctx context.Context, requestID in
 	return s.workerSkills.ApproveUpgradeRequest(ctx, requestID, reviewerUserID)
 }
 
+func (s *AuthService) AddWorkerIdentityDocument(
+	ctx context.Context,
+	userID int,
+	fileName string,
+	filePath string,
+	contentType string,
+) (repository.WorkerIdentityDocument, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return repository.WorkerIdentityDocument{}, err
+	}
+	if user.Role != model.RoleWorker {
+		return repository.WorkerIdentityDocument{}, errors.New("not a worker")
+	}
+	if _, err := s.workerProfiles.GetByUserID(ctx, userID); err != nil {
+		if createErr := s.workerProfiles.Create(ctx, userID); createErr != nil {
+			return repository.WorkerIdentityDocument{}, createErr
+		}
+	}
+	return s.workerProfiles.AddIdentityDocument(ctx, userID, fileName, filePath, contentType)
+}
+
+func (s *AuthService) VerifyWorkerIdentityDocument(ctx context.Context, documentID int, reviewerUserID int) error {
+	return s.workerProfiles.VerifyIdentityDocument(ctx, documentID, reviewerUserID)
+}
+
+func (s *AuthService) RejectWorkerIdentityDocument(ctx context.Context, documentID int, reviewerUserID int, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "Document was rejected. Upload a clear ID card or passport."
+	}
+	return s.workerProfiles.RejectIdentityDocument(ctx, documentID, reviewerUserID, reason)
+}
+
+func (s *AuthService) AssignWorkerIdentityDocument(ctx context.Context, documentID int, managerUserID int) error {
+	return s.workerProfiles.AssignIdentityDocument(ctx, documentID, managerUserID)
+}
+
+func (s *AuthService) GetWorkerIdentityDocument(ctx context.Context, userID int) (*repository.WorkerIdentityDocument, error) {
+	return s.workerProfiles.GetLatestIdentityDocumentByUserID(ctx, userID)
+}
+
 func (s *AuthService) SetAvailability(ctx context.Context, userID int, available bool) error {
 	worker, err := s.workerProfiles.GetByUserIDFull(ctx, userID)
 	if err != nil {
@@ -517,6 +562,29 @@ func (s *AuthService) SetAvailability(ctx context.Context, userID int, available
 	}
 
 	if available {
+		readiness, err := s.workerProfiles.GetReadiness(ctx, worker.ID)
+		if err != nil {
+			return err
+		}
+		if !readiness.IdentityVerified {
+			return errors.New("identity document is not verified")
+		}
+		if !readiness.HasVerifiedSkill {
+			return errors.New("verified skill is required")
+		}
+		if worker.VerificationStatus != "verified" {
+			if err := s.workerProfiles.RecalculateVerificationStatus(ctx, worker.ID); err != nil {
+				return err
+			}
+			worker, err = s.workerProfiles.GetByUserIDFull(ctx, userID)
+			if err != nil {
+				return err
+			}
+			if worker.VerificationStatus != "verified" {
+				return errors.New("worker not verified")
+			}
+		}
+
 		blocked, err := s.reports.HasActiveOnlineBlock(ctx, userID)
 		if err != nil {
 			return err
@@ -532,13 +600,7 @@ func (s *AuthService) SetAvailability(ctx context.Context, userID int, available
 		if !hasPaymentMethod {
 			return errors.New("payment method is required")
 		}
-	}
 
-	if worker.VerificationStatus != "verified" {
-		return errors.New("worker not verified")
-	}
-
-	if available {
 		hasActiveJob, err := s.workerProfiles.HasInProgressBooking(ctx, worker.ID)
 		if err != nil {
 			return err
@@ -640,12 +702,26 @@ func (s *AuthService) GetCategories(ctx context.Context) ([]repository.ServiceCa
 	return s.categories.List(ctx)
 }
 
-func (s *AuthService) GetAdminOverview(ctx context.Context) (repository.AdminOverview, error) {
-	return s.admin.GetOverview(ctx)
+func (s *AuthService) GetAdminOverview(ctx context.Context, userID int, role string) (repository.AdminOverview, error) {
+	return s.admin.GetOverview(ctx, userID, role)
 }
 
 func (s *AuthService) ListUsers(ctx context.Context) ([]repository.UserSummary, error) {
 	return s.users.ListUsers(ctx)
+}
+
+func (s *AuthService) GetStaffUserProfile(ctx context.Context, userID int) (repository.StaffUserProfile, error) {
+	profile, err := s.users.GetStaffProfile(ctx, userID)
+	if err != nil {
+		return repository.StaffUserProfile{}, err
+	}
+	if profile.User.Role == model.RoleWorker {
+		skills, err := s.ListVerifiedWorkerSkills(ctx, userID)
+		if err == nil {
+			profile.VerifiedSkills = skills
+		}
+	}
+	return profile, nil
 }
 
 func (s *AuthService) EnsureDefaultAdmin(ctx context.Context) error {
@@ -695,7 +771,9 @@ func (s *AuthService) CreateReport(ctx context.Context, reporterUserID int, role
 	if err != nil {
 		return repository.Report{}, err
 	}
-	_ = s.reports.NotifyStaffReportCreated(ctx, report)
+	if err := s.reports.NotifyStaffReportCreated(ctx, report); err != nil {
+		log.Printf("report notification skipped for report %d: %v", report.ReportID, err)
+	}
 	return report, nil
 }
 
@@ -703,28 +781,30 @@ func (s *AuthService) AddReportFile(ctx context.Context, reportID int, userID in
 	return s.reports.AddFile(ctx, reportID, userID, fileName, filePath, contentType)
 }
 
-func (s *AuthService) ListReports(ctx context.Context, userID int, staff bool) ([]repository.Report, error) {
-	return s.reports.List(ctx, userID, staff)
+func (s *AuthService) ListReports(ctx context.Context, userID int, staff bool, role string) ([]repository.Report, error) {
+	return s.reports.List(ctx, userID, staff, role)
 }
 
-func (s *AuthService) AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error) {
+func (s *AuthService) AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, conversationSide string, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error) {
 	if strings.TrimSpace(text) == "" && strings.TrimSpace(attachmentURL) == "" {
 		return repository.ReportMessage{}, errors.New("message or attachment is required")
 	}
-	msg, err := s.reports.AddMessage(ctx, reportID, userID, staff, text, attachmentURL, attachmentName, attachmentType)
+	msg, err := s.reports.AddMessage(ctx, reportID, userID, staff, conversationSide, text, attachmentURL, attachmentName, attachmentType)
 	if err != nil {
 		return repository.ReportMessage{}, err
 	}
-	_ = s.reports.NotifyReportMessage(ctx, reportID, userID, staff)
+	if err := s.reports.NotifyReportMessage(ctx, reportID, userID, staff, msg.ConversationSide); err != nil {
+		log.Printf("report message notification skipped for report %d: %v", reportID, err)
+	}
 	return msg, nil
 }
 
-func (s *AuthService) ListReportMessages(ctx context.Context, reportID int, userID int, staff bool) ([]repository.ReportMessage, error) {
-	messages, err := s.reports.ListMessages(ctx, reportID, userID, staff)
+func (s *AuthService) ListReportMessages(ctx context.Context, reportID int, userID int, staff bool, conversationSide string) ([]repository.ReportMessage, error) {
+	messages, err := s.reports.ListMessages(ctx, reportID, userID, staff, conversationSide)
 	if err != nil {
 		return nil, err
 	}
-	_ = s.reports.MarkMessagesRead(ctx, reportID, userID, staff)
+	_ = s.reports.MarkMessagesRead(ctx, reportID, userID, staff, conversationSide)
 	return messages, nil
 }
 
@@ -746,6 +826,13 @@ func (s *AuthService) CloseReport(ctx context.Context, reportID int, status stri
 		return errors.New("invalid report status")
 	}
 	return s.reports.CloseReport(ctx, reportID, status, strings.TrimSpace(resolution))
+}
+
+func (s *AuthService) AssignReport(ctx context.Context, reportID int, managerUserID int) (repository.Report, error) {
+	if reportID <= 0 || managerUserID <= 0 {
+		return repository.Report{}, errors.New("invalid report assignment")
+	}
+	return s.reports.Assign(ctx, reportID, managerUserID)
 }
 
 func (s *AuthService) createPrivilegedUser(ctx context.Context, input RegisterInput, role model.Role) (model.User, error) {
@@ -770,6 +857,9 @@ func (s *AuthService) createPrivilegedUser(ctx context.Context, input RegisterIn
 	if input.Phone != nil {
 		trimmed := strings.TrimSpace(*input.Phone)
 		if trimmed != "" {
+			if !strings.HasPrefix(trimmed, "+") {
+				return model.User{}, &ValidationError{Field: "phone", Message: "must start with +"}
+			}
 			phone = &trimmed
 		}
 	}
