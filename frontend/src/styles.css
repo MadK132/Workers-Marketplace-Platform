@@ -1902,6 +1902,674 @@ textarea {
   background: #f1f1f1;
 }
 
+/* Final admin overrides: keep admin screens readable after global legacy styles. */
+.adminVerifyGrid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.adminActionGrid {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.adminActionCard {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 82px;
+  align-items: center;
+  border-color: #d8d8d8;
+  padding: 14px;
+  background: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.adminActionCard:hover {
+  border-color: #111111;
+  background: #ffffff;
+  color: #111111;
+  transform: none;
+}
+
+.adminActionCard strong {
+  color: #111111;
+  font-size: 17px;
+}
+
+.adminActionCard small,
+.adminActionCard span:not(.adminActionIcon) {
+  color: #666666;
+}
+
+.adminActionCard .adminActionIcon {
+  color: #111111;
+}
+
+.adminTabs button,
+.adminFilterTabs button {
+  box-shadow: none;
+  transform: none;
+}
+
+.adminTabs button:hover,
+.adminTabs button.active,
+.adminFilterTabs button:hover,
+.adminFilterTabs button.active {
+  background: #111111;
+  color: #ffffff;
+  transform: none;
+}
+
+.adminUserRow {
+  grid-template-columns: minmax(260px, 1fr) 130px 120px minmax(160px, auto);
+  border: 0;
+  border-top: 1px solid #e7e7e7;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.adminQueueRow {
+  grid-template-columns: minmax(240px, 1fr) minmax(220px, auto) minmax(150px, auto) auto;
+}
+
+.adminStaffRow {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.rolePill,
+.rolePill.worker,
+.rolePill.customer {
+  background: #eeeeee;
+  color: #111111;
+}
+
+.rolePill.admin {
+  background: #111111;
+  color: #ffffff;
+}
+
+.rolePill.manager {
+  background: #555555;
+  color: #ffffff;
+}
+
+.dangerButton.subtleDangerButton {
+  border: 1px solid #efb4a8;
+  background: #ffffff;
+  color: #b33a2a;
+}
+
+.dangerButton.subtleDangerButton:hover {
+  border-color: #c94d39;
+  background: #c94d39;
+  color: #ffffff;
+}
+
+@media (max-width: 1020px) {
+  .adminUserRow,
+  .adminQueueRow {
+    grid-template-columns: 1fr;
+  }
+
+  .adminStaffRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .adminStaffRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Admin workspace redesign: dense, calm, and action-oriented. */
+.adminTopbar {
+  border-bottom-color: #d8d8d8;
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.adminTabs button {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border-radius: 999px;
+  background: #eeeeee;
+  color: #111111;
+  box-shadow: none;
+  transform: none;
+}
+
+.adminTabs button:hover,
+.adminTabs button.active {
+  background: #111111;
+  color: #ffffff;
+  transform: none;
+}
+
+.navBadge {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: #ffffff;
+  color: #555555;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.navBadge.hasItems {
+  color: #111111;
+}
+
+.adminTabs button.active .navBadge,
+.adminTabs button:hover .navBadge {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.adminWorkspace {
+  gap: 18px;
+  padding: 28px;
+}
+
+.adminOverview {
+  gap: 16px;
+}
+
+.adminKpiGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.adminKpiCard {
+  display: grid;
+  gap: 7px;
+  min-height: 112px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 16px;
+  background: #ffffff;
+}
+
+.adminKpiCard.warning {
+  box-shadow: inset 3px 0 0 #111111;
+}
+
+.adminKpiCard span,
+.adminKpiCard small {
+  color: #666666;
+  font-weight: 750;
+}
+
+.adminKpiCard strong {
+  color: #111111;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.adminAttentionPanel,
+.adminMiniQueue {
+  display: grid;
+  gap: 12px;
+}
+
+.adminActionGrid {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.adminActionCard {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 82px;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+  color: #111111;
+  text-align: left;
+  box-shadow: none;
+  transform: none;
+}
+
+.adminActionCard:hover {
+  border-color: #111111;
+  background: #ffffff;
+  color: #111111;
+  transform: none;
+}
+
+.adminActionIcon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eeeeee;
+  color: #111111;
+  font-weight: 900;
+}
+
+.adminActionCard > span:not(.adminActionIcon) {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.adminActionCard strong {
+  color: #111111;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.adminActionCard small,
+.adminActionCard span {
+  color: #666666;
+}
+
+.adminActionCard .adminActionIcon {
+  color: #111111;
+}
+
+.adminActionCard b {
+  color: #111111;
+  font-size: 13px;
+}
+
+.adminCompactList,
+.adminQueueList {
+  max-height: none;
+  overflow: visible;
+}
+
+.adminCompactRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.adminCompactRow div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.adminCompactRow span:not(.statusPill) {
+  overflow: hidden;
+  color: #666666;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminEmptyState {
+  display: grid;
+  min-height: 118px;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  border: 1px dashed #d8d8d8;
+  border-radius: 8px;
+  background: #fafafa;
+  text-align: center;
+}
+
+.adminEmptyState strong {
+  color: #111111;
+}
+
+.adminEmptyState span {
+  color: #666666;
+}
+
+.adminVerifyGrid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.adminVerifyGrid .toolCard:last-child {
+  grid-column: auto;
+}
+
+.adminQueueCard {
+  gap: 16px;
+}
+
+.adminQueueHeader {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.adminQueueHeader h3,
+.adminQueueHeader p {
+  margin: 0;
+}
+
+.adminQueueHeader p {
+  margin-top: 4px;
+}
+
+.adminFilterTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.adminFilterTabs button {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #eeeeee;
+  color: #111111;
+  box-shadow: none;
+  transform: none;
+}
+
+.adminFilterTabs button.active,
+.adminFilterTabs button:hover {
+  background: #111111;
+  color: #ffffff;
+  transform: none;
+}
+
+.adminFilterTabs small {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #555555;
+  font-size: 12px;
+}
+
+.adminFilterTabs button.active small,
+.adminFilterTabs button:hover small {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.adminQueueRow {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(220px, auto) minmax(150px, auto) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.adminQueueRow > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.adminQueueRow span,
+.adminQueueRow small {
+  color: #666666;
+}
+
+.adminQueueMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.adminQueueRow button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.adminToolbar {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.adminSearchField {
+  display: grid;
+  width: min(420px, 100%);
+  gap: 6px;
+}
+
+.adminSearchField span {
+  color: #555555;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.adminSearchField input {
+  min-height: 44px;
+}
+
+.adminUserTable {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.adminUserTableHead,
+.adminUserRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 130px 120px minmax(160px, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+}
+
+.adminUserTableHead {
+  background: #f6f6f6;
+  color: #666666;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.adminUserRow {
+  border: 0;
+  border-top: 1px solid #e7e7e7;
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.adminUserIdentity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+  min-width: 0;
+}
+
+.adminUserIdentity div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.adminUserIdentity strong,
+.adminUserIdentity span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminUserIdentity span {
+  color: #666666;
+}
+
+.adminUserAvatar {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 999px;
+  background: #eeeeee;
+  color: #111111;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.adminUserIdentity .adminUserAvatar {
+  color: #111111;
+}
+
+.adminUserActions {
+  justify-content: flex-end;
+}
+
+.adminUserActions button,
+.subtleDangerButton {
+  min-height: 34px;
+}
+
+.subtleDangerButton {
+  border: 1px solid #efb4a8;
+  background: #ffffff;
+  color: #b33a2a;
+}
+
+.subtleDangerButton:hover {
+  border-color: #c94d39;
+  background: #c94d39;
+  color: #ffffff;
+}
+
+.rolePill {
+  background: #eeeeee;
+  color: #111111;
+}
+
+.rolePill.admin {
+  background: #111111;
+  color: #ffffff;
+}
+
+.rolePill.manager {
+  background: #555555;
+  color: #ffffff;
+}
+
+.rolePill.worker,
+.rolePill.customer {
+  background: #eeeeee;
+  color: #111111;
+}
+
+.statusPill.active {
+  background: #111111;
+  color: #ffffff;
+}
+
+.statusPill.pending,
+.statusPill.in_review,
+.statusPill.reviewing,
+.statusPill.open {
+  background: #eeeeee;
+  color: #111111;
+}
+
+.adminStaffLayout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(360px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.adminStaffForm,
+.adminStaffPanel {
+  min-width: 0;
+}
+
+.adminStaffForm .sectionTitleRow span {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #eeeeee;
+  color: #111111;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.adminStaffList {
+  display: grid;
+  gap: 10px;
+}
+
+.adminStaffRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #d8d8d8;
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+@media (max-width: 1020px) {
+  .adminKpiGrid,
+  .adminStaffLayout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .adminUserTableHead,
+  .adminUserRow,
+  .adminQueueRow {
+    grid-template-columns: 1fr;
+  }
+
+  .adminUserTableHead {
+    display: none;
+  }
+
+  .adminUserActions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .adminTopbar,
+  .adminToolbar,
+  .adminQueueHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .adminKpiGrid,
+  .adminStaffLayout,
+  .adminActionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .adminTabs,
+  .adminFilterTabs {
+    justify-content: flex-start;
+  }
+
+  .adminStaffRow {
+    grid-template-columns: 1fr;
+  }
+}
+
 .workerServiceSummaryCard span {
   color: #656565;
   line-height: 1.4;
@@ -4768,4 +5436,124 @@ button:hover {
 
 .workerServiceSummaryCard.pending {
   background: #f1f1f1;
+}
+
+/* Admin hard overrides live at EOF so legacy admin rules cannot win. */
+.adminOverview .adminActionCard {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 82px;
+  align-items: center;
+  border-color: #d8d8d8;
+  padding: 14px;
+  background: #ffffff;
+  box-shadow: none;
+  transform: none;
+}
+
+.adminOverview .adminActionCard:hover {
+  border-color: #111111;
+  background: #ffffff;
+  color: #111111;
+  transform: none;
+}
+
+.adminOverview .adminActionCard strong {
+  color: #111111;
+  font-size: 17px;
+}
+
+.adminOverview .adminActionCard small,
+.adminOverview .adminActionCard span:not(.adminActionIcon) {
+  color: #666666;
+}
+
+.adminOverview .adminActionCard .adminActionIcon {
+  color: #111111;
+}
+
+.adminShell .rolePill,
+.adminShell .rolePill.worker,
+.adminShell .rolePill.customer {
+  background: #eeeeee;
+  color: #111111;
+}
+
+.adminShell .rolePill.admin {
+  background: #111111;
+  color: #ffffff;
+}
+
+.adminShell .rolePill.manager {
+  background: #555555;
+  color: #ffffff;
+}
+
+.adminShell .dangerButton.subtleDangerButton {
+  border: 1px solid #efb4a8;
+  background: #ffffff;
+  color: #b33a2a;
+}
+
+.adminShell .dangerButton.subtleDangerButton:hover {
+  border-color: #c94d39;
+  background: #c94d39;
+  color: #ffffff;
+}
+
+/* User list background and header-like filter pills. */
+.adminShell .adminUserTable {
+  border-color: #d8d8d8;
+  background: #ffffff;
+}
+
+.adminShell .adminUserTableHead {
+  background: #f3f3f3;
+}
+
+.adminShell .adminUserRow {
+  border-top-color: #e7e7e7;
+  background: #ffffff;
+}
+
+.adminShell .adminFilterTabs button,
+.notificationTabs button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  background: #eeeeee;
+  color: #111111;
+  box-shadow: none;
+  transform: none;
+}
+
+.adminShell .adminFilterTabs button:hover,
+.adminShell .adminFilterTabs button.active,
+.notificationTabs button:hover,
+.notificationTabs button.active {
+  background: #111111;
+  color: #ffffff;
+  transform: none;
+}
+
+.adminShell .adminFilterTabs small,
+.notificationTabs button span {
+  display: grid;
+  min-width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: #ffffff;
+  color: #555555;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.adminShell .adminFilterTabs button:hover small,
+.adminShell .adminFilterTabs button.active small,
+.notificationTabs button:hover span,
+.notificationTabs button.active span {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
 }

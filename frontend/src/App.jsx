@@ -420,7 +420,7 @@ export default function App() {
 
   return (
     <>
-      <AppFrame role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
+      <AppFrame token={token} role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
         {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={setActiveTab} />}
         {!["customer", "worker", "admin", "manager"].includes(role) && (
           <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
@@ -1063,8 +1063,53 @@ function defaultTabForRole(role) {
   return "find";
 }
 
-function AppFrame({ role, session, activeTab, onTab, onSignOut, children }) {
+function AppFrame({ token, role, session, activeTab, onTab, onSignOut, children }) {
   const tabs = roleTabs[role] || [];
+  const isStaffFrame = role === "admin" || role === "manager";
+  const [adminNavData, setAdminNavData] = useState({ overview: null, users: [], reports: [] });
+
+  useEffect(() => {
+    if (!isStaffFrame || !token) {
+      return undefined;
+    }
+    let cancelled = false;
+    const loadAdminNavData = async () => {
+      const [overviewResult, usersResult, reportsResult] = await Promise.allSettled([
+        apiGet("/api/admin/overview", token),
+        apiGet("/api/admin/users", token),
+        apiGet("/api/reports", token),
+      ]);
+      if (cancelled) {
+        return;
+      }
+      setAdminNavData((current) => ({
+        overview: overviewResult.status === "fulfilled" ? overviewResult.value : current.overview,
+        users: usersResult.status === "fulfilled" ? usersResult.value : current.users,
+        reports: reportsResult.status === "fulfilled" ? reportsResult.value : current.reports,
+      }));
+    };
+    loadAdminNavData();
+    window.addEventListener("wm-admin-data-updated", loadAdminNavData);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("wm-admin-data-updated", loadAdminNavData);
+    };
+  }, [activeTab, isStaffFrame, token]);
+
+  const adminTabBadge = (id) => {
+    if (!isStaffFrame) {
+      return null;
+    }
+    const stats = adminNavData.overview?.stats || {};
+    const pendingSkills = adminNavData.overview?.pending_skills?.length || Number(stats.pending_worker_skills || 0);
+    const pendingUpgrades = adminNavData.overview?.pending_skill_upgrades?.length || 0;
+    if (id === "verify") return pendingSkills + pendingUpgrades;
+    if (id === "users") return Number(stats.users_total || adminNavData.users.length || 0);
+    if (id === "reports") return adminNavData.reports.filter((report) => isOpenReportStatus(report.status)).length;
+    if (id === "accounts") return adminNavData.users.filter((user) => user.role === "admin" || user.role === "manager").length;
+    return null;
+  };
+
   if (role === "worker" || role === "customer") {
     return <main className="workerFullscreen">{children}</main>;
   }
@@ -1079,11 +1124,15 @@ function AppFrame({ role, session, activeTab, onTab, onSignOut, children }) {
           </div>
         </div>
         <nav className="adminTabs">
-          {tabs.map(([id, label]) => (
+          {tabs.map(([id, label]) => {
+            const badge = adminTabBadge(id);
+            return (
             <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onTab(id)}>
-              {label}
+              <span>{label}</span>
+              {badge !== null && <small className={badge > 0 ? "navBadge hasItems" : "navBadge"}>{badge}</small>}
             </button>
-          ))}
+            );
+          })}
         </nav>
         <button className="ghostButton fitButton" onClick={onSignOut}>Sign out</button>
       </header>
@@ -1966,6 +2015,7 @@ function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
 function AdminApp({ token, role, activeTab, onNavigate }) {
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
+  const [reports, setReports] = useState([]);
   const [staffForm, setStaffForm] = useState({ full_name: "", email: "", phone: "", password: "", role: "manager" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -1976,6 +2026,9 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
   const loadUsers = useCallback(() => {
     apiGet("/api/admin/users", token).then(setUsers).catch((err) => setError(err.message));
   }, [token]);
+  const loadReports = useCallback(() => {
+    apiGet("/api/reports", token).then((data) => setReports(Array.isArray(data) ? data : [])).catch(() => setReports([]));
+  }, [token]);
 
   useEffect(() => {
     if (activeTab === "overview" || activeTab === "verify") {
@@ -1984,7 +2037,10 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     if (activeTab === "users" || activeTab === "accounts" || activeTab === "overview") {
       loadUsers();
     }
-  }, [activeTab, loadOverview, loadUsers]);
+    if (activeTab === "overview") {
+      loadReports();
+    }
+  }, [activeTab, loadOverview, loadReports, loadUsers]);
 
   if (activeTab === "notifications") return <NotificationsPanel token={token} onNavigate={onNavigate} />;
   if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff />;
@@ -1996,6 +2052,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
       await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(id) });
       setMessage("Skill verified. Worker profile was verified automatically.");
       loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
       setError(err.message);
     }
@@ -2008,6 +2065,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
       await apiPost("/api/admin/verify-skill-upgrade", token, { upgrade_request_id: Number(id) });
       setMessage("Skill level upgraded.");
       loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
       setError(err.message);
     }
@@ -2021,6 +2079,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
       setMessage("User deleted.");
       loadUsers();
       loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
       setError(err.message);
     }
@@ -2034,6 +2093,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
       setMessage("User activated.");
       loadUsers();
       loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
       setError(err.message);
     }
@@ -2050,7 +2110,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
       setStaffForm({ full_name: "", email: "", phone: "", password: "", role: "manager" });
       loadUsers();
       loadOverview();
-      onNavigate("users");
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
       setError(err.message);
     }
@@ -2064,7 +2124,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     <section className="adminWorkspace">
       <SectionHeader title={activeTab === "verify" ? "Verification queue" : activeTab === "users" ? "Users" : activeTab === "accounts" ? "Staff accounts" : "Operations dashboard"} text="Support customer-worker operations, verification and account issues." />
       {activeTab === "overview" && (
-        <AdminOverviewPanel overview={overview} users={users} onNavigate={onNavigate} isAdmin={isAdmin} />
+        <AdminOverviewPanel overview={overview} users={users} reports={reports} onNavigate={onNavigate} isAdmin={isAdmin} />
       )}
       {activeTab === "verify" && (
         <AdminVerificationPanel
@@ -2090,48 +2150,95 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
   );
 }
 
-function AdminOverviewPanel({ overview, users, onNavigate, isAdmin }) {
+function AdminOverviewPanel({ overview, users, reports, onNavigate, isAdmin }) {
   const stats = overview?.stats || {};
   const pendingSkills = overview?.pending_skills || [];
+  const pendingUpgrades = overview?.pending_skill_upgrades || [];
+  const openReports = reports.filter((report) => isOpenReportStatus(report.status));
+  const staffCount = users.filter((user) => user.role === "admin" || user.role === "manager").length;
+  const pendingQueueCount = pendingSkills.length + pendingUpgrades.length;
+
   return (
     <div className="adminOverview">
-      <div className="profileStatsGrid">
-        <StatCard title="Users" value={stats.users_total || users.length || 0} text={`${stats.customers_total || 0} customers, ${stats.workers_total || 0} workers`} />
-        <StatCard title="Verification" value={stats.pending_worker_skills || 0} text="Pending skill evidence" />
-        <StatCard title="Bookings" value={stats.bookings_total || 0} text={`${stats.bookings_in_progress || 0} in progress`} />
+      <div className="adminKpiGrid">
+        <AdminKpiCard title="Users" value={stats.users_total || users.length || 0} text={`${stats.customers_total || 0} customers, ${stats.workers_total || 0} workers`} />
+        <AdminKpiCard title="Queue" value={pendingQueueCount} text={`${pendingSkills.length} new skills, ${pendingUpgrades.length} upgrades`} tone={pendingQueueCount > 0 ? "warning" : ""} />
+        <AdminKpiCard title="Reports" value={openReports.length} text="Open support cases" tone={openReports.length > 0 ? "warning" : ""} />
+        <AdminKpiCard title="Bookings" value={stats.bookings_total || 0} text={`${stats.bookings_in_progress || 0} in progress`} />
       </div>
-      <div className="adminActionGrid">
-        <button className="adminActionCard" onClick={() => onNavigate("verify")}>
-          <strong>Review queue</strong>
-          <span>{pendingSkills.length} skills waiting</span>
-        </button>
-        <button className="adminActionCard" onClick={() => onNavigate("users")}>
-          <strong>User support</strong>
-          <span>Find customers, workers, managers and admins</span>
-        </button>
-        {isAdmin && <button className="adminActionCard" onClick={() => onNavigate("accounts")}>
-          <strong>Manager access</strong>
-          <span>Create manager and admin accounts for the team</span>
-        </button>}
-      </div>
-      <div className="adminTwoColumn">
-        <AdminMiniQueue title="Pending skills" items={pendingSkills} empty="No skill evidence to review." skill />
-      </div>
+      <section className="adminAttentionPanel">
+        <div className="sectionTitleRow">
+          <h3>Needs attention</h3>
+          <span>{pendingQueueCount + openReports.length} open items</span>
+        </div>
+        <div className="adminActionGrid">
+          <button className="adminActionCard" type="button" onClick={() => onNavigate("verify")}>
+            <span className="adminActionIcon" aria-hidden="true">Q</span>
+            <span>
+              <strong>Review queue</strong>
+              <small>{pendingQueueCount} verification items</small>
+            </span>
+            <b>Open</b>
+          </button>
+          <button className="adminActionCard" type="button" onClick={() => onNavigate("reports")}>
+            <span className="adminActionIcon" aria-hidden="true">R</span>
+            <span>
+              <strong>Reports</strong>
+              <small>{openReports.length} support cases need attention</small>
+            </span>
+            <b>Open</b>
+          </button>
+          <button className="adminActionCard" type="button" onClick={() => onNavigate("users")}>
+            <span className="adminActionIcon" aria-hidden="true">U</span>
+            <span>
+              <strong>User support</strong>
+              <small>Search, activate and review user accounts</small>
+            </span>
+            <b>Open</b>
+          </button>
+          {isAdmin && (
+            <button className="adminActionCard" type="button" onClick={() => onNavigate("accounts")}>
+              <span className="adminActionIcon" aria-hidden="true">S</span>
+              <span>
+                <strong>Staff access</strong>
+                <small>{staffCount} admins and managers</small>
+              </span>
+              <b>Open</b>
+            </button>
+          )}
+        </div>
+      </section>
+      <AdminMiniQueue title="Latest pending skills" items={pendingSkills} empty="No skill evidence to review." />
     </div>
   );
 }
 
-function AdminMiniQueue({ title, items, empty, skill }) {
+function AdminKpiCard({ title, value, text, tone = "" }) {
   return (
-    <section className="toolCard">
-      <h3>{title}</h3>
-      <div className="dataList">
-        {items.length === 0 && <EmptyState title={empty} text="Everything is calm here." />}
+    <article className={tone ? `adminKpiCard ${tone}` : "adminKpiCard"}>
+      <span>{title}</span>
+      <strong>{value}</strong>
+      <small>{text}</small>
+    </article>
+  );
+}
+
+function AdminMiniQueue({ title, items, empty }) {
+  return (
+    <section className="toolCard adminMiniQueue">
+      <div className="sectionTitleRow">
+        <h3>{title}</h3>
+        <span>{items.length}</span>
+      </div>
+      <div className="dataList adminCompactList">
+        {items.length === 0 && <AdminEmptyState title={empty} text="Everything is calm here." />}
         {items.slice(0, 5).map((item) => (
-          <article className="dataRow" key={skill ? item.worker_skill_id : item.worker_profile_id}>
-            <strong>{skill ? categoryTitle(item.category_name) : item.full_name}</strong>
-            <span>{skill ? item.worker_user_email : item.email}</span>
-            <span>{skill ? `Skill #${item.worker_skill_id}` : `Worker #${item.worker_profile_id}`}</span>
+          <article className="adminCompactRow" key={item.worker_skill_id}>
+            <div>
+              <strong>{categoryTitle(item.category_name)}</strong>
+              <span>{item.worker_full_name || item.worker_user_email}</span>
+            </div>
+            <span className="statusPill pending">Skill #{item.worker_skill_id}</span>
           </article>
         ))}
       </div>
@@ -2139,22 +2246,73 @@ function AdminMiniQueue({ title, items, empty, skill }) {
   );
 }
 
+function AdminEmptyState({ title, text }) {
+  return (
+    <div className="adminEmptyState">
+      <strong>{title}</strong>
+      <span>{text}</span>
+    </div>
+  );
+}
+
 function AdminUsersPanel({ users, onActivate, onDelete, canDelete }) {
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState("all");
+  const queryText = query.trim().toLowerCase();
+  const roleOptions = [
+    ["all", "All", users.length],
+    ["customer", "Customers", users.filter((user) => user.role === "customer").length],
+    ["worker", "Workers", users.filter((user) => user.role === "worker").length],
+    ["staff", "Staff", users.filter((user) => user.role === "admin" || user.role === "manager").length],
+  ];
+  const filteredUsers = users.filter((user) => {
+    const matchesQuery = !queryText ||
+      String(user.full_name || "").toLowerCase().includes(queryText) ||
+      String(user.email || "").toLowerCase().includes(queryText);
+    const matchesRole = roleFilter === "all" ||
+      user.role === roleFilter ||
+      (roleFilter === "staff" && (user.role === "admin" || user.role === "manager"));
+    return matchesQuery && matchesRole;
+  });
+
   return (
     <div className="adminUsersPanel">
-      <div className="dataList adminUserList">
-        {users.length === 0 && <EmptyState title="No users found" text="Registered accounts will appear here." />}
-        {users.map((user) => (
+      <div className="adminToolbar">
+        <label className="adminSearchField">
+          <span>Search users</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or email" />
+        </label>
+        <div className="adminFilterTabs" aria-label="Filter users">
+          {roleOptions.map(([value, label, count]) => (
+            <button key={value} type="button" className={roleFilter === value ? "active" : ""} onClick={() => setRoleFilter(value)}>
+              {label}
+              <small>{count}</small>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="adminUserTable">
+        <div className="adminUserTableHead">
+          <span>User</span>
+          <span>Role</span>
+          <span>Status</span>
+          <span>Actions</span>
+        </div>
+        {filteredUsers.length === 0 && <AdminEmptyState title="No users found" text="Try another search or filter." />}
+        {filteredUsers.map((user) => (
           <article className="adminUserRow" key={user.user_id}>
-            <div>
-              <strong>{user.full_name}</strong>
-              <span>{user.email}</span>
+            <div className="adminUserIdentity">
+              <span className="adminUserAvatar">{initialsOf(user.full_name || user.email)}</span>
+              <div>
+                <strong>{user.full_name}</strong>
+                <span>{user.email}</span>
+              </div>
             </div>
             <span className={`rolePill ${user.role}`}>{user.role}</span>
-            <span>{user.status}</span>
+            <span className={`statusPill ${String(user.status || "").toLowerCase()}`}>{user.status}</span>
             <div className="adminUserActions">
-              {user.status !== "active" && <button onClick={() => onActivate(user.user_id)}>Activate</button>}
-              {canDelete && <button className="dangerButton" onClick={() => onDelete(user.user_id)}>Delete</button>}
+              {user.status !== "active" && <button type="button" onClick={() => onActivate(user.user_id)}>Activate</button>}
+              {canDelete && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user.user_id)}>Delete</button>}
             </div>
           </article>
         ))}
@@ -2164,11 +2322,16 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete }) {
 }
 
 function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete }) {
+  const staffMembers = [...admins, ...managers].sort((a, b) => String(a.role).localeCompare(String(b.role)) || String(a.full_name).localeCompare(String(b.full_name)));
+
   return (
-    <div className="adminTwoColumn">
-      <form className="toolCard adminCreateForm" onSubmit={onSubmit}>
-        <h3>Create staff account</h3>
-        <p className="muted">Managers can review support queues. Admins can additionally delete users and create staff accounts.</p>
+    <div className="adminStaffLayout">
+      <form className="toolCard adminCreateForm adminStaffForm" onSubmit={onSubmit}>
+        <div className="sectionTitleRow">
+          <h3>Create staff account</h3>
+          <span>{form.role}</span>
+        </div>
+        <p className="muted">Managers review support queues. Admins can also delete users and create staff accounts.</p>
         <Field label="Account type" light>
           <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
             <option value="manager">Manager</option>
@@ -2181,23 +2344,26 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
         <Field label="Temporary password" light><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></Field>
         <button>Create account</button>
       </form>
-      <section className="toolCard">
-        <h3>Current staff</h3>
-        <div className="dataList">
-          {managers.map((manager) => (
-            <article className="dataRow" key={manager.user_id}>
-              <strong>{manager.full_name}</strong>
-              <span>{manager.email}</span>
-              <span className="rolePill manager">manager</span>
-              <button className="dangerButton" onClick={() => onDelete(manager.user_id)}>Delete manager</button>
-            </article>
-          ))}
-          {admins.map((admin) => (
-            <article className="dataRow" key={admin.user_id}>
-              <strong>{admin.full_name}</strong>
-              <span>{admin.email}</span>
-              <span className="rolePill admin">admin</span>
-              <button className="dangerButton" onClick={() => onDelete(admin.user_id)}>Delete admin</button>
+      <section className="toolCard adminStaffPanel">
+        <div className="sectionTitleRow">
+          <h3>Current staff</h3>
+          <span>{staffMembers.length} accounts</span>
+        </div>
+        <div className="adminStaffList">
+          {staffMembers.length === 0 && <AdminEmptyState title="No staff accounts" text="Create a manager or admin account on the left." />}
+          {staffMembers.map((staff) => (
+            <article className="adminStaffRow" key={staff.user_id}>
+              <div className="adminUserIdentity">
+                <span className="adminUserAvatar">{initialsOf(staff.full_name || staff.email)}</span>
+                <div>
+                  <strong>{staff.full_name}</strong>
+                  <span>{staff.email}</span>
+                </div>
+              </div>
+              <span className={`rolePill ${staff.role}`}>{staff.role}</span>
+              <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff.user_id)}>
+                Delete
+              </button>
             </article>
           ))}
         </div>
@@ -2245,42 +2411,64 @@ function AdminVerificationPanel({
 }) {
   const pendingSkills = overview?.pending_skills || [];
   const pendingUpgrades = overview?.pending_skill_upgrades || [];
+  const [queueMode, setQueueMode] = useState("skills");
+  const showingSkills = queueMode === "skills";
 
   return (
     <div className="adminVerifyGrid">
-      <div className="toolCard">
-        <h3>Pending skills</h3>
-        <p className="muted">Approve skills after checking evidence. Worker profile is verified automatically with the approved skill.</p>
-        <div className="dataList">
-          {pendingSkills.length === 0 && <EmptyState title="No pending skills" text="New worker skills will appear here." />}
-          {pendingSkills.map((skill) => (
-            <article className="dataRow" key={skill.worker_skill_id}>
-              <strong>{categoryTitle(skill.category_name)}</strong>
-              <span>{skill.worker_full_name} - {skill.worker_user_email}</span>
-              <span>{skill.experience_level} - {skill.price_base} KZT - Skill #{skill.worker_skill_id}</span>
+      <section className="toolCard adminQueueCard">
+        <div className="adminQueueHeader">
+          <div>
+            <h3>Review queue</h3>
+            <p className="muted">Approve evidence before services become visible to customers.</p>
+          </div>
+          <div className="adminFilterTabs" aria-label="Queue type">
+            <button type="button" className={showingSkills ? "active" : ""} onClick={() => setQueueMode("skills")}>
+              New skills
+              <small>{pendingSkills.length}</small>
+            </button>
+            <button type="button" className={!showingSkills ? "active" : ""} onClick={() => setQueueMode("upgrades")}>
+              Upgrades
+              <small>{pendingUpgrades.length}</small>
+            </button>
+          </div>
+        </div>
+        <div className="dataList adminQueueList">
+          {showingSkills && pendingSkills.length === 0 && <AdminEmptyState title="No pending skills" text="New worker skills will appear here." />}
+          {showingSkills && pendingSkills.map((skill) => (
+            <article className="adminQueueRow" key={skill.worker_skill_id}>
+              <div>
+                <strong>{categoryTitle(skill.category_name)}</strong>
+                <span>{skill.worker_full_name} - {skill.worker_user_email}</span>
+              </div>
+              <div className="adminQueueMeta">
+                <span className="statusPill pending">{skill.experience_level}</span>
+                <span>{skill.price_base} KZT</span>
+                <span>Skill #{skill.worker_skill_id}</span>
+              </div>
               <EvidenceLinks value={skill.evidence_files} />
-              <button onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill and worker</button>
+              <button type="button" onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill and worker</button>
             </article>
           ))}
-        </div>
-      </div>
-      <div className="toolCard">
-        <h3>Skill upgrade requests</h3>
-        <p className="muted">Workers can upgrade an already verified skill after sending fresh evidence.</p>
-        <div className="dataList">
-          {pendingUpgrades.length === 0 && <EmptyState title="No upgrade requests" text="Requests for junior to middle or senior will appear here." />}
-          {pendingUpgrades.map((request) => (
-            <article className="dataRow" key={request.upgrade_request_id}>
-              <strong>{categoryTitle(request.category_name)}</strong>
-              <span>{request.worker_full_name} - {request.worker_user_email}</span>
-              <span>{request.current_level} to {request.requested_level} - Skill #{request.worker_skill_id}</span>
+          {!showingSkills && pendingUpgrades.length === 0 && <AdminEmptyState title="No upgrade requests" text="Requests for junior to middle or senior will appear here." />}
+          {!showingSkills && pendingUpgrades.map((request) => (
+            <article className="adminQueueRow" key={request.upgrade_request_id}>
+              <div>
+                <strong>{categoryTitle(request.category_name)}</strong>
+                <span>{request.worker_full_name} - {request.worker_user_email}</span>
+              </div>
+              <div className="adminQueueMeta">
+                <span>{request.current_level} to {request.requested_level}</span>
+                <span>Skill #{request.worker_skill_id}</span>
+                {request.created_at && <span>{formatDateTime(request.created_at)}</span>}
+              </div>
               {request.admin_note && <small>{request.admin_note}</small>}
               <EvidenceLinks value={request.evidence_files} />
-              <button onClick={() => verifySkillUpgrade(request.upgrade_request_id)}>Approve upgrade</button>
+              <button type="button" onClick={() => verifySkillUpgrade(request.upgrade_request_id)}>Approve upgrade</button>
             </article>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -3245,6 +3433,10 @@ function reportReasonLabel(reason) {
 
 function reportStatusLabel(status) {
   return reportStatusLabels[String(status || "").toLowerCase()] || status || "Open";
+}
+
+function isOpenReportStatus(status) {
+  return !["closed", "rejected", "resolved"].includes(String(status || "open").toLowerCase());
 }
 
 function initialsOf(name) {
