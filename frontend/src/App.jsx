@@ -1622,10 +1622,14 @@ function CustomerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
     <div className="workerPhoneTabs customerPhoneTabs">
       {roleTabs.customer.map(([id, label]) => (
         <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
-          {label}
+          <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
+          <span className="phoneTabLabel">{label}</span>
         </button>
       ))}
-      <button onClick={onSignOut}>Exit</button>
+      <button className="phoneTabExit" onClick={onSignOut}>
+        <span className="phoneTabIcon exit" aria-hidden="true" />
+        <span className="phoneTabLabel">Exit</span>
+      </button>
     </div>
   );
 }
@@ -2021,12 +2025,32 @@ function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
     <div className="workerPhoneTabs">
       {roleTabs.worker.map(([id, label]) => (
         <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
-          {label}
+          <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
+          <span className="phoneTabLabel">{label}</span>
         </button>
       ))}
-      <button onClick={onSignOut}>Exit</button>
+      <button className="phoneTabExit" onClick={onSignOut}>
+        <span className="phoneTabIcon exit" aria-hidden="true" />
+        <span className="phoneTabLabel">Exit</span>
+      </button>
     </div>
   );
+}
+
+function phoneTabIconName(id) {
+  const iconNames = {
+    find: "map",
+    pro: "map",
+    requests: "jobs",
+    bookings: "jobs",
+    jobs: "jobs",
+    chats: "chat",
+    reports: "reports",
+    skills: "services",
+    profile: "profile",
+    notifications: "alerts",
+  };
+  return iconNames[id] || "page";
 }
 
 function AdminApp({ token, role, activeTab, onNavigate }) {
@@ -4710,6 +4734,22 @@ function WorkerSkillsPanel({ token }) {
   const selectedSummary = selectedCategory ? `${categoryTitle(selectedCategory.name)} / ${form.experience_level}` : "Choose a category and level";
   const selectedUpgradeSkill = verifiedSkills.find((skill) => String(skill.worker_skill_id) === String(upgradeForm.worker_skill_id));
   const upgradeLevels = nextSkillLevels(selectedUpgradeSkill?.experience_level);
+  const upgradeableSkills = verifiedSkills.filter((skill) => nextSkillLevels(skill.experience_level).length > 0);
+
+  const openUpgrade = (skill) => {
+    const levels = nextSkillLevels(skill.experience_level);
+    setUpgradeFiles([]);
+    setUpgradeForm({
+      worker_skill_id: String(skill.worker_skill_id),
+      requested_experience_level: levels[0] || "middle",
+      evidence_note: "",
+    });
+  };
+
+  const closeUpgrade = () => {
+    setUpgradeFiles([]);
+    setUpgradeForm({ worker_skill_id: "", requested_experience_level: "middle", evidence_note: "" });
+  };
 
   const submitUpgrade = async (event) => {
     event.preventDefault();
@@ -4728,8 +4768,7 @@ function WorkerSkillsPanel({ token }) {
       body.append("evidence_note", upgradeForm.evidence_note);
       upgradeFiles.forEach((file) => body.append("evidence_files", file));
       await apiMultipart("/api/worker/skill-upgrades", token, body);
-      setUpgradeFiles([]);
-      setUpgradeForm({ worker_skill_id: "", requested_experience_level: "middle", evidence_note: "" });
+      closeUpgrade();
       setMessage("Upgrade request sent. Admin will review new evidence.");
     } catch (err) {
       setError(err.message);
@@ -4748,6 +4787,13 @@ function WorkerSkillsPanel({ token }) {
         <span className="skillVerificationStatus">{profileStatus}</span>
       </article>
       <form className="skillForm" onSubmit={submit}>
+        <div className="skillFormHeader">
+          <div>
+            <h3>Add new service</h3>
+            <p>Send one service for review. It becomes visible after admin approval.</p>
+          </div>
+          <span>{selectedSummary}</span>
+        </div>
         <div className="skillFormTop">
           <Field label="Service category" light>
             <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
@@ -4779,109 +4825,101 @@ function WorkerSkillsPanel({ token }) {
           <textarea value={form.evidence_note} onChange={(e) => setForm({ ...form, evidence_note: e.target.value })} placeholder="Example: 3 years of experience, certificate attached, recent work photos..." />
         </Field>
         <div className="skillFormFooter">
-          <p>{selectedSummary}</p>
+          <p>Admin reviews the evidence before customers can see this service.</p>
           <button className="skillSubmitButton">Add service</button>
         </div>
       </form>
       <section className="skillServicesPanel">
         <div className="sectionTitleRow">
-          <h3>Your services</h3>
-          <span>{verifiedSkills.length} verified</span>
+          <div>
+            <h3>Your services</h3>
+            <span>Upgrade a service from its own card when you have stronger evidence.</span>
+          </div>
+          <span>{verifiedSkills.length} verified{upgradeableSkills.length ? ` · ${upgradeableSkills.length} upgradable` : ""}</span>
         </div>
         <div className="workerServiceSummaryGrid">
-          <article className="workerServiceSummaryCard pending">
-            <strong>Pending review</strong>
-            <span>New services stay hidden from customers until admin approves the evidence.</span>
-          </article>
           {verifiedSkills.length === 0 ? (
             <EmptyState title="No verified services yet" text="Add a service with evidence, then it will appear here after approval." />
           ) : verifiedSkills.map((skill) => (
-            <article className="workerServiceSummaryCard" key={skill.worker_skill_id || `${skill.category_name}-${skill.experience_level}`}>
-              <strong>{categoryTitle(skill.category_name || skill.name || "Service")}</strong>
-              <span>{skill.experience_level || "level not set"}</span>
-              {nextSkillLevels(skill.experience_level).length > 0 && (
-                <button
-                  type="button"
-                  className="linkButton"
-                  onClick={() => setUpgradeForm({
-                    worker_skill_id: String(skill.worker_skill_id),
-                    requested_experience_level: nextSkillLevels(skill.experience_level)[0],
-                    evidence_note: "",
-                  })}
-                >
-                  Request upgrade
-                </button>
+            <article
+              className={String(upgradeForm.worker_skill_id) === String(skill.worker_skill_id)
+                ? "workerServiceSummaryCard upgrading"
+                : "workerServiceSummaryCard"}
+              key={skill.worker_skill_id || `${skill.category_name}-${skill.experience_level}`}
+            >
+              <div className="serviceCardHeader">
+                <div>
+                  <strong>{categoryTitle(skill.category_name || skill.name || "Service")}</strong>
+                  <span>{skill.experience_level || "level not set"}</span>
+                </div>
+                <span className="statusPill completed">verified</span>
+              </div>
+              <div className="serviceCardActions">
+                {nextSkillLevels(skill.experience_level).length > 0 ? (
+                  <button type="button" className="secondaryButton" onClick={() => openUpgrade(skill)}>
+                    Upgrade level
+                  </button>
+                ) : (
+                  <span>Highest level</span>
+                )}
+              </div>
+              {String(upgradeForm.worker_skill_id) === String(skill.worker_skill_id) && (
+                <form className="skillUpgradeInline" onSubmit={submitUpgrade}>
+                  <div className="skillUpgradeHeader">
+                    <div>
+                      <strong>Upgrade {categoryTitle(skill.category_name || skill.name || "service")}</strong>
+                      <span>Current level stays active while staff reviews this request.</span>
+                    </div>
+                    <button type="button" className="secondaryButton compactButton" onClick={closeUpgrade}>Close</button>
+                  </div>
+                  <div className="skillUpgradeGrid">
+                    <Field label="Requested level" light>
+                      <select
+                        value={upgradeForm.requested_experience_level}
+                        onChange={(e) => setUpgradeForm({ ...upgradeForm, requested_experience_level: e.target.value })}
+                        disabled={upgradeLevels.length === 0}
+                        required
+                      >
+                        {upgradeLevels.length === 0 && <option value="">No upgrade available</option>}
+                        {upgradeLevels.map((level) => <option key={level} value={level}>{level}</option>)}
+                      </select>
+                    </Field>
+                    <div className="field light skillEvidenceField">
+                      <span>Upgrade evidence</span>
+                      <label className="fileButton skillEvidenceButton">
+                        <span aria-hidden="true">+</span>
+                        Attach files
+                        <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setUpgradeFiles(Array.from(e.target.files || []))} />
+                      </label>
+                      <div className="selectedFiles">
+                        {upgradeFiles.length === 0 ? <span>No files selected</span> : upgradeFiles.map((file) => <span key={file.name}>{file.name}</span>)}
+                      </div>
+                    </div>
+                  </div>
+                  <Field label="Admin note" light>
+                    <textarea value={upgradeForm.evidence_note} onChange={(e) => setUpgradeForm({ ...upgradeForm, evidence_note: e.target.value })} placeholder="What changed since the last verification?" />
+                  </Field>
+                  <button className="skillSubmitButton" disabled={upgradeLevels.length === 0}>Send upgrade request</button>
+                </form>
               )}
             </article>
           ))}
         </div>
       </section>
-      {verifiedSkills.length > 0 && (
-        <form className="skillUpgradeForm" onSubmit={submitUpgrade}>
-          <div>
-            <h3>Upgrade a verified service</h3>
-            <p>Choose an existing skill and attach fresh evidence. Your current level stays active while staff reviews the request.</p>
-          </div>
-          <div className="skillFormTop">
-            <Field label="Verified service" light>
-              <select
-                value={upgradeForm.worker_skill_id}
-                onChange={(e) => {
-                  const nextSkill = verifiedSkills.find((skill) => String(skill.worker_skill_id) === e.target.value);
-                  const levels = nextSkillLevels(nextSkill?.experience_level);
-                  setUpgradeForm({
-                    ...upgradeForm,
-                    worker_skill_id: e.target.value,
-                    requested_experience_level: levels[0] || "middle",
-                  });
-                }}
-                required
-              >
-                <option value="">Choose service</option>
-                {verifiedSkills.filter((skill) => nextSkillLevels(skill.experience_level).length > 0).map((skill) => (
-                  <option key={skill.worker_skill_id} value={skill.worker_skill_id}>
-                    {categoryTitle(skill.category_name || skill.name)} - {skill.experience_level}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Requested level" light>
-              <select
-                value={upgradeForm.requested_experience_level}
-                onChange={(e) => setUpgradeForm({ ...upgradeForm, requested_experience_level: e.target.value })}
-                disabled={upgradeLevels.length === 0}
-                required
-              >
-                {upgradeLevels.length === 0 && <option value="">No upgrade available</option>}
-                {upgradeLevels.map((level) => <option key={level} value={level}>{level}</option>)}
-              </select>
-            </Field>
-            <div className="field light skillEvidenceField">
-              <span>Upgrade evidence</span>
-              <label className="fileButton skillEvidenceButton">
-                <span aria-hidden="true">+</span>
-                Attach files
-                <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setUpgradeFiles(Array.from(e.target.files || []))} />
-              </label>
-              <div className="selectedFiles">
-                {upgradeFiles.length === 0 ? <span>No files selected</span> : upgradeFiles.map((file) => <span key={file.name}>{file.name}</span>)}
-              </div>
-            </div>
-          </div>
-          <Field label="Admin note" light>
-            <textarea value={upgradeForm.evidence_note} onChange={(e) => setUpgradeForm({ ...upgradeForm, evidence_note: e.target.value })} placeholder="What changed since the last verification?" />
-          </Field>
-          <button className="secondaryButton">Send upgrade request</button>
-        </form>
-      )}
-      <div className="skillCategoryGrid">
-        {categories.map((category) => (
-          <article key={category.category_id} className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"} onClick={() => setForm({ ...form, category_id: String(category.category_id) })}>
-            <strong>{categoryTitle(category.name)}</strong>
-            <span>{categoryDescription(category.name, category.description)}</span>
-          </article>
-        ))}
-      </div>
+      <details className="skillCategoriesDisclosure">
+        <summary>
+          <span>Available categories</span>
+          <small>{categories.length}</small>
+        </summary>
+        <div className="skillCategoryGrid">
+          {categories.map((category) => (
+            <article key={category.category_id} className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"} onClick={() => setForm({ ...form, category_id: String(category.category_id) })}>
+              <strong>{categoryTitle(category.name)}</strong>
+              <span>{categoryDescription(category.name, category.description)}</span>
+            </article>
+          ))}
+        </div>
+      </details>
       <Messages message={message} error={error} />
     </section>
   );
