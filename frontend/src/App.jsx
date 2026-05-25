@@ -55,6 +55,55 @@ const roleTabs = {
   ],
 };
 
+const roleRoutePrefixes = {
+  customer: "customer",
+  worker: "worker",
+  admin: "admin",
+  manager: "manager",
+};
+
+const tabRouteSlugs = {
+  customer: {
+    find: "search",
+    bookings: "bookings",
+    chats: "chat",
+    reports: "reports",
+    profile: "profile",
+    notifications: "alerts",
+  },
+  worker: {
+    pro: "map",
+    jobs: "jobs",
+    chats: "chat",
+    reports: "reports",
+    skills: "services",
+    profile: "profile",
+    notifications: "alerts",
+  },
+  admin: {
+    overview: "dashboard",
+    verify: "queue",
+    users: "users",
+    reports: "reports",
+    accounts: "staff",
+    notifications: "alerts",
+  },
+  manager: {
+    overview: "dashboard",
+    verify: "queue",
+    users: "users",
+    reports: "reports",
+    notifications: "alerts",
+  },
+};
+
+const slugRouteTabs = Object.fromEntries(
+  Object.entries(tabRouteSlugs).map(([role, tabs]) => [
+    role,
+    Object.fromEntries(Object.entries(tabs).map(([tab, slug]) => [slug, tab])),
+  ])
+);
+
 const reportReasonLabels = {
   bad_quality: "Bad quality",
   no_show: "No show",
@@ -185,12 +234,17 @@ function AvatarCropper({ draft, onChange, onClose, onCancel }) {
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
-  const [activeTab, setActiveTab] = useState(defaultTabForRole(role));
+  const [activeTab, setActiveTab] = useState(() => tabFromCurrentRoute(role) || defaultTabForRole(role));
   const [paymentReady, setPaymentReady] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
   const session = useMemo(() => decodeToken(token), [token]);
   const { toastNotifications, dismissToastNotification } = useNotificationFeed(token);
+
+  const navigateToTab = useCallback((nextTab, options = {}) => {
+    setActiveTab(nextTab);
+    writeTabRoute(role, nextTab, options);
+  }, [role]);
 
   const openToastAction = useCallback(async (item) => {
     if (!token) {
@@ -201,17 +255,17 @@ export default function App() {
       if (chat?.chat_id) {
         localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
       }
-      setActiveTab("chats");
+      navigateToTab("chats");
     } else if (item.action_type === "chat" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
-      setActiveTab("chats");
+      navigateToTab("chats");
     } else if (item.action_type === "booking_map") {
-      setActiveTab(role === "worker" ? "pro" : "find");
+      navigateToTab(role === "worker" ? "pro" : "find");
     } else if (item.action_type === "report" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_report", String(item.action_ref));
-      setActiveTab("reports");
+      navigateToTab("reports");
     } else if (item.action_type === "verify") {
-      setActiveTab("verify");
+      navigateToTab("verify");
     }
     const id = item.notification_id || item.id;
     if (id) {
@@ -219,15 +273,17 @@ export default function App() {
       dismissToastNotification(notificationID(item));
       window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
     }
-  }, [dismissToastNotification, token]);
+  }, [dismissToastNotification, navigateToTab, role, token]);
 
   const saveSession = useCallback((nextToken, fallbackRole) => {
     const nextRole = readRole(nextToken) || fallbackRole || "";
+    const nextTab = tabFromCurrentRoute(nextRole) || defaultTabForRole(nextRole);
     localStorage.setItem(TOKEN_KEY, nextToken);
     localStorage.setItem(ROLE_KEY, nextRole);
     setToken(nextToken);
     setRole(nextRole);
-    setActiveTab(defaultTabForRole(nextRole));
+    setActiveTab(nextTab);
+    writeTabRoute(nextRole, nextTab, { replace: true });
     setPaymentReady(false);
   }, []);
 
@@ -370,6 +426,21 @@ export default function App() {
     return () => window.removeEventListener("wm-auth-expired", handleExpired);
   }, [signOut]);
 
+  useEffect(() => {
+    if (!token || !role) {
+      return undefined;
+    }
+    const handleRouteChange = () => {
+      const routedTab = tabFromCurrentRoute(role);
+      if (routedTab) {
+        setActiveTab(routedTab);
+      }
+    };
+    window.addEventListener("popstate", handleRouteChange);
+    handleRouteChange();
+    return () => window.removeEventListener("popstate", handleRouteChange);
+  }, [role, token]);
+
   if (!token) {
     return <AuthScreen onAuth={saveSession} />;
   }
@@ -391,7 +462,7 @@ export default function App() {
           <CustomerApp
             token={token}
             activeTab={activeTab}
-            onNavigate={setActiveTab}
+            onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
             paymentLoading={paymentLoading}
@@ -412,7 +483,7 @@ export default function App() {
           <WorkerApp
             token={token}
             activeTab={activeTab}
-            onNavigate={setActiveTab}
+            onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
             paymentLoading={paymentLoading}
@@ -428,8 +499,8 @@ export default function App() {
 
   return (
     <>
-      <AppFrame token={token} role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
-        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={setActiveTab} />}
+      <AppFrame token={token} role={role} session={session} activeTab={activeTab} onTab={navigateToTab} onSignOut={signOut}>
+        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={navigateToTab} />}
         {!["customer", "worker", "admin", "manager"].includes(role) && (
           <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
         )}
@@ -1057,6 +1128,34 @@ function clearAuthURL() {
   }
 }
 
+function tabFromCurrentRoute(role) {
+  const prefix = roleRoutePrefixes[role];
+  if (!prefix) return "";
+  const segments = window.location.pathname
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => decodeURIComponent(segment).toLowerCase());
+  if (segments[0] !== prefix) return "";
+  if (!segments[1]) return defaultTabForRole(role);
+  return slugRouteTabs[role]?.[segments[1]] || "";
+}
+
+function routePathForTab(role, tab) {
+  const prefix = roleRoutePrefixes[role];
+  const slug = tabRouteSlugs[role]?.[tab];
+  return prefix && slug ? `/${prefix}/${slug}` : "";
+}
+
+function writeTabRoute(role, tab, options = {}) {
+  const nextPath = routePathForTab(role, tab);
+  if (!nextPath) return;
+  if (window.location.pathname === nextPath && !window.location.search && !window.location.hash) {
+    return;
+  }
+  const method = options.replace ? "replaceState" : "pushState";
+  window.history[method]({ role, tab }, "", nextPath);
+}
+
 function readPaymentSetupIntent() {
   try {
     const raw = localStorage.getItem(PAYMENT_SETUP_INTENT_KEY);
@@ -1619,13 +1718,19 @@ function CustomerLocationGate({ activeTab, geoStatus, geoError, onAllow, onNavig
 
 function CustomerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
   return (
-    <div className="workerPhoneTabs customerPhoneTabs">
-      {roleTabs.customer.map(([id, label]) => (
-        <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
-          {label}
-        </button>
-      ))}
-      <button onClick={onSignOut}>Exit</button>
+    <div className="phoneTabsDock customerPhoneTabsDock">
+      <nav className="workerPhoneTabs customerPhoneTabs" aria-label="Customer navigation">
+        {roleTabs.customer.map(([id, label]) => (
+          <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
+            <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
+            <span className="phoneTabLabel">{label}</span>
+          </button>
+        ))}
+      </nav>
+      <button className="phoneTabExit" onClick={onSignOut}>
+        <span className="phoneTabIcon exit" aria-hidden="true" />
+        <span className="phoneTabLabel">Exit</span>
+      </button>
     </div>
   );
 }
@@ -2018,15 +2123,37 @@ function NavigationOverlay({ booking, position, onFollow }) {
 
 function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
   return (
-    <div className="workerPhoneTabs">
-      {roleTabs.worker.map(([id, label]) => (
-        <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
-          {label}
-        </button>
-      ))}
-      <button onClick={onSignOut}>Exit</button>
+    <div className="phoneTabsDock workerPhoneTabsDock">
+      <nav className="workerPhoneTabs" aria-label="Worker navigation">
+        {roleTabs.worker.map(([id, label]) => (
+          <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
+            <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
+            <span className="phoneTabLabel">{label}</span>
+          </button>
+        ))}
+      </nav>
+      <button className="phoneTabExit" onClick={onSignOut}>
+        <span className="phoneTabIcon exit" aria-hidden="true" />
+        <span className="phoneTabLabel">Exit</span>
+      </button>
     </div>
   );
+}
+
+function phoneTabIconName(id) {
+  const iconNames = {
+    find: "map",
+    pro: "map",
+    requests: "jobs",
+    bookings: "jobs",
+    jobs: "jobs",
+    chats: "chat",
+    reports: "reports",
+    skills: "services",
+    profile: "profile",
+    notifications: "alerts",
+  };
+  return iconNames[id] || "page";
 }
 
 function AdminApp({ token, role, activeTab, onNavigate }) {
@@ -4710,6 +4837,22 @@ function WorkerSkillsPanel({ token }) {
   const selectedSummary = selectedCategory ? `${categoryTitle(selectedCategory.name)} / ${form.experience_level}` : "Choose a category and level";
   const selectedUpgradeSkill = verifiedSkills.find((skill) => String(skill.worker_skill_id) === String(upgradeForm.worker_skill_id));
   const upgradeLevels = nextSkillLevels(selectedUpgradeSkill?.experience_level);
+  const upgradeableSkills = verifiedSkills.filter((skill) => nextSkillLevels(skill.experience_level).length > 0);
+
+  const openUpgrade = (skill) => {
+    const levels = nextSkillLevels(skill.experience_level);
+    setUpgradeFiles([]);
+    setUpgradeForm({
+      worker_skill_id: String(skill.worker_skill_id),
+      requested_experience_level: levels[0] || "middle",
+      evidence_note: "",
+    });
+  };
+
+  const closeUpgrade = () => {
+    setUpgradeFiles([]);
+    setUpgradeForm({ worker_skill_id: "", requested_experience_level: "middle", evidence_note: "" });
+  };
 
   const submitUpgrade = async (event) => {
     event.preventDefault();
@@ -4728,8 +4871,7 @@ function WorkerSkillsPanel({ token }) {
       body.append("evidence_note", upgradeForm.evidence_note);
       upgradeFiles.forEach((file) => body.append("evidence_files", file));
       await apiMultipart("/api/worker/skill-upgrades", token, body);
-      setUpgradeFiles([]);
-      setUpgradeForm({ worker_skill_id: "", requested_experience_level: "middle", evidence_note: "" });
+      closeUpgrade();
       setMessage("Upgrade request sent. Admin will review new evidence.");
     } catch (err) {
       setError(err.message);
@@ -4748,6 +4890,13 @@ function WorkerSkillsPanel({ token }) {
         <span className="skillVerificationStatus">{profileStatus}</span>
       </article>
       <form className="skillForm" onSubmit={submit}>
+        <div className="skillFormHeader">
+          <div>
+            <h3>Add new service</h3>
+            <p>Send one service for review. It becomes visible after admin approval.</p>
+          </div>
+          <span>{selectedSummary}</span>
+        </div>
         <div className="skillFormTop">
           <Field label="Service category" light>
             <select value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} required>
@@ -4779,109 +4928,101 @@ function WorkerSkillsPanel({ token }) {
           <textarea value={form.evidence_note} onChange={(e) => setForm({ ...form, evidence_note: e.target.value })} placeholder="Example: 3 years of experience, certificate attached, recent work photos..." />
         </Field>
         <div className="skillFormFooter">
-          <p>{selectedSummary}</p>
+          <p>Admin reviews the evidence before customers can see this service.</p>
           <button className="skillSubmitButton">Add service</button>
         </div>
       </form>
       <section className="skillServicesPanel">
         <div className="sectionTitleRow">
-          <h3>Your services</h3>
-          <span>{verifiedSkills.length} verified</span>
+          <div>
+            <h3>Your services</h3>
+            <span>Upgrade a service from its own card when you have stronger evidence.</span>
+          </div>
+          <span>{verifiedSkills.length} verified{upgradeableSkills.length ? ` · ${upgradeableSkills.length} upgradable` : ""}</span>
         </div>
         <div className="workerServiceSummaryGrid">
-          <article className="workerServiceSummaryCard pending">
-            <strong>Pending review</strong>
-            <span>New services stay hidden from customers until admin approves the evidence.</span>
-          </article>
           {verifiedSkills.length === 0 ? (
             <EmptyState title="No verified services yet" text="Add a service with evidence, then it will appear here after approval." />
           ) : verifiedSkills.map((skill) => (
-            <article className="workerServiceSummaryCard" key={skill.worker_skill_id || `${skill.category_name}-${skill.experience_level}`}>
-              <strong>{categoryTitle(skill.category_name || skill.name || "Service")}</strong>
-              <span>{skill.experience_level || "level not set"}</span>
-              {nextSkillLevels(skill.experience_level).length > 0 && (
-                <button
-                  type="button"
-                  className="linkButton"
-                  onClick={() => setUpgradeForm({
-                    worker_skill_id: String(skill.worker_skill_id),
-                    requested_experience_level: nextSkillLevels(skill.experience_level)[0],
-                    evidence_note: "",
-                  })}
-                >
-                  Request upgrade
-                </button>
+            <article
+              className={String(upgradeForm.worker_skill_id) === String(skill.worker_skill_id)
+                ? "workerServiceSummaryCard upgrading"
+                : "workerServiceSummaryCard"}
+              key={skill.worker_skill_id || `${skill.category_name}-${skill.experience_level}`}
+            >
+              <div className="serviceCardHeader">
+                <div>
+                  <strong>{categoryTitle(skill.category_name || skill.name || "Service")}</strong>
+                  <span>{skill.experience_level || "level not set"}</span>
+                </div>
+                <span className="statusPill completed">verified</span>
+              </div>
+              <div className="serviceCardActions">
+                {nextSkillLevels(skill.experience_level).length > 0 ? (
+                  <button type="button" className="secondaryButton" onClick={() => openUpgrade(skill)}>
+                    Upgrade level
+                  </button>
+                ) : (
+                  <span>Highest level</span>
+                )}
+              </div>
+              {String(upgradeForm.worker_skill_id) === String(skill.worker_skill_id) && (
+                <form className="skillUpgradeInline" onSubmit={submitUpgrade}>
+                  <div className="skillUpgradeHeader">
+                    <div>
+                      <strong>Upgrade {categoryTitle(skill.category_name || skill.name || "service")}</strong>
+                      <span>Current level stays active while staff reviews this request.</span>
+                    </div>
+                    <button type="button" className="secondaryButton compactButton" onClick={closeUpgrade}>Close</button>
+                  </div>
+                  <div className="skillUpgradeGrid">
+                    <Field label="Requested level" light>
+                      <select
+                        value={upgradeForm.requested_experience_level}
+                        onChange={(e) => setUpgradeForm({ ...upgradeForm, requested_experience_level: e.target.value })}
+                        disabled={upgradeLevels.length === 0}
+                        required
+                      >
+                        {upgradeLevels.length === 0 && <option value="">No upgrade available</option>}
+                        {upgradeLevels.map((level) => <option key={level} value={level}>{level}</option>)}
+                      </select>
+                    </Field>
+                    <div className="field light skillEvidenceField">
+                      <span>Upgrade evidence</span>
+                      <label className="fileButton skillEvidenceButton">
+                        <span aria-hidden="true">+</span>
+                        Attach files
+                        <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setUpgradeFiles(Array.from(e.target.files || []))} />
+                      </label>
+                      <div className="selectedFiles">
+                        {upgradeFiles.length === 0 ? <span>No files selected</span> : upgradeFiles.map((file) => <span key={file.name}>{file.name}</span>)}
+                      </div>
+                    </div>
+                  </div>
+                  <Field label="Admin note" light>
+                    <textarea value={upgradeForm.evidence_note} onChange={(e) => setUpgradeForm({ ...upgradeForm, evidence_note: e.target.value })} placeholder="What changed since the last verification?" />
+                  </Field>
+                  <button className="skillSubmitButton" disabled={upgradeLevels.length === 0}>Send upgrade request</button>
+                </form>
               )}
             </article>
           ))}
         </div>
       </section>
-      {verifiedSkills.length > 0 && (
-        <form className="skillUpgradeForm" onSubmit={submitUpgrade}>
-          <div>
-            <h3>Upgrade a verified service</h3>
-            <p>Choose an existing skill and attach fresh evidence. Your current level stays active while staff reviews the request.</p>
-          </div>
-          <div className="skillFormTop">
-            <Field label="Verified service" light>
-              <select
-                value={upgradeForm.worker_skill_id}
-                onChange={(e) => {
-                  const nextSkill = verifiedSkills.find((skill) => String(skill.worker_skill_id) === e.target.value);
-                  const levels = nextSkillLevels(nextSkill?.experience_level);
-                  setUpgradeForm({
-                    ...upgradeForm,
-                    worker_skill_id: e.target.value,
-                    requested_experience_level: levels[0] || "middle",
-                  });
-                }}
-                required
-              >
-                <option value="">Choose service</option>
-                {verifiedSkills.filter((skill) => nextSkillLevels(skill.experience_level).length > 0).map((skill) => (
-                  <option key={skill.worker_skill_id} value={skill.worker_skill_id}>
-                    {categoryTitle(skill.category_name || skill.name)} - {skill.experience_level}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Requested level" light>
-              <select
-                value={upgradeForm.requested_experience_level}
-                onChange={(e) => setUpgradeForm({ ...upgradeForm, requested_experience_level: e.target.value })}
-                disabled={upgradeLevels.length === 0}
-                required
-              >
-                {upgradeLevels.length === 0 && <option value="">No upgrade available</option>}
-                {upgradeLevels.map((level) => <option key={level} value={level}>{level}</option>)}
-              </select>
-            </Field>
-            <div className="field light skillEvidenceField">
-              <span>Upgrade evidence</span>
-              <label className="fileButton skillEvidenceButton">
-                <span aria-hidden="true">+</span>
-                Attach files
-                <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setUpgradeFiles(Array.from(e.target.files || []))} />
-              </label>
-              <div className="selectedFiles">
-                {upgradeFiles.length === 0 ? <span>No files selected</span> : upgradeFiles.map((file) => <span key={file.name}>{file.name}</span>)}
-              </div>
-            </div>
-          </div>
-          <Field label="Admin note" light>
-            <textarea value={upgradeForm.evidence_note} onChange={(e) => setUpgradeForm({ ...upgradeForm, evidence_note: e.target.value })} placeholder="What changed since the last verification?" />
-          </Field>
-          <button className="secondaryButton">Send upgrade request</button>
-        </form>
-      )}
-      <div className="skillCategoryGrid">
-        {categories.map((category) => (
-          <article key={category.category_id} className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"} onClick={() => setForm({ ...form, category_id: String(category.category_id) })}>
-            <strong>{categoryTitle(category.name)}</strong>
-            <span>{categoryDescription(category.name, category.description)}</span>
-          </article>
-        ))}
-      </div>
+      <details className="skillCategoriesDisclosure">
+        <summary>
+          <span>Available categories</span>
+          <small>{categories.length}</small>
+        </summary>
+        <div className="skillCategoryGrid">
+          {categories.map((category) => (
+            <article key={category.category_id} className={String(category.category_id) === String(form.category_id) ? "categoryTile active" : "categoryTile"} onClick={() => setForm({ ...form, category_id: String(category.category_id) })}>
+              <strong>{categoryTitle(category.name)}</strong>
+              <span>{categoryDescription(category.name, category.description)}</span>
+            </article>
+          ))}
+        </div>
+      </details>
       <Messages message={message} error={error} />
     </section>
   );
