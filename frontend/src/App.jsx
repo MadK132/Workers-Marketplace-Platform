@@ -55,6 +55,55 @@ const roleTabs = {
   ],
 };
 
+const roleRoutePrefixes = {
+  customer: "customer",
+  worker: "worker",
+  admin: "admin",
+  manager: "manager",
+};
+
+const tabRouteSlugs = {
+  customer: {
+    find: "search",
+    bookings: "bookings",
+    chats: "chat",
+    reports: "reports",
+    profile: "profile",
+    notifications: "alerts",
+  },
+  worker: {
+    pro: "map",
+    jobs: "jobs",
+    chats: "chat",
+    reports: "reports",
+    skills: "services",
+    profile: "profile",
+    notifications: "alerts",
+  },
+  admin: {
+    overview: "dashboard",
+    verify: "queue",
+    users: "users",
+    reports: "reports",
+    accounts: "staff",
+    notifications: "alerts",
+  },
+  manager: {
+    overview: "dashboard",
+    verify: "queue",
+    users: "users",
+    reports: "reports",
+    notifications: "alerts",
+  },
+};
+
+const slugRouteTabs = Object.fromEntries(
+  Object.entries(tabRouteSlugs).map(([role, tabs]) => [
+    role,
+    Object.fromEntries(Object.entries(tabs).map(([tab, slug]) => [slug, tab])),
+  ])
+);
+
 const reportReasonLabels = {
   bad_quality: "Bad quality",
   no_show: "No show",
@@ -185,12 +234,17 @@ function AvatarCropper({ draft, onChange, onClose, onCancel }) {
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
-  const [activeTab, setActiveTab] = useState(defaultTabForRole(role));
+  const [activeTab, setActiveTab] = useState(() => tabFromCurrentRoute(role) || defaultTabForRole(role));
   const [paymentReady, setPaymentReady] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
   const session = useMemo(() => decodeToken(token), [token]);
   const { toastNotifications, dismissToastNotification } = useNotificationFeed(token);
+
+  const navigateToTab = useCallback((nextTab, options = {}) => {
+    setActiveTab(nextTab);
+    writeTabRoute(role, nextTab, options);
+  }, [role]);
 
   const openToastAction = useCallback(async (item) => {
     if (!token) {
@@ -201,17 +255,17 @@ export default function App() {
       if (chat?.chat_id) {
         localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
       }
-      setActiveTab("chats");
+      navigateToTab("chats");
     } else if (item.action_type === "chat" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
-      setActiveTab("chats");
+      navigateToTab("chats");
     } else if (item.action_type === "booking_map") {
-      setActiveTab(role === "worker" ? "pro" : "find");
+      navigateToTab(role === "worker" ? "pro" : "find");
     } else if (item.action_type === "report" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_report", String(item.action_ref));
-      setActiveTab("reports");
+      navigateToTab("reports");
     } else if (item.action_type === "verify") {
-      setActiveTab("verify");
+      navigateToTab("verify");
     }
     const id = item.notification_id || item.id;
     if (id) {
@@ -219,15 +273,17 @@ export default function App() {
       dismissToastNotification(notificationID(item));
       window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
     }
-  }, [dismissToastNotification, token]);
+  }, [dismissToastNotification, navigateToTab, role, token]);
 
   const saveSession = useCallback((nextToken, fallbackRole) => {
     const nextRole = readRole(nextToken) || fallbackRole || "";
+    const nextTab = tabFromCurrentRoute(nextRole) || defaultTabForRole(nextRole);
     localStorage.setItem(TOKEN_KEY, nextToken);
     localStorage.setItem(ROLE_KEY, nextRole);
     setToken(nextToken);
     setRole(nextRole);
-    setActiveTab(defaultTabForRole(nextRole));
+    setActiveTab(nextTab);
+    writeTabRoute(nextRole, nextTab, { replace: true });
     setPaymentReady(false);
   }, []);
 
@@ -370,6 +426,21 @@ export default function App() {
     return () => window.removeEventListener("wm-auth-expired", handleExpired);
   }, [signOut]);
 
+  useEffect(() => {
+    if (!token || !role) {
+      return undefined;
+    }
+    const handleRouteChange = () => {
+      const routedTab = tabFromCurrentRoute(role);
+      if (routedTab) {
+        setActiveTab(routedTab);
+      }
+    };
+    window.addEventListener("popstate", handleRouteChange);
+    handleRouteChange();
+    return () => window.removeEventListener("popstate", handleRouteChange);
+  }, [role, token]);
+
   if (!token) {
     return <AuthScreen onAuth={saveSession} />;
   }
@@ -391,7 +462,7 @@ export default function App() {
           <CustomerApp
             token={token}
             activeTab={activeTab}
-            onNavigate={setActiveTab}
+            onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
             paymentLoading={paymentLoading}
@@ -412,7 +483,7 @@ export default function App() {
           <WorkerApp
             token={token}
             activeTab={activeTab}
-            onNavigate={setActiveTab}
+            onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
             paymentLoading={paymentLoading}
@@ -428,8 +499,8 @@ export default function App() {
 
   return (
     <>
-      <AppFrame token={token} role={role} session={session} activeTab={activeTab} onTab={setActiveTab} onSignOut={signOut}>
-        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={setActiveTab} />}
+      <AppFrame token={token} role={role} session={session} activeTab={activeTab} onTab={navigateToTab} onSignOut={signOut}>
+        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={navigateToTab} />}
         {!["customer", "worker", "admin", "manager"].includes(role) && (
           <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
         )}
@@ -1057,6 +1128,34 @@ function clearAuthURL() {
   }
 }
 
+function tabFromCurrentRoute(role) {
+  const prefix = roleRoutePrefixes[role];
+  if (!prefix) return "";
+  const segments = window.location.pathname
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => decodeURIComponent(segment).toLowerCase());
+  if (segments[0] !== prefix) return "";
+  if (!segments[1]) return defaultTabForRole(role);
+  return slugRouteTabs[role]?.[segments[1]] || "";
+}
+
+function routePathForTab(role, tab) {
+  const prefix = roleRoutePrefixes[role];
+  const slug = tabRouteSlugs[role]?.[tab];
+  return prefix && slug ? `/${prefix}/${slug}` : "";
+}
+
+function writeTabRoute(role, tab, options = {}) {
+  const nextPath = routePathForTab(role, tab);
+  if (!nextPath) return;
+  if (window.location.pathname === nextPath && !window.location.search && !window.location.hash) {
+    return;
+  }
+  const method = options.replace ? "replaceState" : "pushState";
+  window.history[method]({ role, tab }, "", nextPath);
+}
+
 function readPaymentSetupIntent() {
   try {
     const raw = localStorage.getItem(PAYMENT_SETUP_INTENT_KEY);
@@ -1619,13 +1718,15 @@ function CustomerLocationGate({ activeTab, geoStatus, geoError, onAllow, onNavig
 
 function CustomerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
   return (
-    <div className="workerPhoneTabs customerPhoneTabs">
-      {roleTabs.customer.map(([id, label]) => (
-        <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
-          <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
-          <span className="phoneTabLabel">{label}</span>
-        </button>
-      ))}
+    <div className="phoneTabsDock customerPhoneTabsDock">
+      <nav className="workerPhoneTabs customerPhoneTabs" aria-label="Customer navigation">
+        {roleTabs.customer.map(([id, label]) => (
+          <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
+            <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
+            <span className="phoneTabLabel">{label}</span>
+          </button>
+        ))}
+      </nav>
       <button className="phoneTabExit" onClick={onSignOut}>
         <span className="phoneTabIcon exit" aria-hidden="true" />
         <span className="phoneTabLabel">Exit</span>
@@ -2022,13 +2123,15 @@ function NavigationOverlay({ booking, position, onFollow }) {
 
 function WorkerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
   return (
-    <div className="workerPhoneTabs">
-      {roleTabs.worker.map(([id, label]) => (
-        <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
-          <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
-          <span className="phoneTabLabel">{label}</span>
-        </button>
-      ))}
+    <div className="phoneTabsDock workerPhoneTabsDock">
+      <nav className="workerPhoneTabs" aria-label="Worker navigation">
+        {roleTabs.worker.map(([id, label]) => (
+          <button key={id} className={activeTab === id ? "active" : ""} onClick={() => onNavigate(id)}>
+            <span className={`phoneTabIcon ${phoneTabIconName(id)}`} aria-hidden="true" />
+            <span className="phoneTabLabel">{label}</span>
+          </button>
+        ))}
+      </nav>
       <button className="phoneTabExit" onClick={onSignOut}>
         <span className="phoneTabIcon exit" aria-hidden="true" />
         <span className="phoneTabLabel">Exit</span>
