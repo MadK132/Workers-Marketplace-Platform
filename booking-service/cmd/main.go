@@ -51,7 +51,11 @@ func main() {
 	}
 	bookingService := service.NewBookingService(bookingRepo)
 
-	userClient := client.NewUserClient(cfg.User.URL)
+	userClient := client.NewUserClient(
+		cfg.User.GRPCAddress,
+		cfg.Gateway.SharedSecret,
+		cfg.JWT.Secret,
+	)
 	paymentClient := client.NewPaymentClient(
 		cfg.Payment.GRPCAddress,
 		cfg.Gateway.SharedSecret,

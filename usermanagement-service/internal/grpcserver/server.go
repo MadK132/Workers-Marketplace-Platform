@@ -13,6 +13,7 @@ import (
 type AuthService interface {
 	GetCustomerProfile(ctx context.Context, userID int) (*model.CustomerProfile, error)
 	GetWorkerProfile(ctx context.Context, userID int) (*model.WorkerProfile, error)
+	HasPaymentMethod(ctx context.Context, userID int) (bool, error)
 }
 
 type Server struct {
@@ -59,5 +60,24 @@ func (s *Server) GetWorkerProfile(
 
 	return &usermanagementpb.WorkerProfileResponse{
 		WorkerProfileId: int64(profile.ID),
+	}, nil
+}
+
+func (s *Server) HasPaymentMethod(
+	ctx context.Context,
+	req *usermanagementpb.GetProfileRequest,
+) (*usermanagementpb.HasPaymentMethodResponse, error) {
+	userID := req.GetUserId()
+	if userID <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "user_id must be positive")
+	}
+
+	hasPaymentMethod, err := s.auth.HasPaymentMethod(ctx, int(userID))
+	if err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	return &usermanagementpb.HasPaymentMethodResponse{
+		HasPaymentMethod: hasPaymentMethod,
 	}, nil
 }

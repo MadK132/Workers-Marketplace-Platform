@@ -26,7 +26,8 @@ type GRPCConfig struct {
 }
 
 type UserServiceConfig struct {
-	URL string
+	URL         string
+	GRPCAddress string
 }
 
 type PaymentServiceConfig struct {
@@ -74,7 +75,8 @@ func Load() Config {
 			SharedSecret: getEnv("GATEWAY_SHARED_SECRET", ""),
 		},
 		User: UserServiceConfig{
-			URL: getEnv("USER_SERVICE_URL", "http://localhost:8081"),
+			URL:         getEnv("USER_SERVICE_URL", "http://localhost:8081"),
+			GRPCAddress: getEnv("USER_GRPC_ADDR", "localhost:9091"),
 		},
 		Payment: PaymentServiceConfig{
 			GRPCAddress: getEnv("PAYMENT_GRPC_ADDR", "localhost:9096"),

@@ -7,6 +7,7 @@ option go_package = "diploma/api/usermanagement-service-proto;usermanagementpb";
 service UserManagementService {
   rpc GetCustomerProfile(GetProfileRequest) returns (CustomerProfileResponse);
   rpc GetWorkerProfile(GetProfileRequest) returns (WorkerProfileResponse);
+  rpc HasPaymentMethod(GetProfileRequest) returns (HasPaymentMethodResponse);
 }
 
 message GetProfileRequest {
@@ -19,4 +20,8 @@ message CustomerProfileResponse {
 
 message WorkerProfileResponse {
   int64 worker_profile_id = 1;
+}
+
+message HasPaymentMethodResponse {
+  bool has_payment_method = 1;
 }
