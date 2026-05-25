@@ -261,12 +261,19 @@ CREATE TABLE IF NOT EXISTS password_resets (
 );
 
 CREATE TABLE IF NOT EXISTS user_payment_methods (
-  user_id integer PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  payment_method_id serial PRIMARY KEY,
+  user_id integer NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
   provider varchar(50) NOT NULL DEFAULT 'stripe',
   card_last4 varchar(4) NOT NULL,
+  is_active boolean NOT NULL DEFAULT false,
   created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
-  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (user_id, provider, card_last4)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_payment_methods_active
+  ON user_payment_methods(user_id)
+  WHERE is_active;
 
 CREATE INDEX IF NOT EXISTS idx_bookings_worker
   ON bookings(worker_profile_id);

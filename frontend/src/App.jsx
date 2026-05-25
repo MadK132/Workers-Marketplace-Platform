@@ -231,6 +231,64 @@ function AvatarCropper({ draft, onChange, onClose, onCancel }) {
   ), document.body);
 }
 
+function ConfirmDialog({ title, text, confirmLabel = "Confirm", cancelLabel = "Cancel", onConfirm, onCancel }) {
+  return createPortal((
+    <div className="appConfirmOverlay" role="dialog" aria-modal="true" aria-label={title} onMouseDown={onCancel}>
+      <div className="appConfirmModal" onMouseDown={(event) => event.stopPropagation()}>
+        <strong>{title}</strong>
+        <p>{text}</p>
+        <div className="appConfirmActions">
+          <button className="secondaryButton" type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button type="button" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  ), document.body);
+}
+
+function useBottomDrawer(defaultHeight = 220) {
+  const [height, setHeight] = useState(defaultHeight);
+  const dragRef = useRef({ active: false, startY: 0, startHeight: defaultHeight });
+
+  const startDrag = useCallback((event) => {
+    const pointer = event.touches?.[0] || event;
+    event.preventDefault?.();
+    dragRef.current = { active: true, startY: pointer.clientY, startHeight: height };
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+  }, [height]);
+
+  const moveDrag = useCallback((event) => {
+    if (!dragRef.current.active) return;
+    event.preventDefault?.();
+    const pointer = event.touches?.[0] || event;
+    const delta = dragRef.current.startY - pointer.clientY;
+    const maxHeight = Math.round(window.innerHeight * 0.78);
+    const minHeight = defaultHeight;
+    setHeight(Math.min(maxHeight, Math.max(minHeight, dragRef.current.startHeight + delta)));
+  }, [defaultHeight]);
+
+  const endDrag = useCallback(() => {
+    dragRef.current.active = false;
+  }, []);
+
+  return {
+    style: { "--drawer-height": `${height}px` },
+    handleProps: {
+      onPointerDown: startDrag,
+      onPointerMove: moveDrag,
+      onPointerUp: endDrag,
+      onPointerCancel: endDrag,
+      onTouchStart: startDrag,
+      onTouchMove: moveDrag,
+      onTouchEnd: endDrag,
+    },
+  };
+}
+
+function DrawerHandle({ drag }) {
+  return <button className="drawerDragHandle" type="button" aria-label="Resize panel" {...drag.handleProps}><span /></button>;
+}
+
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
@@ -1286,6 +1344,7 @@ function CustomerApp({
   const [error, setError] = useState("");
   const [routePoints, setRoutePoints] = useState(null);
   const customerRouteRequestRef = useRef(null);
+  const offersDrawer = useBottomDrawer(176);
 
   useEffect(() => {
     apiGet("/api/categories", token).then(setCategories).catch((err) => setError(err.message));
@@ -1551,7 +1610,8 @@ function CustomerApp({
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
         <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
         <button className="roundMapButton navButtonMap" onClick={useCurrentLocation}>GPS</button>
-        <div className="offersDrawer customerOffersDrawer">
+        <div className="offersDrawer draggableDrawer customerOffersDrawer" style={offersDrawer.style}>
+          <DrawerHandle drag={offersDrawer} />
           <div className="dockHeader">
             <div>
               <h2>Find a worker</h2>
@@ -1756,6 +1816,7 @@ function WorkerApp({
   const [followRoute, setFollowRoute] = useState(false);
   const knownScheduledBookingsRef = useRef(null);
   const workerRouteRequestRef = useRef(null);
+  const offersDrawer = useBottomDrawer(180);
 
   const loadBookings = useCallback(async () => {
     setError("");
@@ -2054,8 +2115,9 @@ function WorkerApp({
         >
           GPS
         </button>
-        <div className="offersDrawer">
-          <div>
+        <div className="offersDrawer draggableDrawer" style={offersDrawer.style}>
+          <DrawerHandle drag={offersDrawer} />
+          <div className="offersDrawerHeader">
             <h2>Offers</h2>
             <button className="walletButton" onClick={() => onNavigate("jobs")}>Jobs</button>
           </div>
@@ -2426,14 +2488,35 @@ function AdminOverviewPanel({ overview, users, reports, onNavigate, isAdmin }) {
 function StaffUserProfilePanel({ token, userID, onBack }) {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [cancelTarget, setCancelTarget] = useState(null);
 
-  useEffect(() => {
+  const loadProfile = useCallback(() => {
     setError("");
     setProfile(null);
     apiGet(`/api/admin/users/${userID}/profile`, token)
       .then(setProfile)
       .catch((err) => setError(err.message));
   }, [token, userID]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const cancelPenalty = async () => {
+    if (!cancelTarget?.penalty_id) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/admin/penalties/${cancelTarget.penalty_id}/cancel`, token, {});
+      setMessage("Penalty cancelled.");
+      setCancelTarget(null);
+      loadProfile();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const user = profile?.user || {};
   const customer = profile?.customer_profile;
@@ -2448,7 +2531,7 @@ function StaffUserProfilePanel({ token, userID, onBack }) {
     <section className="adminWorkspace staffProfilePage">
       <button className="secondaryButton staffBackButton" type="button" onClick={onBack}>Back</button>
       <SectionHeader title="User profile" text="Staff-only account view with warnings, penalties and verified worker data." />
-      <Messages error={error} />
+      <Messages message={message} error={error} />
       {!profile && !error && <EmptyState title="Loading profile" text="Fetching user details..." />}
       {profile && (
         <div className="staffProfileLayout">
@@ -2538,10 +2621,24 @@ function StaffUserProfilePanel({ token, userID, onBack }) {
                 </div>
                 <span className={`statusPill ${item.status || ""}`}>{item.status}</span>
                 <small>{item.report_id ? `Report #${item.report_id}` : "No report"}</small>
+                {item.status === "active" && (
+                  <button className="secondaryButton cancelPenaltyButton" type="button" onClick={() => setCancelTarget(item)}>
+                    Cancel
+                  </button>
+                )}
               </article>
             ))}
           </section>
         </div>
+      )}
+      {cancelTarget && (
+        <ConfirmDialog
+          title="Cancel penalty"
+          text={`Cancel ${String(cancelTarget.penalty_type || "penalty").replaceAll("_", " ")} for this user?`}
+          confirmLabel="Cancel penalty"
+          onConfirm={cancelPenalty}
+          onCancel={() => setCancelTarget(null)}
+        />
       )}
     </section>
   );
@@ -3129,6 +3226,34 @@ function ChatPanel({ token, role }) {
   const activeChats = useMemo(() => chats.filter((chat) => !isArchivedBookingStatus(chat.status) && !isArchivedBookingStatus(chat.booking_status)), [chats]);
   const archivedChats = useMemo(() => chats.filter((chat) => isArchivedBookingStatus(chat.status) || isArchivedBookingStatus(chat.booking_status)), [chats]);
   const visibleChats = useMemo(() => (chatFolder === "archived" ? archivedChats : activeChats), [activeChats, archivedChats, chatFolder]);
+  const emptyChatTitle = chatFolder === "active" ? "No active chats" : "No completed chats";
+  const emptyChatText = chatFolder === "active" && archivedChats.length > 0
+    ? "You have completed chats in history. Switch to Completed to view them."
+    : chatFolder === "active"
+      ? "Open a chat from a booking card."
+      : "Completed booking chats will stay here as history.";
+  const lastReadSignatureRef = useRef("");
+
+  const markChatRead = useCallback((chatID, nextMessages = []) => {
+    if (!chatID) return;
+    const unreadPartnerIDs = nextMessages
+      .filter((msg) => Number(msg.sender_user_id) !== Number(currentUserID) && !msg.read_status)
+      .map((msg) => msg.message_id)
+      .filter(Boolean);
+    if (unreadPartnerIDs.length === 0) return;
+    const signature = `${chatID}:${unreadPartnerIDs.join(",")}`;
+    if (lastReadSignatureRef.current === signature) return;
+    lastReadSignatureRef.current = signature;
+    apiPatch(`/api/chats/${chatID}/read`, token, {})
+      .then(() => {
+        setChats((current) => current.map((chat) => (
+          String(chat.chat_id) === String(chatID) ? { ...chat, unread_count: 0 } : chat
+        )));
+      })
+      .catch(() => {
+        lastReadSignatureRef.current = "";
+      });
+  }, [currentUserID, token]);
 
   const loadChats = useCallback(() => {
     setError("");
@@ -3136,11 +3261,6 @@ function ChatPanel({ token, role }) {
       .then((data) => {
         const next = Array.isArray(data) ? data : data.chats || [];
         setChats(next);
-        const storedID = localStorage.getItem("workers_marketplace_active_chat");
-        const selectedID = storedID && next.some((chat) => String(chat.chat_id) === storedID)
-          ? storedID
-          : String(next[0]?.chat_id || "");
-        setActiveChatID((current) => current || selectedID);
       })
       .catch((err) => setError(err.message));
   }, [token]);
@@ -3157,11 +3277,13 @@ function ChatPanel({ token, role }) {
       return;
     }
     apiGet(`/api/chats/${chatID}/messages`, token)
-      .then((data) => setMessages(Array.isArray(data) ? data : data.messages || []))
-      .then(() => apiPatch(`/api/chats/${chatID}/read`, token, {}))
-      .then(() => loadChats())
+      .then((data) => {
+        const nextMessages = Array.isArray(data) ? data : data.messages || [];
+        setMessages(nextMessages);
+        markChatRead(chatID, nextMessages);
+      })
       .catch((err) => setError(err.message));
-  }, [loadChats, token]);
+  }, [markChatRead, token]);
 
   useEffect(() => {
     loadChats();
@@ -3181,11 +3303,15 @@ function ChatPanel({ token, role }) {
 
   useEffect(() => {
     if (visibleChats.length === 0) {
-      setActiveChatID("");
+      setActiveChatID((current) => (current ? "" : current));
       return;
     }
     if (!visibleChats.some((chat) => String(chat.chat_id) === String(activeChatID))) {
-      setActiveChatID(String(visibleChats[0].chat_id));
+      const storedID = localStorage.getItem("workers_marketplace_active_chat");
+      const selectedID = storedID && visibleChats.some((chat) => String(chat.chat_id) === storedID)
+        ? storedID
+        : String(visibleChats[0].chat_id);
+      setActiveChatID(selectedID);
     }
   }, [activeChatID, visibleChats]);
 
@@ -3204,6 +3330,9 @@ function ChatPanel({ token, role }) {
         const payload = JSON.parse(event.data);
         if (payload.type === "message.created" && payload.message) {
           setMessages((current) => [...current.filter((msg) => msg.message_id !== payload.message.message_id), payload.message]);
+          if (Number(payload.message.sender_user_id) !== Number(currentUserID)) {
+            markChatRead(activeChatID, [payload.message]);
+          }
           loadBookings();
           loadChats();
         }
@@ -3215,17 +3344,23 @@ function ChatPanel({ token, role }) {
       // REST polling below keeps chat usable when WebSocket is unavailable on deploy.
     };
     return () => socket.close();
-  }, [activeChatID, loadBookings, loadChats, token]);
+  }, [activeChatID, currentUserID, loadBookings, loadChats, markChatRead, token]);
 
   useEffect(() => {
     if (!activeChatID) return undefined;
     const intervalID = window.setInterval(() => {
       loadMessages(activeChatID);
+    }, 5000);
+    return () => window.clearInterval(intervalID);
+  }, [activeChatID, loadMessages]);
+
+  useEffect(() => {
+    const intervalID = window.setInterval(() => {
       loadChats();
       loadBookings();
-    }, 4000);
+    }, 12000);
     return () => window.clearInterval(intervalID);
-  }, [activeChatID, loadBookings, loadChats, loadMessages]);
+  }, [loadBookings, loadChats]);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -3339,7 +3474,7 @@ function ChatPanel({ token, role }) {
     <section className="pagePanel chatPage">
       <SectionHeader title="Chat" text="Talk about details, timing, price and files." />
       <Messages message={message} error={error} />
-      <div className="chatLayout">
+      <div className={visibleChats.length === 0 ? "chatLayout emptyChatLayout" : "chatLayout"}>
         <aside className="chatList">
           <div className="chatFolderTabs" role="tablist" aria-label="Chat folders">
             <button type="button" className={chatFolder === "active" ? "active" : ""} onClick={() => setChatFolder("active")}>
@@ -3351,8 +3486,8 @@ function ChatPanel({ token, role }) {
           </div>
           {visibleChats.length === 0 && (
             <EmptyState
-              title={chatFolder === "active" ? "No active chats" : "No completed chats"}
-              text={chatFolder === "active" ? "Open a chat from a booking card." : "Completed booking chats will stay here as history."}
+              title={emptyChatTitle}
+              text={emptyChatText}
             />
           )}
           {visibleChats.map((chat) => (
@@ -3367,7 +3502,7 @@ function ChatPanel({ token, role }) {
             </button>
           ))}
         </aside>
-        <div className="chatConversation">
+        <div className={activeChatID ? "chatConversation" : "chatConversation noActiveChat"}>
           {activeChatArchived && (
             <div className="chatArchiveNotice">
               This booking is completed. The chat is kept as history and is read-only.
@@ -3396,7 +3531,12 @@ function ChatPanel({ token, role }) {
             </div>
           )}
           <div className="chatMessageList" ref={messageListRef}>
-            {!activeChatID && <EmptyState title="Choose chat" text="Select a booking chat on the left." />}
+            {!activeChatID && (
+              <EmptyState
+                title={visibleChats.length === 0 ? emptyChatTitle : "Choose chat"}
+                text={visibleChats.length === 0 ? emptyChatText : "Select a booking chat on the left."}
+              />
+            )}
             {messages.map((msg) => (
               <ChatBubble
                 key={msg.message_id}
@@ -3407,19 +3547,21 @@ function ChatPanel({ token, role }) {
               />
             ))}
           </div>
-          <form className={activeChatArchived ? "chatComposer archived" : "chatComposer"} onSubmit={send}>
-            <textarea value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={submitTextareaOnEnter} placeholder={activeChatArchived ? "This chat is archived" : "Write a message..."} disabled={activeChatArchived} />
-            <label className="fileButton chatFileButton" aria-label="Attach file" title="Attach file">
-              <span aria-hidden="true">+</span>
-              <span className="visuallyHidden">Attach file</span>
-              <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" disabled={activeChatArchived} onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
-            </label>
-            <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={activeChatArchived || !activeChatID || (!content.trim() && !attachment)}>
-              <span aria-hidden="true" />
-              <span className="visuallyHidden">Send</span>
-            </button>
-            {attachment && <span className="muted">{attachment.name}</span>}
-          </form>
+          {activeChatID && (
+            <form className={activeChatArchived ? "chatComposer archived" : "chatComposer"} onSubmit={send}>
+              <textarea value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={submitTextareaOnEnter} placeholder={activeChatArchived ? "This chat is archived" : "Write a message..."} disabled={activeChatArchived} />
+              <label className="fileButton chatFileButton" aria-label="Attach file" title="Attach file">
+                <span aria-hidden="true">+</span>
+                <span className="visuallyHidden">Attach file</span>
+                <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" disabled={activeChatArchived} onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
+              </label>
+              <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={activeChatArchived || !activeChatID || (!content.trim() && !attachment)}>
+                <span aria-hidden="true" />
+                <span className="visuallyHidden">Send</span>
+              </button>
+              {attachment && <span className="muted">{attachment.name}</span>}
+            </form>
+          )}
         </div>
       </div>
     </section>
@@ -3578,6 +3720,7 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
   const reporterLabel = (report) => report?.reporter_email || report?.reporter_name || "Reporter";
   const reportedLabel = (report) => report?.reported_email || report?.reported_name || "Reported";
   const activeReportClosed = activeReport ? !isOpenReportStatus(activeReport.status) : false;
+  const penaltyUsesDays = penalty.penalty_type === "temporary_suspend" || penalty.penalty_type === "block_user";
 
   useEffect(() => {
     if (staff || !activeReport) return;
@@ -3658,7 +3801,7 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
         target_user_id: activeReport.reported_user_id,
         penalty_type: penalty.penalty_type,
         reason: penalty.reason || activeReport.reason,
-        days: Number(penalty.days || 0),
+        days: penaltyUsesDays ? Number(penalty.days || 0) : 0,
       });
       setMessage("Penalty applied and report resolved.");
       loadReports();
@@ -3902,7 +4045,11 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
                         {role === "admin" && <option value="block_user">Block user</option>}
                       </select>
                     </Field>
-                    <Field label="Days for suspend" light><input value={penalty.days} onChange={(event) => setPenalty({ ...penalty, days: event.target.value })} /></Field>
+                    {penaltyUsesDays && (
+                      <Field label={penalty.penalty_type === "block_user" ? "Block days" : "Days for suspend"} light>
+                        <input value={penalty.days} onChange={(event) => setPenalty({ ...penalty, days: event.target.value })} />
+                      </Field>
+                    )}
                   </div>
                   <Field label="Resolution note" light><textarea value={penalty.reason} onChange={(event) => setPenalty({ ...penalty, reason: event.target.value })} placeholder="What decision was made?" /></Field>
                   <div className="rowActions">
@@ -4392,6 +4539,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
                 revokeAvatarDraft(avatarDraft);
                 setAvatarDraft(makeAvatarDraft(nextFile));
                 setAvatarEditorOpen(true);
+                e.target.value = "";
               }}
             />
           </label>
@@ -4408,7 +4556,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
               <h3>Booking preferences</h3>
               <p>Notes here help workers arrive prepared and avoid extra messages.</p>
             </div>
-            <button type="button" className="secondaryButton profileLocationButton" onClick={useCurrentLocation}>Use current location</button>
+            <button className="profileSaveButton">Save profile</button>
           </div>
           <Field label="About me" light>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
@@ -4430,7 +4578,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
               <strong title={savedAddressLabel}>{savedAddressLabel}</strong>
             </div>
           </div>
-          <button className="profileSaveButton">Save profile</button>
+          <button type="button" className="secondaryButton profileLocationButton" onClick={useCurrentLocation}>Use current location</button>
         </form>
       </div>
       <div className="profileLinks profileShortcutGrid">
@@ -4579,6 +4727,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
                 revokeAvatarDraft(avatarDraft);
                 setAvatarDraft(makeAvatarDraft(nextFile));
                 setAvatarEditorOpen(true);
+                e.target.value = "";
               }}
             />
           </label>
@@ -4707,14 +4856,24 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [selectedPaymentIndex, setSelectedPaymentIndex] = useState(0);
 
   const load = useCallback(() => {
     setError("");
     apiGet("/api/payment-method", token)
-      .then((nextMethod) => setMethod({
-        ...nextMethod,
-        last4: nextMethod?.last4 || nextMethod?.card_last4 || "",
-      }))
+      .then((nextMethod) => {
+        const cards = Array.isArray(nextMethod?.cards)
+          ? nextMethod.cards.map((card) => ({ ...card, last4: card?.last4 || card?.card_last4 || "" }))
+          : [];
+        const normalized = {
+          ...nextMethod,
+          last4: nextMethod?.last4 || nextMethod?.card_last4 || "",
+          cards,
+        };
+        const activeIndex = cards.findIndex((card) => card.is_active);
+        setSelectedPaymentIndex(activeIndex >= 0 ? activeIndex : 0);
+        setMethod(normalized);
+      })
       .catch((err) => setError(err.message));
   }, [token]);
 
@@ -4746,22 +4905,49 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
     }
   };
 
+  const selectPaymentCard = async (card, index) => {
+    setSelectedPaymentIndex(index);
+    setError("");
+    if (!card?.payment_method_id) return;
+    try {
+      await apiPatch(`/api/payment-method/${card.payment_method_id}/select`, token, {});
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const paymentCards = method?.has_payment_method
+    ? (Array.isArray(method.cards) && method.cards.length > 0 ? method.cards : [method])
+    : [];
+
   return (
     <section className={compact ? "paymentGateSection" : "profilePaymentCard"}>
       <div className="sectionTitleRow">
-        <h3>Payment card</h3>
-        {method?.has_payment_method && <span>{method.provider || "Stripe"} {method.last4 ? `•••• ${method.last4}` : "linked"}</span>}
+        <h3>Credit and debit cards</h3>
       </div>
-      <p className="muted">
-        {method?.has_payment_method
-          ? "Payment method is linked and ready for bookings."
-          : "You will be redirected to Stripe to link a payment method securely."}
-      </p>
-      {!method?.has_payment_method && (
-        <button type="button" onClick={startSetup} disabled={busy}>
-          {busy ? "Opening Stripe..." : "Link with Stripe"}
+      <div className="paymentCardList">
+        {paymentCards.map((card, index) => (
+          <button
+            className={selectedPaymentIndex === index ? "paymentCardRow active" : "paymentCardRow"}
+            type="button"
+            key={`${card.provider || "card"}-${card.last4 || index}`}
+            onClick={() => selectPaymentCard(card, index)}
+          >
+            <span className="paymentCardBrand">{String(card.provider || "card").slice(0, 4).toUpperCase()}</span>
+            <span>
+              <strong>Card</strong>
+              <small>•••• •••• •••• {card.last4 || card.card_last4 || "linked"}</small>
+            </span>
+            {selectedPaymentIndex === index && <span className="paymentCardCheck" aria-label="Selected">✓</span>}
+            {selectedPaymentIndex !== index && <span className="paymentCardArrow" aria-hidden="true">›</span>}
+          </button>
+        ))}
+        <button className="paymentAddCardRow" type="button" onClick={startSetup} disabled={busy}>
+          <span aria-hidden="true">+</span>
+          <strong>{busy ? "Opening Stripe..." : method?.has_payment_method ? "Add new card" : "Link with Stripe"}</strong>
         </button>
-      )}
+      </div>
       <Messages message={message} error={error} />
     </section>
   );

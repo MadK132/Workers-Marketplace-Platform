@@ -634,6 +634,17 @@ func (s *AuthService) GetPaymentMethod(ctx context.Context, userID int) (reposit
 	return s.paymentMethods.Get(ctx, userID)
 }
 
+func (s *AuthService) ListPaymentMethods(ctx context.Context, userID int) ([]repository.PaymentMethod, error) {
+	return s.paymentMethods.List(ctx, userID)
+}
+
+func (s *AuthService) SelectPaymentMethod(ctx context.Context, userID int, paymentMethodID int) (repository.PaymentMethod, error) {
+	if paymentMethodID <= 0 {
+		return repository.PaymentMethod{}, errors.New("payment_method_id must be positive")
+	}
+	return s.paymentMethods.SetActive(ctx, userID, paymentMethodID)
+}
+
 func (s *AuthService) HasPaymentMethod(ctx context.Context, userID int) (bool, error) {
 	return s.paymentMethods.Exists(ctx, userID)
 }
@@ -818,6 +829,13 @@ func (s *AuthService) ApplyReportPenalty(ctx context.Context, reportID int, targ
 		reason = penaltyType
 	}
 	return s.reports.ApplyPenalty(ctx, reportID, targetUserID, issuedByUserID, penaltyType, reason, expiresAt)
+}
+
+func (s *AuthService) CancelPenalty(ctx context.Context, penaltyID int) error {
+	if penaltyID <= 0 {
+		return errors.New("invalid penalty_id")
+	}
+	return s.reports.CancelPenalty(ctx, penaltyID)
 }
 
 func (s *AuthService) CloseReport(ctx context.Context, reportID int, status string, resolution string) error {

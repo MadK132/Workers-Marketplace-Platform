@@ -619,6 +619,52 @@ func (r *ReportRepository) ApplyPenalty(ctx context.Context, reportID int, targe
 	return penalty, nil
 }
 
+func (r *ReportRepository) CancelPenalty(ctx context.Context, penaltyID int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var userID int
+	var penaltyType string
+	err = tx.QueryRow(ctx, `
+		UPDATE penalties
+		SET status = 'cancelled'
+		WHERE penalty_id = $1 AND status = 'active'
+		RETURNING user_id, penalty_type
+	`, penaltyID).Scan(&userID, &penaltyType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrReportNotFound
+		}
+		return err
+	}
+
+	if penaltyType == "block_user" {
+		var hasBlock bool
+		if err = tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM penalties
+				WHERE user_id = $1
+				  AND status = 'active'
+				  AND penalty_type = 'block_user'
+				  AND (expires_at IS NULL OR expires_at > NOW())
+			)
+		`, userID).Scan(&hasBlock); err != nil {
+			return err
+		}
+		if !hasBlock {
+			if _, err = tx.Exec(ctx, `UPDATE users SET status = 'active' WHERE user_id = $1 AND status = 'banned'`, userID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *ReportRepository) CloseReport(ctx context.Context, reportID int, status string, resolution string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE reports

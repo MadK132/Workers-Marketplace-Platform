@@ -60,6 +60,8 @@ type AuthService interface {
 	CreateManager(ctx context.Context, input service.RegisterInput) (model.User, error)
 	UpsertPaymentMethod(ctx context.Context, userID int, provider string, last4 string) (repository.PaymentMethod, error)
 	GetPaymentMethod(ctx context.Context, userID int) (repository.PaymentMethod, error)
+	ListPaymentMethods(ctx context.Context, userID int) ([]repository.PaymentMethod, error)
+	SelectPaymentMethod(ctx context.Context, userID int, paymentMethodID int) (repository.PaymentMethod, error)
 	HasPaymentMethod(ctx context.Context, userID int) (bool, error)
 	CreateReport(ctx context.Context, reporterUserID int, role string, bookingID *int, reportedUserID int, reason string, description string) (repository.Report, error)
 	AddReportFile(ctx context.Context, reportID int, userID int, fileName string, filePath string, contentType string) error
@@ -67,6 +69,7 @@ type AuthService interface {
 	AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, conversationSide string, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error)
 	ListReportMessages(ctx context.Context, reportID int, userID int, staff bool, conversationSide string) ([]repository.ReportMessage, error)
 	ApplyReportPenalty(ctx context.Context, reportID int, targetUserID int, issuedByUserID int, penaltyType string, reason string, expiresAt *time.Time) (repository.Penalty, error)
+	CancelPenalty(ctx context.Context, penaltyID int) error
 	CloseReport(ctx context.Context, reportID int, status string, resolution string) error
 	AssignReport(ctx context.Context, reportID int, managerUserID int) (repository.Report, error)
 }
@@ -978,6 +981,27 @@ func (h *AuthHandler) ApplyReportPenalty(c *gin.Context) {
 	c.JSON(http.StatusOK, penalty)
 }
 
+func (h *AuthHandler) CancelPenalty(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+	penaltyID, err := strconv.Atoi(c.Param("penalty_id"))
+	if err != nil || penaltyID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid penalty_id"})
+		return
+	}
+	if err := h.auth.CancelPenalty(c.Request.Context(), penaltyID); err != nil {
+		if errors.Is(err, repository.ErrReportNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "active penalty not found"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
+}
+
 func (h *AuthHandler) CloseReport(c *gin.Context) {
 	if !isStaffRole(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
@@ -1061,20 +1085,43 @@ func (h *AuthHandler) UpsertPaymentMethod(c *gin.Context) {
 }
 
 func (h *AuthHandler) GetPaymentMethod(c *gin.Context) {
-	method, err := h.auth.GetPaymentMethod(c.Request.Context(), c.GetInt("user_id"))
+	methods, err := h.auth.ListPaymentMethods(c.Request.Context(), c.GetInt("user_id"))
 	if err != nil {
-		if errors.Is(err, repository.ErrPaymentMethodNotFound) {
-			c.JSON(http.StatusOK, gin.H{"has_payment_method": false})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if len(methods) == 0 {
+		c.JSON(http.StatusOK, gin.H{"has_payment_method": false, "cards": []repository.PaymentMethod{}})
+		return
+	}
+	method := methods[0]
 	c.JSON(http.StatusOK, gin.H{
 		"has_payment_method": true,
+		"payment_method_id":  method.ID,
 		"provider":           method.Provider,
 		"last4":              method.Last4,
+		"is_active":          method.IsActive,
+		"cards":              methods,
 	})
+}
+
+func (h *AuthHandler) SelectPaymentMethod(c *gin.Context) {
+	paymentMethodID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || paymentMethodID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payment_method_id"})
+		return
+	}
+
+	method, err := h.auth.SelectPaymentMethod(c.Request.Context(), c.GetInt("user_id"), paymentMethodID)
+	if err != nil {
+		if errors.Is(err, repository.ErrPaymentMethodNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "payment method not found"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, method)
 }
 
 func (h *AuthHandler) CreatePaymentSetupSession(c *gin.Context) {
@@ -1178,8 +1225,10 @@ func (h *AuthHandler) ConfirmPaymentSetupSession(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"has_payment_method": true,
+		"payment_method_id":  method.ID,
 		"provider":           method.Provider,
 		"last4":              method.Last4,
+		"is_active":          method.IsActive,
 	})
 }
 
