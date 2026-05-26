@@ -74,6 +74,7 @@ const MapView = forwardRef(function MapView({
       if (mapRef.current && position) {
         userAdjustedMapRef.current = false;
         mapRef.current.setCenter([position.longitude, position.latitude]);
+        setMapZoom(Math.max(zoomRef.current, 15));
       }
     },
     follow() {

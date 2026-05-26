@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -49,18 +48,9 @@ func main() {
 
 	log.Println("DB connected successfully")
 
-	smtpHost := os.Getenv("SMTP_HOST")
-	smtpPortStr := os.Getenv("SMTP_PORT")
-	smtpUser := os.Getenv("SMTP_USER")
-	smtpPass := os.Getenv("SMTP_PASS")
-
-	smtpPort, _ := strconv.Atoi(smtpPortStr)
-
 	emailSender := email.NewSender(
-		smtpHost,
-		smtpPort,
-		smtpUser,
-		smtpPass,
+		os.Getenv("RESEND_API_KEY"),
+		os.Getenv("RESEND_FROM"),
 	)
 	userRepo := repository.NewUserRepository(pool)
 	verificationRepo := repository.NewEmailVerificationRepository(pool)

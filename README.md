@@ -31,7 +31,7 @@ flowchart LR
   subgraph External["External Systems"]
     STRIPE["Stripe"]
     GIS["2GIS MapGL / Routing API"]
-    SMTP["SMTP Provider"]
+    RESEND["Resend Email API"]
   end
 
   FE -->|"HTTP / REST"| GW
@@ -51,7 +51,7 @@ flowchart LR
 
   PAY -->|"Checkout / payment API"| STRIPE
   STRIPE -->|"webhook events"| PAY
-  USER -->|"email verification / reset"| SMTP
+  USER -->|"email verification / reset"| RESEND
 
   USER --> PG
   BOOK --> PG

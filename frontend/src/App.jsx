@@ -104,6 +104,13 @@ const slugRouteTabs = Object.fromEntries(
   ])
 );
 
+const routeDetailSlugs = {
+  chat: "chat",
+  reports: "reports",
+  workers: "workers",
+  users: "users",
+};
+
 const reportReasonLabels = {
   bad_quality: "Bad quality",
   no_show: "No show",
@@ -238,61 +245,127 @@ function ConfirmDialog({ title, text, confirmLabel = "Confirm", cancelLabel = "C
         <strong>{title}</strong>
         <p>{text}</p>
         <div className="appConfirmActions">
-          <button className="secondaryButton" type="button" onClick={onCancel}>{cancelLabel}</button>
-          <button type="button" onClick={onConfirm}>{confirmLabel}</button>
+          <button className="appConfirmCancel" type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button className="appConfirmPrimary" type="button" onClick={onConfirm}>{confirmLabel}</button>
         </div>
       </div>
     </div>
   ), document.body);
 }
 
+function TextPromptDialog({
+  title,
+  text,
+  placeholder = "",
+  confirmLabel = "Submit",
+  cancelLabel = "Cancel",
+  onConfirm,
+  onCancel,
+}) {
+  const [value, setValue] = useState("");
+  const trimmedValue = value.trim();
+
+  return createPortal((
+    <div className="appConfirmOverlay" role="dialog" aria-modal="true" aria-label={title} onMouseDown={onCancel}>
+      <form
+        className="appConfirmModal appPromptModal"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (trimmedValue) onConfirm(trimmedValue);
+        }}
+      >
+        <strong>{title}</strong>
+        {text && <p>{text}</p>}
+        <textarea
+          autoFocus
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder={placeholder}
+        />
+        <div className="appConfirmActions">
+          <button className="appConfirmCancel" type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button className="appConfirmPrimary" type="submit" disabled={!trimmedValue}>{confirmLabel}</button>
+        </div>
+      </form>
+    </div>
+  ), document.body);
+}
+
 function useBottomDrawer(defaultHeight = 220) {
   const [height, setHeight] = useState(defaultHeight);
+  const [dragging, setDragging] = useState(false);
   const dragRef = useRef({ active: false, startY: 0, startHeight: defaultHeight });
+
+  const clampHeight = useCallback((nextHeight) => {
+    const viewportHeight = window.innerHeight || 800;
+    const viewportWidth = window.innerWidth || 1200;
+    const maxRatio = viewportWidth <= 760 ? 0.64 : 0.46;
+    const maxHeight = Math.round(Math.min(viewportHeight * maxRatio, 560));
+    return Math.min(maxHeight, Math.max(defaultHeight, nextHeight));
+  }, [defaultHeight]);
 
   const startDrag = useCallback((event) => {
     const pointer = event.touches?.[0] || event;
     event.preventDefault?.();
-    dragRef.current = { active: true, startY: pointer.clientY, startHeight: height };
+    setDragging(true);
+    dragRef.current = { active: true, startY: pointer.clientY, startHeight: clampHeight(height) };
     event.currentTarget?.setPointerCapture?.(event.pointerId);
-  }, [height]);
+  }, [clampHeight, height]);
 
   const moveDrag = useCallback((event) => {
     if (!dragRef.current.active) return;
     event.preventDefault?.();
     const pointer = event.touches?.[0] || event;
     const delta = dragRef.current.startY - pointer.clientY;
-    const maxHeight = Math.round(window.innerHeight * 0.78);
-    const minHeight = defaultHeight;
-    setHeight(Math.min(maxHeight, Math.max(minHeight, dragRef.current.startHeight + delta)));
-  }, [defaultHeight]);
+    setHeight(clampHeight(dragRef.current.startHeight + delta));
+  }, [clampHeight]);
 
   const endDrag = useCallback(() => {
+    if (!dragRef.current.active) return;
     dragRef.current.active = false;
+    setDragging(false);
   }, []);
+
+  useEffect(() => {
+    if (!dragging) return undefined;
+    const move = (event) => moveDrag(event);
+    const end = () => endDrag();
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("touchmove", move, { passive: false });
+    window.addEventListener("touchend", end);
+    window.addEventListener("touchcancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", end);
+      window.removeEventListener("touchcancel", end);
+    };
+  }, [dragging, endDrag, moveDrag]);
 
   return {
     style: { "--drawer-height": `${height}px` },
+    dragging,
     handleProps: {
       onPointerDown: startDrag,
-      onPointerMove: moveDrag,
-      onPointerUp: endDrag,
-      onPointerCancel: endDrag,
       onTouchStart: startDrag,
-      onTouchMove: moveDrag,
-      onTouchEnd: endDrag,
     },
   };
 }
 
 function DrawerHandle({ drag }) {
-  return <button className="drawerDragHandle" type="button" aria-label="Resize panel" {...drag.handleProps}><span /></button>;
+  return <button className={drag.dragging ? "drawerDragHandle dragging" : "drawerDragHandle"} type="button" aria-label="Resize panel" {...drag.handleProps}><span /></button>;
 }
 
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
-  const [activeTab, setActiveTab] = useState(() => tabFromCurrentRoute(role) || defaultTabForRole(role));
+  const [activeTab, setActiveTab] = useState(() => currentRouteForRole(role).tab || defaultTabForRole(role));
+  const [routeVersion, setRouteVersion] = useState(0);
   const [paymentReady, setPaymentReady] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
@@ -302,7 +375,9 @@ export default function App() {
   const navigateToTab = useCallback((nextTab, options = {}) => {
     setActiveTab(nextTab);
     writeTabRoute(role, nextTab, options);
+    setRouteVersion((current) => current + 1);
   }, [role]);
+  const routeDetail = useMemo(() => currentRouteForRole(role), [role, activeTab, routeVersion]);
 
   const openToastAction = useCallback(async (item) => {
     if (!token) {
@@ -313,15 +388,15 @@ export default function App() {
       if (chat?.chat_id) {
         localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
       }
-      navigateToTab("chats");
+      navigateToTab("chats", { detailID: chat?.chat_id });
     } else if (item.action_type === "chat" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
-      navigateToTab("chats");
+      navigateToTab("chats", { detailID: item.action_ref });
     } else if (item.action_type === "booking_map") {
       navigateToTab(role === "worker" ? "pro" : "find");
     } else if (item.action_type === "report" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_report", String(item.action_ref));
-      navigateToTab("reports");
+      navigateToTab("reports", { detailID: item.action_ref });
     } else if (item.action_type === "verify") {
       navigateToTab("verify");
     }
@@ -335,13 +410,14 @@ export default function App() {
 
   const saveSession = useCallback((nextToken, fallbackRole) => {
     const nextRole = readRole(nextToken) || fallbackRole || "";
-    const nextTab = tabFromCurrentRoute(nextRole) || defaultTabForRole(nextRole);
+    const nextRoute = currentRouteForRole(nextRole);
+    const nextTab = nextRoute.tab || defaultTabForRole(nextRole);
     localStorage.setItem(TOKEN_KEY, nextToken);
     localStorage.setItem(ROLE_KEY, nextRole);
     setToken(nextToken);
     setRole(nextRole);
     setActiveTab(nextTab);
-    writeTabRoute(nextRole, nextTab, { replace: true });
+    writeTabRoute(nextRole, nextTab, { replace: true, detailID: nextRoute.detailID });
     setPaymentReady(false);
   }, []);
 
@@ -489,9 +565,18 @@ export default function App() {
       return undefined;
     }
     const handleRouteChange = () => {
-      const routedTab = tabFromCurrentRoute(role);
-      if (routedTab) {
-        setActiveTab(routedTab);
+      const routed = currentRouteForRole(role);
+      setRouteVersion((current) => current + 1);
+      if (routed.tab) {
+        setActiveTab(routed.tab);
+      } else {
+        const fallbackTab = defaultTabForRole(role);
+        setActiveTab(fallbackTab);
+        writeTabRoute(role, fallbackTab, { replace: true });
+        return;
+      }
+      if (routed.shouldReplace) {
+        writeTabRoute(role, routed.tab || defaultTabForRole(role), { replace: true });
       }
     };
     window.addEventListener("popstate", handleRouteChange);
@@ -520,6 +605,7 @@ export default function App() {
           <CustomerApp
             token={token}
             activeTab={activeTab}
+            routeDetail={routeDetail}
             onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
@@ -541,6 +627,7 @@ export default function App() {
           <WorkerApp
             token={token}
             activeTab={activeTab}
+            routeDetail={routeDetail}
             onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
@@ -558,7 +645,7 @@ export default function App() {
   return (
     <>
       <AppFrame token={token} role={role} session={session} activeTab={activeTab} onTab={navigateToTab} onSignOut={signOut}>
-        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={navigateToTab} />}
+        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} routeDetail={routeDetail} onNavigate={navigateToTab} />}
         {!["customer", "worker", "admin", "manager"].includes(role) && (
           <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
         )}
@@ -1186,26 +1273,52 @@ function clearAuthURL() {
   }
 }
 
-function tabFromCurrentRoute(role) {
+function currentRouteForRole(role) {
   const prefix = roleRoutePrefixes[role];
-  if (!prefix) return "";
+  if (!prefix) return { tab: "" };
   const segments = window.location.pathname
     .split("/")
     .filter(Boolean)
     .map((segment) => decodeURIComponent(segment).toLowerCase());
-  if (segments[0] !== prefix) return "";
-  if (!segments[1]) return defaultTabForRole(role);
-  return slugRouteTabs[role]?.[segments[1]] || "";
+  if (segments[0] === routeDetailSlugs.reports) {
+    return { tab: "reports", detailType: "report", detailID: segments[1] || "" };
+  }
+  if (segments[0] !== prefix) return { tab: "" };
+  if (!segments[1]) return { tab: defaultTabForRole(role) };
+  if (segments[1] === routeDetailSlugs.chat) {
+    return { tab: "chats", detailType: "chat", detailID: segments[2] || "" };
+  }
+  if (segments[1] === routeDetailSlugs.reports) {
+    return { tab: "reports", detailType: "report", detailID: segments[2] || "" };
+  }
+  if (role === "customer" && segments[1] === routeDetailSlugs.workers) {
+    return { tab: "worker-profile", detailType: "worker", detailID: segments[2] || "", shouldReplace: !segments[2] };
+  }
+  if ((role === "admin" || role === "manager") && segments[1] === routeDetailSlugs.users) {
+    return { tab: "users", detailType: "user", detailID: segments[2] || "" };
+  }
+  const tab = slugRouteTabs[role]?.[segments[1]] || "";
+  return tab ? { tab } : { tab: defaultTabForRole(role), shouldReplace: true };
 }
 
-function routePathForTab(role, tab) {
+function tabFromCurrentRoute(role) {
+  return currentRouteForRole(role).tab || "";
+}
+
+function routePathForTab(role, tab, options = {}) {
   const prefix = roleRoutePrefixes[role];
+  if (!prefix) return "";
+  const detailID = options.detailID ? encodeURIComponent(String(options.detailID)) : "";
+  if (detailID && tab === "chats") return `/${prefix}/chat/${detailID}`;
+  if (detailID && tab === "reports") return `/reports/${detailID}`;
+  if (detailID && role === "customer" && tab === "worker-profile") return `/${prefix}/workers/${detailID}`;
+  if (detailID && (role === "admin" || role === "manager") && tab === "users") return `/${prefix}/users/${detailID}`;
   const slug = tabRouteSlugs[role]?.[tab];
   return prefix && slug ? `/${prefix}/${slug}` : "";
 }
 
 function writeTabRoute(role, tab, options = {}) {
-  const nextPath = routePathForTab(role, tab);
+  const nextPath = routePathForTab(role, tab, options);
   if (!nextPath) return;
   if (window.location.pathname === nextPath && !window.location.search && !window.location.hash) {
     return;
@@ -1318,6 +1431,7 @@ function AppFrame({ token, role, session, activeTab, onTab, onSignOut, children 
 function CustomerApp({
   token,
   activeTab,
+  routeDetail,
   onNavigate,
   onSignOut,
   paymentReady,
@@ -1556,7 +1670,7 @@ function CustomerApp({
         if (chat?.chat_id) {
           localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
         }
-        onNavigate("chats");
+        onNavigate("chats", { detailID: chat?.chat_id });
       }
       setMessage(`Chat opened with ${worker.full_name}. Agree on the price before booking starts.`);
       loadCustomerBookings();
@@ -1578,9 +1692,9 @@ function CustomerApp({
 
   if (activeTab === "requests") return <CustomerPhonePage activeTab="bookings" onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} showRequests /></CustomerPhonePage>;
   if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} showRequests /></CustomerPhonePage>;
-  if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" /></CustomerPhonePage>;
-  if (activeTab === "reports") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="customer" /></CustomerPhonePage>;
-  if (activeTab === "worker-profile") return <CustomerPhonePage activeTab="find" onNavigate={onNavigate} onSignOut={onSignOut}><WorkerPublicProfilePage token={token} worker={profileWorker} onBack={() => onNavigate("find")} onHireWorker={hireWorker} /></CustomerPhonePage>;
+  if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" initialChatID={routeDetail?.detailType === "chat" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></CustomerPhonePage>;
+  if (activeTab === "reports") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="customer" initialReportID={routeDetail?.detailType === "report" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></CustomerPhonePage>;
+  if (activeTab === "worker-profile") return <CustomerPhonePage activeTab="find" onNavigate={onNavigate} onSignOut={onSignOut}><WorkerPublicProfilePage token={token} worker={profileWorker} workerIDOverride={routeDetail?.detailType === "worker" ? routeDetail.detailID : ""} onBack={() => onNavigate("find")} onHireWorker={hireWorker} /></CustomerPhonePage>;
   if (activeTab === "profile") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><CustomerProfilePanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
   if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
 
@@ -1610,7 +1724,7 @@ function CustomerApp({
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
         <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
         <button className="roundMapButton navButtonMap" onClick={useCurrentLocation}>GPS</button>
-        <div className="offersDrawer draggableDrawer customerOffersDrawer" style={offersDrawer.style}>
+        <div className={offersDrawer.dragging ? "offersDrawer draggableDrawer customerOffersDrawer isDragging" : "offersDrawer draggableDrawer customerOffersDrawer"} style={offersDrawer.style}>
           <DrawerHandle drag={offersDrawer} />
           <div className="dockHeader">
             <div>
@@ -1651,7 +1765,7 @@ function CustomerApp({
             onHireWorker={hireWorker}
             onOpenProfile={(worker) => {
               setProfileWorker(worker);
-              onNavigate("worker-profile");
+              onNavigate("worker-profile", { detailID: worker.worker_id || worker.worker_profile_id });
             }}
             loading={loading}
           />
@@ -1674,8 +1788,8 @@ function CustomerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
   );
 }
 
-function WorkerPublicProfilePage({ token, worker, onBack, onHireWorker }) {
-  const workerID = worker?.worker_id || worker?.worker_profile_id;
+function WorkerPublicProfilePage({ token, worker, workerIDOverride, onBack, onHireWorker }) {
+  const workerID = workerIDOverride || worker?.worker_id || worker?.worker_profile_id;
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState("");
 
@@ -1701,7 +1815,7 @@ function WorkerPublicProfilePage({ token, worker, onBack, onHireWorker }) {
     <section className="pagePanel workerPublicProfile">
       <div className="sectionTitleRow">
         <button className="secondaryButton fitButton" type="button" onClick={onBack}>Back</button>
-        <button type="button" className="fitButton" onClick={() => worker && onHireWorker(worker)}>Open chat</button>
+        <button type="button" className="fitButton" disabled={!worker} onClick={() => worker && onHireWorker(worker)}>Open chat</button>
       </div>
       <div className="publicProfileHero">
         <div className="profilePhoto compactPhoto">
@@ -1798,6 +1912,7 @@ function CustomerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
 function WorkerApp({
   token,
   activeTab,
+  routeDetail,
   onNavigate,
   onSignOut,
   paymentReady,
@@ -2042,10 +2157,10 @@ function WorkerApp({
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canProgress onProgress={updateBooking} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
   if (activeTab === "chats") {
-    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="worker" /></WorkerPhonePage>;
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="worker" initialChatID={routeDetail?.detailType === "chat" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
   if (activeTab === "reports") {
-    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="worker" /></WorkerPhonePage>;
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="worker" initialReportID={routeDetail?.detailType === "report" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
   if (activeTab === "skills") {
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><WorkerSkillsPanel token={token} /></WorkerPhonePage>;
@@ -2115,7 +2230,7 @@ function WorkerApp({
         >
           GPS
         </button>
-        <div className="offersDrawer draggableDrawer" style={offersDrawer.style}>
+        <div className={offersDrawer.dragging ? "offersDrawer draggableDrawer isDragging" : "offersDrawer draggableDrawer"} style={offersDrawer.style}>
           <DrawerHandle drag={offersDrawer} />
           <div className="offersDrawerHeader">
             <h2>Offers</h2>
@@ -2218,7 +2333,7 @@ function phoneTabIconName(id) {
   return iconNames[id] || "page";
 }
 
-function AdminApp({ token, role, activeTab, onNavigate }) {
+function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
   const [reports, setReports] = useState([]);
@@ -2226,6 +2341,8 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
   const [staffForm, setStaffForm] = useState({ full_name: "", email: "", phone: "", password: "", role: "manager" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [rejectIdentityTarget, setRejectIdentityTarget] = useState(null);
+  const [deleteUserTarget, setDeleteUserTarget] = useState(null);
 
   const loadOverview = useCallback(() => {
     apiGet("/api/admin/overview", token).then(setOverview).catch((err) => setError(err.message));
@@ -2249,21 +2366,31 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     }
   }, [activeTab, loadOverview, loadReports, loadUsers]);
 
+  const routeUserID = routeDetail?.detailType === "user" ? routeDetail.detailID : "";
+
   useEffect(() => {
+    if (activeTab === "users" && routeUserID) {
+      setStaffProfileUserID(String(routeUserID));
+      return;
+    }
     setStaffProfileUserID("");
-  }, [activeTab]);
+  }, [activeTab, routeUserID]);
 
   const openStaffProfile = (userID) => {
     if (!userID) return;
     setStaffProfileUserID(String(userID));
+    onNavigate?.("users", { detailID: userID });
   };
 
   if (staffProfileUserID) {
-    return <StaffUserProfilePanel token={token} userID={staffProfileUserID} onBack={() => setStaffProfileUserID("")} />;
+    return <StaffUserProfilePanel token={token} userID={staffProfileUserID} onBack={() => {
+      setStaffProfileUserID("");
+      onNavigate?.("users", { replace: true });
+    }} />;
   }
 
   if (activeTab === "notifications") return <NotificationsPanel token={token} onNavigate={onNavigate} />;
-  if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff onOpenProfile={openStaffProfile} />;
+  if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff initialReportID={routeDetail?.detailType === "report" ? routeDetail.detailID : ""} onNavigate={onNavigate} onOpenProfile={openStaffProfile} />;
 
   const verifySkill = async (id) => {
     setError("");
@@ -2317,11 +2444,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     }
   };
 
-  const rejectIdentityDocument = async (id) => {
-    const reason = window.prompt("Why should this identity document be rejected?");
-    if (reason === null) {
-      return;
-    }
+  const rejectIdentityDocument = async (id, reason) => {
     setError("");
     setMessage("");
     try {
@@ -2330,6 +2453,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
         reason,
       });
       setMessage("Identity document rejected. Worker was notified.");
+      setRejectIdentityTarget(null);
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2343,6 +2467,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     try {
       await apiDelete(`/api/admin/users/${id}`, token);
       setMessage("User deleted.");
+      setDeleteUserTarget(null);
       loadUsers();
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
@@ -2399,12 +2524,12 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
           currentUserID={tokenUserID(token)}
           assignIdentityDocument={assignIdentityDocument}
           verifyIdentityDocument={verifyIdentityDocument}
-          rejectIdentityDocument={rejectIdentityDocument}
+          rejectIdentityDocument={(id) => setRejectIdentityTarget({ identity_document_id: id })}
           verifySkill={verifySkill}
           verifySkillUpgrade={verifySkillUpgrade}
         />
       )}
-      {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={deleteUser} canDelete={isAdmin} onOpenProfile={openStaffProfile} />}
+      {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={setDeleteUserTarget} canDelete={isAdmin} onOpenProfile={openStaffProfile} />}
       {activeTab === "accounts" && isAdmin && (
         <AdminCreatePanel
           admins={admins}
@@ -2412,11 +2537,32 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
           form={staffForm}
           setForm={setStaffForm}
           onSubmit={createStaff}
-          onDelete={deleteUser}
+          onDelete={setDeleteUserTarget}
         />
       )}
       {activeTab === "accounts" && !isAdmin && <EmptyState title="Admins only" text="Managers can review queues and help users, but cannot create staff accounts." />}
       <Messages message={message} error={error} />
+      {rejectIdentityTarget && (
+        <TextPromptDialog
+          title="Reject identity document"
+          text="Write a short reason. The worker will see it and can upload a corrected document."
+          placeholder="For example: document is unreadable, wrong file, expired document..."
+          confirmLabel="Reject document"
+          cancelLabel="Cancel"
+          onConfirm={(reason) => rejectIdentityDocument(rejectIdentityTarget.identity_document_id, reason)}
+          onCancel={() => setRejectIdentityTarget(null)}
+        />
+      )}
+      {deleteUserTarget && (
+        <ConfirmDialog
+          title="Delete user?"
+          text={`Delete ${deleteUserTarget.full_name || deleteUserTarget.email || "this user"}? This action removes the account and related profile data.`}
+          confirmLabel="Delete user"
+          cancelLabel="Cancel"
+          onConfirm={() => deleteUser(deleteUserTarget.user_id)}
+          onCancel={() => setDeleteUserTarget(null)}
+        />
+      )}
     </section>
   );
 }
@@ -2749,7 +2895,7 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete, onOpenProfile
             <span className={`statusPill ${String(user.status || "").toLowerCase()}`}>{user.status}</span>
             <div className="adminUserActions">
               {user.status !== "active" && <button type="button" onClick={() => onActivate(user.user_id)}>Activate</button>}
-              {canDelete && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user.user_id)}>Delete</button>}
+              {canDelete && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user)}>Delete</button>}
             </div>
           </article>
         ))}
@@ -2798,7 +2944,7 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
                 </div>
               </div>
               <span className={`rolePill ${staff.role}`}>{staff.role}</span>
-              <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff.user_id)}>
+              <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff)}>
                 Delete
               </button>
             </article>
@@ -3197,9 +3343,9 @@ function BookingReviewBlock({ item, token, onSaved }) {
   );
 }
 
-function ChatPanel({ token, role }) {
+function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
   const [chats, setChats] = useState([]);
-  const [activeChatID, setActiveChatID] = useState("");
+  const [activeChatID, setActiveChatID] = useState(() => initialChatID || localStorage.getItem("workers_marketplace_active_chat") || "");
   const [messages, setMessages] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [content, setContent] = useState("");
@@ -3209,6 +3355,7 @@ function ChatPanel({ token, role }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [selfAvatarURL, setSelfAvatarURL] = useState("");
+  const [priceConfirm, setPriceConfirm] = useState(null);
   const currentUserID = useMemo(() => tokenUserID(token), [token]);
   const activeChat = useMemo(
     () => chats.find((chat) => String(chat.chat_id) === String(activeChatID)),
@@ -3285,10 +3432,25 @@ function ChatPanel({ token, role }) {
       .catch((err) => setError(err.message));
   }, [markChatRead, token]);
 
+  const selectChat = useCallback((chatID, options = {}) => {
+    const nextID = String(chatID || "");
+    setActiveChatID(nextID);
+    if (nextID) {
+      localStorage.setItem("workers_marketplace_active_chat", nextID);
+      onNavigate?.("chats", { detailID: nextID, replace: options.replace });
+    }
+  }, [onNavigate]);
+
   useEffect(() => {
     loadChats();
     loadBookings();
   }, [loadBookings, loadChats]);
+
+  useEffect(() => {
+    if (initialChatID) {
+      selectChat(initialChatID, { replace: true });
+    }
+  }, [initialChatID, selectChat]);
 
   useEffect(() => {
     const endpoint = role === "worker" ? "/api/worker/profile" : role === "customer" ? "/api/customer/profile" : "";
@@ -3302,6 +3464,12 @@ function ChatPanel({ token, role }) {
   }, [role, token]);
 
   useEffect(() => {
+    const currentChat = chats.find((chat) => String(chat.chat_id) === String(activeChatID));
+    if (currentChat) {
+      const nextFolder = isArchivedBookingStatus(currentChat.status) || isArchivedBookingStatus(currentChat.booking_status) ? "archived" : "active";
+      setChatFolder((current) => (current === nextFolder ? current : nextFolder));
+      return;
+    }
     if (visibleChats.length === 0) {
       setActiveChatID((current) => (current ? "" : current));
       return;
@@ -3311,9 +3479,9 @@ function ChatPanel({ token, role }) {
       const selectedID = storedID && visibleChats.some((chat) => String(chat.chat_id) === storedID)
         ? storedID
         : String(visibleChats[0].chat_id);
-      setActiveChatID(selectedID);
+      selectChat(selectedID, { replace: true });
     }
-  }, [activeChatID, visibleChats]);
+  }, [activeChatID, chats, selectChat, visibleChats]);
 
   useEffect(() => {
     loadMessages(activeChatID);
@@ -3435,10 +3603,7 @@ function ChatPanel({ token, role }) {
 
   const acceptPrice = async () => {
     if (!activeChat?.booking_id) return;
-    const priceText = activeBookingPrice > 0 ? `${formatMoney(activeBookingPrice)} KZT` : "this price";
-    if (!window.confirm(`Are you sure you want to accept ${priceText}?`)) {
-      return;
-    }
+    const priceText = priceConfirm?.priceText || (activeBookingPrice > 0 ? `${formatMoney(activeBookingPrice)} KZT` : "this price");
     setError("");
     setMessage("");
     try {
@@ -3447,6 +3612,7 @@ function ChatPanel({ token, role }) {
       loadBookings();
       loadChats();
       setMessage("Price accepted. Worker selected and booking is active.");
+      setPriceConfirm(null);
     } catch (err) {
       setError(err.message);
     }
@@ -3471,6 +3637,7 @@ function ChatPanel({ token, role }) {
   const canCustomerDecidePrice = !activeChatArchived && role === "customer" && activeBookingStatus === "price_pending";
 
   return (
+    <>
     <section className="pagePanel chatPage">
       <SectionHeader title="Chat" text="Talk about details, timing, price and files." />
       <Messages message={message} error={error} />
@@ -3495,7 +3662,7 @@ function ChatPanel({ token, role }) {
               key={chat.chat_id}
               className={String(activeChatID) === String(chat.chat_id) ? "active" : ""}
               type="button"
-              onClick={() => setActiveChatID(String(chat.chat_id))}
+              onClick={() => selectChat(chat.chat_id)}
             >
               <strong>Booking #{chat.booking_id}</strong>
               <span>{chat.unread_count ? `${chat.unread_count} unread` : chat.booking_status || chat.status}</span>
@@ -3524,7 +3691,14 @@ function ChatPanel({ token, role }) {
               </div>
               {activeBookingPrice > 0 && (
                 <div className="rowActions">
-                  <button type="button" onClick={acceptPrice}>Accept price</button>
+                  <button
+                    type="button"
+                    onClick={() => setPriceConfirm({
+                      priceText: `${formatMoney(activeBookingPrice)} KZT`,
+                    })}
+                  >
+                    Accept price
+                  </button>
                   <button className="secondaryButton" type="button" onClick={rejectPrice}>Reject</button>
                 </div>
               )}
@@ -3565,6 +3739,17 @@ function ChatPanel({ token, role }) {
         </div>
       </div>
     </section>
+    {priceConfirm && (
+      <ConfirmDialog
+        title="Accept price?"
+        text={`You are about to accept ${priceConfirm.priceText}. The worker will be selected and the booking will become active.`}
+        confirmLabel="Accept"
+        cancelLabel="Cancel"
+        onConfirm={acceptPrice}
+        onCancel={() => setPriceConfirm(null)}
+      />
+    )}
+    </>
   );
 }
 
@@ -3625,10 +3810,10 @@ function AttachmentPreview({ msg }) {
   );
 }
 
-function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
+function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavigate, onOpenProfile }) {
   const [reports, setReports] = useState([]);
   const [reportBookings, setReportBookings] = useState([]);
-  const [activeID, setActiveID] = useState(() => localStorage.getItem("workers_marketplace_active_report") || "");
+  const [activeID, setActiveID] = useState(() => initialReportID || localStorage.getItem("workers_marketplace_active_report") || "");
   const [activeSide, setActiveSide] = useState(() => localStorage.getItem("workers_marketplace_active_report_side") || "reporter");
   const [reportPerspective, setReportPerspective] = useState("created");
   const [showCreateForm, setShowCreateForm] = useState(() => Boolean(localStorage.getItem("workers_marketplace_report_booking")));
@@ -3686,6 +3871,27 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
       .catch((err) => setError(err.message));
   }, [token]);
 
+  const selectReport = useCallback((reportID, side, options = {}) => {
+    const nextID = String(reportID || "");
+    setActiveID(nextID);
+    if (side) {
+      setActiveSide(side);
+    }
+    if (nextID) {
+      localStorage.setItem("workers_marketplace_active_report", nextID);
+      if (side) {
+        localStorage.setItem("workers_marketplace_active_report_side", side);
+      }
+      onNavigate?.("reports", { detailID: nextID, replace: options.replace });
+    }
+  }, [onNavigate]);
+
+  useEffect(() => {
+    if (initialReportID) {
+      selectReport(initialReportID, undefined, { replace: true });
+    }
+  }, [initialReportID, selectReport]);
+
   useEffect(() => {
     loadReports();
     const intervalID = window.setInterval(loadReports, 5000);
@@ -3723,6 +3929,14 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
   const penaltyUsesDays = penalty.penalty_type === "temporary_suspend" || penalty.penalty_type === "block_user";
 
   useEffect(() => {
+    if (staff || !initialReportID || reports.length === 0) return;
+    const routedReport = reports.find((report) => String(report.report_id) === String(initialReportID));
+    if (!routedReport) return;
+    const nextPerspective = Number(routedReport.reported_user_id) === Number(currentUserID) ? "against" : "created";
+    setReportPerspective((current) => (current === nextPerspective ? current : nextPerspective));
+  }, [currentUserID, initialReportID, reports, staff]);
+
+  useEffect(() => {
     if (staff || !activeReport) return;
     if (activeSide !== activeUserSide) {
       setActiveSide(activeUserSide);
@@ -3734,10 +3948,13 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
       if (!staff) setActiveID("");
       return;
     }
-    if (!visibleReports.some((report) => String(report.report_id) === String(activeID))) {
-      setActiveID(String(visibleReports[0].report_id));
+    if (activeID && reports.some((report) => String(report.report_id) === String(activeID))) {
+      return;
     }
-  }, [activeID, staff, visibleReports]);
+    if (!visibleReports.some((report) => String(report.report_id) === String(activeID))) {
+      selectReport(visibleReports[0].report_id, undefined, { replace: true });
+    }
+  }, [activeID, reports, selectReport, staff, visibleReports]);
 
   const createReport = async (event) => {
     event.preventDefault();
@@ -3941,8 +4158,7 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
             {visibleReports.length === 0 && <EmptyState title="No reports" text="Reports will appear here." />}
             {visibleReports.map((report) => (
               <button key={report.report_id} className={String(activeID) === String(report.report_id) ? "active" : ""} onClick={() => {
-                setActiveID(String(report.report_id));
-                setActiveSide(staff ? activeSide : Number(report.reported_user_id) === Number(currentUserID) ? "reported" : "reporter");
+                selectReport(report.report_id, staff ? activeSide : Number(report.reported_user_id) === Number(currentUserID) ? "reported" : "reporter");
               }}>
                 <div className="reportCardTop">
                   <strong>Report #{report.report_id}</strong>
