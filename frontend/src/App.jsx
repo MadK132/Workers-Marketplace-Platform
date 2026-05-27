@@ -3163,6 +3163,18 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
     }
   };
 
+  const rejectCompletionEvidence = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/bookings/${id}/evidence/reject`, token, {});
+      setMessage("Proof rejected. The worker can send a new proof.");
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const openChat = async (bookingID) => {
     setError("");
     setMessage("");
@@ -3214,7 +3226,10 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
                   </>
                 )}
                 {String(item.status).toLowerCase() === "awaiting_confirmation" && (
-                  <button className="primaryBookingAction" onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
+                  <>
+                    <button className="primaryBookingAction" onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
+                    <button className="secondaryButton" onClick={() => rejectCompletionEvidence(item.booking_id || item.id)}>Reject proof</button>
+                  </>
                 )}
               </div>
             )}
@@ -3441,6 +3456,18 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
     }
   }, [onNavigate]);
 
+  const switchChatFolder = useCallback((folder) => {
+    setChatFolder(folder);
+    const nextChats = folder === "archived" ? archivedChats : activeChats;
+    if (nextChats.length === 0) {
+      setActiveChatID("");
+      return;
+    }
+    if (!nextChats.some((chat) => String(chat.chat_id) === String(activeChatID))) {
+      selectChat(nextChats[0].chat_id);
+    }
+  }, [activeChatID, activeChats, archivedChats, selectChat]);
+
   useEffect(() => {
     loadChats();
     loadBookings();
@@ -3644,10 +3671,10 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
       <div className={visibleChats.length === 0 ? "chatLayout emptyChatLayout" : "chatLayout"}>
         <aside className="chatList">
           <div className="chatFolderTabs" role="tablist" aria-label="Chat folders">
-            <button type="button" className={chatFolder === "active" ? "active" : ""} onClick={() => setChatFolder("active")}>
+            <button type="button" className={chatFolder === "active" ? "active" : ""} onClick={() => switchChatFolder("active")}>
               Active <span>{activeChats.length}</span>
             </button>
-            <button type="button" className={chatFolder === "archived" ? "active" : ""} onClick={() => setChatFolder("archived")}>
+            <button type="button" className={chatFolder === "archived" ? "active" : ""} onClick={() => switchChatFolder("archived")}>
               Completed <span>{archivedChats.length}</span>
             </button>
           </div>
