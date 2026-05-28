@@ -494,6 +494,54 @@ func (r *BookingRepository) MarkRejected(
 	return tx.Commit(ctx)
 }
 
+func (r *BookingRepository) MarkCancelledByStaff(
+	ctx context.Context,
+	bookingID int,
+	requestID int,
+	workerProfileID int,
+) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE bookings
+		SET status = 'cancelled',
+		    end_time = NOW(),
+		    customer_confirmed = false
+		WHERE booking_id = $1
+		  AND status NOT IN ('completed', 'cancelled')
+	`, bookingID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrBookingNotFound
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE service_requests
+		SET status = 'cancelled'
+		WHERE request_id = $1
+	`, requestID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET is_available = false
+		WHERE worker_profile_id = $1
+	`, workerProfileID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *BookingRepository) MarkCompleted(
 	ctx context.Context,
 	bookingID int,

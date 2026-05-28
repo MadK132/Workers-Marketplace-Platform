@@ -123,6 +123,25 @@ func (s *BookingService) RejectBooking(
 	return s.repo.MarkRejected(ctx, bookingID, b.RequestID, b.WorkerProfileID)
 }
 
+func (s *BookingService) CancelBookingByStaff(
+	ctx context.Context,
+	bookingID int,
+) error {
+	b, err := s.repo.GetBookingDetails(ctx, bookingID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBookingNotFound) {
+			return ErrBookingNotFound
+		}
+		return err
+	}
+
+	if b.Status == "completed" || b.Status == "cancelled" {
+		return ErrInvalidTransition
+	}
+
+	return s.repo.MarkCancelledByStaff(ctx, bookingID, b.RequestID, b.WorkerProfileID)
+}
+
 func (s *BookingService) CompleteBooking(
 	ctx context.Context,
 	bookingID int,

@@ -3855,6 +3855,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
   const [messageText, setMessageText] = useState("");
   const [attachment, setAttachment] = useState(null);
   const [penalty, setPenalty] = useState({ penalty_type: "warning", days: "7", reason: "" });
+  const [cancelBookingTarget, setCancelBookingTarget] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -4087,6 +4088,24 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
     }
   };
 
+  const cancelReportBooking = async () => {
+    if (!cancelBookingTarget?.booking_id) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/bookings/${cancelBookingTarget.booking_id}/admin/cancel`, token, {
+        report_id: cancelBookingTarget.report_id,
+        reason: penalty.reason || cancelBookingTarget.reason || "Cancelled from support report",
+      });
+      setMessage(`Booking #${cancelBookingTarget.booking_id} cancelled.`);
+      setCancelBookingTarget(null);
+      loadReports();
+      window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   return (
     <section className="pagePanel reportsPage">
       <SectionHeader title={staff ? "Reports" : "My reports"} text={staff ? "Review disputes and apply penalties when needed." : "Create a support case for a booking issue."} />
@@ -4296,6 +4315,15 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
                   </div>
                   <Field label="Resolution note" light><textarea value={penalty.reason} onChange={(event) => setPenalty({ ...penalty, reason: event.target.value })} placeholder="What decision was made?" /></Field>
                   <div className="rowActions">
+                    {activeReport.booking_id && (
+                      <button
+                        type="button"
+                        className="secondaryButton"
+                        onClick={() => setCancelBookingTarget(activeReport)}
+                      >
+                        Cancel booking
+                      </button>
+                    )}
                     <button type="button" onClick={applyPenalty}>Apply penalty</button>
                     <button type="button" className="secondaryButton" onClick={() => closeReport("rejected")}>Reject report</button>
                     <button type="button" className="secondaryButton" onClick={() => closeReport("resolved")}>Close without penalty</button>
@@ -4351,6 +4379,16 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
             </form>
           )}
         </div>
+      )}
+      {cancelBookingTarget && (
+        <ConfirmDialog
+          title="Cancel booking?"
+          text={`Booking #${cancelBookingTarget.booking_id} will be cancelled for both customer and worker. The report will stay open for the support decision.`}
+          confirmLabel="Cancel booking"
+          cancelLabel="Keep booking"
+          onConfirm={cancelReportBooking}
+          onCancel={() => setCancelBookingTarget(null)}
+        />
       )}
     </section>
   );
