@@ -748,7 +748,23 @@ func (s *AuthService) DeleteUser(ctx context.Context, userID int) error {
 }
 
 func (s *AuthService) ActivateUser(ctx context.Context, userID int) error {
-	return s.users.ActivateUser(ctx, userID)
+	if err := s.users.ActivateUser(ctx, userID); err != nil {
+		return err
+	}
+
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	switch user.Role {
+	case model.RoleCustomer:
+		return s.customerProfiles.Create(ctx, userID)
+	case model.RoleWorker:
+		return s.workerProfiles.Create(ctx, userID)
+	default:
+		return nil
+	}
 }
 
 func (s *AuthService) CreateAdmin(ctx context.Context, input RegisterInput) (model.User, error) {
