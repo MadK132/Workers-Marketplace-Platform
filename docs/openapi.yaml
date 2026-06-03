@@ -1,0 +1,3468 @@
+openapi: 3.0.3
+info:
+  title: Workers Marketplace Platform API
+  version: 1.0.0
+  description: |
+    OpenAPI documentation for the Workers Marketplace Platform HTTP API exposed
+    through the API gateway. Public authentication routes are available under
+    `/auth`. Protected application routes are available under `/api` and require
+    a Bearer JWT.
+servers:
+  - url: http://localhost:8080
+    description: Local API gateway
+tags:
+  - name: Health
+  - name: Auth
+  - name: Profiles
+  - name: Workers
+  - name: Identity
+  - name: Admin
+  - name: Reports
+  - name: Payments
+  - name: Requests
+  - name: Bookings
+  - name: Reviews
+  - name: Chats
+  - name: Geolocation
+  - name: Notifications
+  - name: Webhooks
+
+paths:
+  /healthz:
+    get:
+      tags:
+        - Health
+      summary: Check API gateway health
+      responses:
+        "200":
+          description: Gateway is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /auth/register:
+    post:
+      tags:
+        - Auth
+      summary: Register a customer or worker account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/verify:
+    get:
+      tags:
+        - Auth
+      summary: Verify email by token
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Email verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login and receive tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/refresh:
+    post:
+      tags:
+        - Auth
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Access token refreshed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/resend-verification:
+    post:
+      tags:
+        - Auth
+      summary: Resend verification email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "200":
+          description: Verification email sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /auth/forgot-password:
+    post:
+      tags:
+        - Auth
+      summary: Request password reset link
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRequest"
+      responses:
+        "200":
+          description: Reset flow accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/reset:
+    get:
+      tags:
+        - Auth
+      summary: Redirect to frontend password reset page
+      parameters:
+        - name: token
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirects to the frontend reset page.
+
+  /auth/reset-password:
+    post:
+      tags:
+        - Auth
+      summary: Reset password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /auth/select-role:
+    post:
+      tags:
+        - Auth
+      summary: Select account role
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectRoleRequest"
+      responses:
+        "200":
+          description: Role selected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/customer/profile:
+    get:
+      tags:
+        - Profiles
+      summary: Get current customer profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Customer profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags:
+        - Profiles
+      summary: Create or update current customer profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerProfileRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CustomerProfileMultipartRequest"
+      responses:
+        "200":
+          description: Customer profile saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/worker/profile:
+    get:
+      tags:
+        - Profiles
+      summary: Get current worker profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Worker profile.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags:
+        - Profiles
+      summary: Create or update current worker profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerProfileRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/WorkerProfileMultipartRequest"
+      responses:
+        "200":
+          description: Worker profile saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/worker/skills:
+    post:
+      tags:
+        - Workers
+      summary: Add worker skill
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddWorkerSkillRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AddWorkerSkillMultipartRequest"
+      responses:
+        "200":
+          description: Worker skill added.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddWorkerSkillResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/worker/identity-document:
+    post:
+      tags:
+        - Identity
+      summary: Upload worker identity document
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadIdentityDocumentRequest"
+      responses:
+        "200":
+          description: Identity document uploaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerIdentityDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/worker/skill-upgrades:
+    post:
+      tags:
+        - Workers
+      summary: Request a worker skill level upgrade
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/WorkerSkillUpgradeRequest"
+      responses:
+        "200":
+          description: Upgrade request created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerSkillUpgradeResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/worker/availability:
+    patch:
+      tags:
+        - Workers
+      summary: Update current worker availability
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AvailabilityRequest"
+      responses:
+        "200":
+          description: Availability updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/categories:
+    get:
+      tags:
+        - Workers
+      summary: List service categories
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Service categories.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceCategory"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/workers:
+    get:
+      tags:
+        - Workers
+      summary: Find available verified workers by category
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: category_id
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Matching workers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkerSearchResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/admin/verify-skill:
+    post:
+      tags:
+        - Admin
+      summary: Verify a worker skill
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyWorkerSkillRequest"
+      responses:
+        "200":
+          description: Skill and worker verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/admin/verify-skill-upgrade:
+    post:
+      tags:
+        - Admin
+      summary: Approve a pending worker skill upgrade
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyWorkerSkillUpgradeRequest"
+      responses:
+        "200":
+          description: Skill upgrade approved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/assign-identity-document:
+    post:
+      tags:
+        - Identity
+      summary: Assign an identity document to current staff user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdentityDocumentIDRequest"
+      responses:
+        "200":
+          description: Identity document assigned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/verify-identity-document:
+    post:
+      tags:
+        - Identity
+      summary: Verify a worker identity document
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdentityDocumentIDRequest"
+      responses:
+        "200":
+          description: Identity document verified.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/reject-identity-document:
+    post:
+      tags:
+        - Identity
+      summary: Reject a worker identity document
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectIdentityDocumentRequest"
+      responses:
+        "200":
+          description: Identity document rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/overview:
+    get:
+      tags:
+        - Admin
+      summary: Get admin overview dashboard data
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Admin overview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOverview"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/admin/users:
+    get:
+      tags:
+        - Admin
+      summary: List users for admin dashboard
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserSummary"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/admin/admins:
+    post:
+      tags:
+        - Admin
+      summary: Create admin user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "200":
+          description: Admin user created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminCreatedUser"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/managers:
+    post:
+      tags:
+        - Admin
+      summary: Create manager user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "200":
+          description: Manager user created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminCreatedUser"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/users/{id}/profile:
+    get:
+      tags:
+        - Admin
+      summary: Get customer or worker profile details for staff review
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: Staff profile view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffUserProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/users/{id}/activate:
+    patch:
+      tags:
+        - Admin
+      summary: Activate user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: User activated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/admin/users/{id}:
+    delete:
+      tags:
+        - Admin
+      summary: Delete user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: User deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/payment-method:
+    get:
+      tags:
+        - Payments
+      summary: Get current user's payment methods
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Payment method status and saved cards.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethodListResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - Payments
+      summary: Save a payment method manually
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertPaymentMethodRequest"
+      responses:
+        "200":
+          description: Payment method saved and selected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethod"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/payment-method/{id}/select:
+    patch:
+      tags:
+        - Payments
+      summary: Select an existing payment method
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PaymentMethodID"
+      responses:
+        "200":
+          description: Payment method selected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethod"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/payment-method/stripe/setup-session:
+    post:
+      tags:
+        - Payments
+      summary: Create a Stripe setup session URL
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Stripe setup session URL.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentSetupSessionResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /api/payment-method/stripe/confirm:
+    post:
+      tags:
+        - Payments
+      summary: Confirm a Stripe setup session and save the card
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmPaymentSetupSessionRequest"
+      responses:
+        "200":
+          description: Card saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentMethodStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+
+  /api/reports:
+    get:
+      tags:
+        - Reports
+      summary: List reports visible to current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Reports.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Report"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - Reports
+      summary: Create a support report
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReportRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateReportMultipartRequest"
+      responses:
+        "201":
+          description: Report created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/reports/{report_id}/messages:
+    get:
+      tags:
+        - Reports
+      summary: List report messages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReportID"
+        - $ref: "#/components/parameters/ReportSide"
+      responses:
+        "200":
+          description: Report messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ReportMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    post:
+      tags:
+        - Reports
+      summary: Add a report message
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReportID"
+        - $ref: "#/components/parameters/ReportSide"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddReportMessageRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/AddReportMessageMultipartRequest"
+      responses:
+        "201":
+          description: Message created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/admin/reports/{report_id}/assign:
+    patch:
+      tags:
+        - Reports
+      summary: Assign report to current staff user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReportID"
+      responses:
+        "200":
+          description: Report assigned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/reports/{report_id}/penalty:
+    post:
+      tags:
+        - Reports
+      summary: Apply a report penalty
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReportID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplyReportPenaltyRequest"
+      responses:
+        "200":
+          description: Penalty applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Penalty"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/admin/penalties/{penalty_id}/cancel:
+    patch:
+      tags:
+        - Reports
+      summary: Cancel an active penalty
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PenaltyID"
+      responses:
+        "200":
+          description: Penalty cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/admin/reports/{report_id}/close:
+    patch:
+      tags:
+        - Reports
+      summary: Close a report as resolved or rejected
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ReportID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseReportRequest"
+      responses:
+        "200":
+          description: Report closed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/requests:
+    post:
+      tags:
+        - Requests
+      summary: Create a service request
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceRequest"
+      responses:
+        "200":
+          description: Request created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateServiceRequestResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/requests/my:
+    get:
+      tags:
+        - Requests
+      summary: List current customer's requests
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current customer's requests.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RequestListItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings:
+    post:
+      tags:
+        - Bookings
+      summary: Create booking for a request and worker
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingRequest"
+      responses:
+        "200":
+          description: Booking created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateBookingResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "402":
+          $ref: "#/components/responses/PaymentRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/my:
+    get:
+      tags:
+        - Bookings
+      summary: List current user's bookings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user's bookings.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookingListItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/start:
+    patch:
+      tags:
+        - Bookings
+      summary: Start booking
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      responses:
+        "200":
+          description: Booking started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/reject:
+    patch:
+      tags:
+        - Bookings
+      summary: Reject scheduled booking as worker
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      responses:
+        "200":
+          description: Booking rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/admin/cancel:
+    patch:
+      tags:
+        - Bookings
+      summary: Cancel booking by staff
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelBookingByStaffRequest"
+      responses:
+        "200":
+          description: Booking cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/complete:
+    patch:
+      tags:
+        - Bookings
+      summary: Send completion evidence
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteBookingRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CompleteBookingMultipartRequest"
+      responses:
+        "200":
+          description: Completion evidence sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/confirm:
+    patch:
+      tags:
+        - Bookings
+      summary: Confirm completion and create payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      responses:
+        "200":
+          description: Booking completed and payment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmCompletionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/evidence/reject:
+    patch:
+      tags:
+        - Bookings
+      summary: Reject completion evidence
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      responses:
+        "200":
+          description: Completion evidence rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/price:
+    patch:
+      tags:
+        - Bookings
+      summary: Set or update booking price
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetBookingPriceRequest"
+      responses:
+        "200":
+          description: Booking price updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetBookingPriceResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/price/accept:
+    patch:
+      tags:
+        - Bookings
+      summary: Accept booking price as customer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      responses:
+        "200":
+          description: Booking price accepted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/price/reject:
+    patch:
+      tags:
+        - Bookings
+      summary: Reject booking price as customer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      responses:
+        "200":
+          description: Booking price rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/bookings/{booking_id}/review:
+    post:
+      tags:
+        - Reviews
+      summary: Create or update booking review
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/BookingID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReviewRequest"
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CreateReviewMultipartRequest"
+      responses:
+        "200":
+          description: Review saved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateReviewResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/reviews/workers/{worker_profile_id}:
+    get:
+      tags:
+        - Reviews
+      summary: List worker review summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkerProfileID"
+      responses:
+        "200":
+          description: Worker reviews and summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerReviewSummary"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/chats:
+    get:
+      tags:
+        - Chats
+      summary: List current user's chats
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Chats.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Chat"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags:
+        - Chats
+      summary: Create chat
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChatRequest"
+      responses:
+        "200":
+          description: Chat created or returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Chat"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/chats/{chat_id}/messages:
+    get:
+      tags:
+        - Chats
+      summary: List chat messages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChatID"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: before_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            default: 0
+      responses:
+        "200":
+          description: Chat messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags:
+        - Chats
+      summary: Send chat message
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChatID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: Message sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/chats/{chat_id}/read:
+    patch:
+      tags:
+        - Chats
+      summary: Mark chat messages as read
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChatID"
+      responses:
+        "200":
+          description: Messages marked read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkReadResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/chats/{chat_id}/ws:
+    get:
+      tags:
+        - Chats
+      summary: Open chat WebSocket
+      description: |
+        Opens a WebSocket connection for a chat. The HTTP gateway route requires
+        the same Bearer JWT as the other `/api` routes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChatID"
+      responses:
+        "101":
+          description: WebSocket upgrade.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/geo/workers/nearby:
+    get:
+      tags:
+        - Geolocation
+      summary: Find nearby workers
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: category_id
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: latitude
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: longitude
+          in: query
+          required: true
+          schema:
+            type: number
+            format: double
+        - name: radius_meters
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 5000
+      responses:
+        "200":
+          description: Nearby workers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NearbyWorker"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /api/geo/worker/location:
+    patch:
+      tags:
+        - Geolocation
+      summary: Update current worker location
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationRequest"
+      responses:
+        "200":
+          description: Location updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/geo/customer/location:
+    patch:
+      tags:
+        - Geolocation
+      summary: Update current customer location
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationRequest"
+      responses:
+        "200":
+          description: Location updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/notifications:
+    get:
+      tags:
+        - Notifications
+      summary: List current user's notifications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: unread
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          description: Notifications.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Notification"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/notifications/{notification_id}/read:
+    patch:
+      tags:
+        - Notifications
+      summary: Mark one notification as read
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/NotificationID"
+      responses:
+        "200":
+          description: Notification updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/notifications/read-all:
+    patch:
+      tags:
+        - Notifications
+      summary: Mark all current user's notifications as read
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Notifications marked read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarkAllNotificationsReadResponse"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /webhooks/stripe:
+    post:
+      tags:
+        - Webhooks
+      summary: Receive Stripe checkout webhook
+      description: Direct payment-service webhook endpoint. It is served by the payment service, not by the API gateway.
+      servers:
+        - url: http://localhost:8096
+          description: Local payment webhook service
+      parameters:
+        - name: Stripe-Signature
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StripeWebhookEvent"
+      responses:
+        "200":
+          description: Event accepted or ignored.
+        "400":
+          description: Invalid payload or signature.
+        "404":
+          description: Payment not found.
+        "405":
+          description: Method not allowed.
+        "500":
+          description: Payment update failed.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UserID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    BookingID:
+      name: booking_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ChatID:
+      name: chat_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    NotificationID:
+      name: notification_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    WorkerProfileID:
+      name: worker_profile_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ReportID:
+      name: report_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    PenaltyID:
+      name: penalty_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    PaymentMethodID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ReportSide:
+      name: side
+      in: query
+      required: false
+      description: Staff can choose which report conversation to view. Non-staff users are mapped to their own side.
+      schema:
+        type: string
+        enum:
+          - reporter
+          - reported
+
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Unauthorized.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    PaymentRequired:
+      description: Payment method is required.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Resource conflict.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    InternalServerError:
+      description: Internal server error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    BadGateway:
+      description: Upstream provider error.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    StatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+      required:
+        - status
+
+    Role:
+      type: string
+      enum:
+        - customer
+        - worker
+        - admin
+        - manager
+
+    UserStatus:
+      type: string
+      enum:
+        - active
+        - inactive
+        - banned
+
+    ExperienceLevel:
+      type: string
+      enum:
+        - junior
+        - middle
+        - senior
+
+    RegisterRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        password:
+          type: string
+          format: password
+        role:
+          $ref: "#/components/schemas/Role"
+      required:
+        - full_name
+        - email
+        - password
+        - role
+
+    RegisterResponse:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        full_name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        created_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+      required:
+        - user_id
+        - full_name
+        - email
+        - role
+        - status
+        - created_at
+        - message
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required:
+        - email
+        - password
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+          example: Bearer
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+        - expires_at
+
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+      required:
+        - refresh_token
+
+    RefreshResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+      required:
+        - access_token
+        - expires_at
+
+    EmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResetPasswordRequest:
+      type: object
+      properties:
+        token:
+          type: string
+        new_password:
+          type: string
+          format: password
+      required:
+        - token
+        - new_password
+
+    SelectRoleRequest:
+      type: object
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+      required:
+        - role
+
+    CustomerProfileRequest:
+      type: object
+      properties:
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        bio:
+          type: string
+        profile_photo_url:
+          type: string
+          nullable: true
+
+    CustomerProfileMultipartRequest:
+      type: object
+      properties:
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        bio:
+          type: string
+        profile_photo:
+          type: string
+          format: binary
+
+    CustomerProfile:
+      type: object
+      properties:
+        customer_profile_id:
+          type: integer
+        user_id:
+          type: integer
+        address:
+          type: string
+          nullable: true
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        bio:
+          type: string
+        profile_photo_url:
+          type: string
+          nullable: true
+      required:
+        - customer_profile_id
+        - user_id
+
+    WorkerProfileRequest:
+      type: object
+      properties:
+        bio:
+          type: string
+        current_latitude:
+          type: number
+          format: double
+          nullable: true
+        current_longitude:
+          type: number
+          format: double
+          nullable: true
+        profile_photo_url:
+          type: string
+          nullable: true
+
+    WorkerProfileMultipartRequest:
+      type: object
+      properties:
+        bio:
+          type: string
+        current_latitude:
+          type: number
+          format: double
+        current_longitude:
+          type: number
+          format: double
+        profile_photo:
+          type: string
+          format: binary
+
+    WorkerProfile:
+      type: object
+      properties:
+        worker_profile_id:
+          type: integer
+        user_id:
+          type: integer
+        bio:
+          type: string
+        rating:
+          type: number
+          format: double
+        verification_status:
+          type: string
+        is_available:
+          type: boolean
+        current_latitude:
+          type: number
+          format: double
+          nullable: true
+        current_longitude:
+          type: number
+          format: double
+          nullable: true
+        profile_photo_url:
+          type: string
+          nullable: true
+        verified_skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerifiedWorkerSkill"
+        identity_document:
+          allOf:
+            - $ref: "#/components/schemas/WorkerIdentityDocument"
+          nullable: true
+      required:
+        - worker_profile_id
+        - user_id
+        - bio
+        - rating
+        - verification_status
+        - is_available
+
+    WorkerIdentityDocument:
+      type: object
+      properties:
+        identity_document_id:
+          type: integer
+        worker_profile_id:
+          type: integer
+        file_name:
+          type: string
+        file_path:
+          type: string
+        content_type:
+          type: string
+        status:
+          type: string
+          enum:
+            - pending
+            - verified
+            - rejected
+            - replaced
+        uploaded_at:
+          type: string
+        reviewed_at:
+          type: string
+          nullable: true
+        reviewer_email:
+          type: string
+          nullable: true
+        rejection_reason:
+          type: string
+          nullable: true
+
+    UploadIdentityDocumentRequest:
+      type: object
+      properties:
+        identity_document:
+          type: string
+          format: binary
+      required:
+        - identity_document
+
+    IdentityDocumentIDRequest:
+      type: object
+      properties:
+        identity_document_id:
+          type: integer
+      required:
+        - identity_document_id
+
+    RejectIdentityDocumentRequest:
+      type: object
+      properties:
+        identity_document_id:
+          type: integer
+        reason:
+          type: string
+      required:
+        - identity_document_id
+
+    AddWorkerSkillRequest:
+      type: object
+      properties:
+        category_id:
+          type: integer
+        experience_level:
+          $ref: "#/components/schemas/ExperienceLevel"
+        price_base:
+          type: integer
+        price:
+          type: integer
+          description: Alternative field accepted by the API when price_base is omitted.
+      required:
+        - category_id
+        - experience_level
+
+    AddWorkerSkillMultipartRequest:
+      type: object
+      properties:
+        category_id:
+          type: integer
+        experience_level:
+          $ref: "#/components/schemas/ExperienceLevel"
+        price_base:
+          type: integer
+        price:
+          type: integer
+        evidence_note:
+          type: string
+        evidence_files:
+          type: array
+          items:
+            type: string
+            format: binary
+      required:
+        - category_id
+        - experience_level
+
+    AddWorkerSkillResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        worker_skill_id:
+          type: integer
+      required:
+        - message
+        - worker_skill_id
+
+    WorkerSkillUpgradeRequest:
+      type: object
+      properties:
+        worker_skill_id:
+          type: integer
+        requested_experience_level:
+          $ref: "#/components/schemas/ExperienceLevel"
+        evidence_note:
+          type: string
+        evidence_files:
+          type: array
+          items:
+            type: string
+            format: binary
+      required:
+        - worker_skill_id
+        - requested_experience_level
+        - evidence_files
+
+    WorkerSkillUpgradeResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        upgrade_request_id:
+          type: integer
+      required:
+        - message
+        - upgrade_request_id
+
+    VerifyWorkerSkillUpgradeRequest:
+      type: object
+      properties:
+        upgrade_request_id:
+          type: integer
+      required:
+        - upgrade_request_id
+
+    AvailabilityRequest:
+      type: object
+      properties:
+        is_available:
+          type: boolean
+      required:
+        - is_available
+
+    ServiceCategory:
+      type: object
+      properties:
+        category_id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+      required:
+        - category_id
+        - name
+
+    WorkerSearchResult:
+      type: object
+      properties:
+        worker_id:
+          type: integer
+        full_name:
+          type: string
+        price:
+          type: integer
+        experience_level:
+          type: string
+        category_name:
+          type: string
+      required:
+        - worker_id
+        - full_name
+        - price
+        - experience_level
+        - category_name
+
+    VerifiedWorkerSkill:
+      type: object
+      properties:
+        worker_skill_id:
+          type: integer
+        category_id:
+          type: integer
+        category_name:
+          type: string
+        experience_level:
+          type: string
+        price_base:
+          type: string
+
+    VerifyWorkerSkillRequest:
+      type: object
+      properties:
+        worker_skill_id:
+          type: integer
+      required:
+        - worker_skill_id
+
+    UserSummary:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        full_name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        created_at:
+          type: string
+
+    StaffCustomerProfile:
+      type: object
+      properties:
+        customer_profile_id:
+          type: integer
+        address:
+          type: string
+          nullable: true
+        bio:
+          type: string
+        profile_photo_url:
+          type: string
+          nullable: true
+
+    StaffWorkerProfile:
+      type: object
+      properties:
+        worker_profile_id:
+          type: integer
+        bio:
+          type: string
+        rating:
+          type: number
+          format: double
+        verification_status:
+          type: string
+        is_available:
+          type: boolean
+        profile_photo_url:
+          type: string
+          nullable: true
+
+    StaffUserProfile:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/UserSummary"
+        customer_profile:
+          allOf:
+            - $ref: "#/components/schemas/StaffCustomerProfile"
+          nullable: true
+        worker_profile:
+          allOf:
+            - $ref: "#/components/schemas/StaffWorkerProfile"
+          nullable: true
+        verified_skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/VerifiedWorkerSkill"
+        identity_documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkerIdentityDocument"
+        penalties:
+          type: array
+          items:
+            $ref: "#/components/schemas/Penalty"
+        warning_count:
+          type: integer
+
+    AdminCreatedUser:
+      type: object
+      properties:
+        user_id:
+          type: integer
+        full_name:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/UserStatus"
+
+    AdminStats:
+      type: object
+      properties:
+        users_total:
+          type: integer
+        customers_total:
+          type: integer
+        workers_total:
+          type: integer
+        admins_total:
+          type: integer
+        pending_worker_profiles:
+          type: integer
+        verified_worker_profiles:
+          type: integer
+        pending_worker_skills:
+          type: integer
+        verified_worker_skills:
+          type: integer
+        requests_total:
+          type: integer
+        bookings_total:
+          type: integer
+        bookings_in_progress:
+          type: integer
+
+    PendingWorker:
+      type: object
+      properties:
+        worker_profile_id:
+          type: integer
+        user_id:
+          type: integer
+        full_name:
+          type: string
+        email:
+          type: string
+        verification_status:
+          type: string
+
+    PendingSkill:
+      type: object
+      properties:
+        worker_skill_id:
+          type: integer
+        worker_profile_id:
+          type: integer
+        category_id:
+          type: integer
+        category_name:
+          type: string
+        experience_level:
+          type: string
+        price_base:
+          type: integer
+        is_verified:
+          type: boolean
+        worker_full_name:
+          type: string
+        worker_user_id:
+          type: integer
+        worker_user_email:
+          type: string
+        evidence_files:
+          type: string
+
+    PendingIdentityDocument:
+      type: object
+      properties:
+        identity_document_id:
+          type: integer
+        worker_profile_id:
+          type: integer
+        worker_user_id:
+          type: integer
+        assigned_manager_id:
+          type: integer
+          nullable: true
+        worker_full_name:
+          type: string
+        worker_user_email:
+          type: string
+        file_name:
+          type: string
+        file_path:
+          type: string
+        content_type:
+          type: string
+        created_at:
+          type: string
+
+    PendingSkillUpgrade:
+      type: object
+      properties:
+        upgrade_request_id:
+          type: integer
+        worker_skill_id:
+          type: integer
+        worker_profile_id:
+          type: integer
+        category_name:
+          type: string
+        current_level:
+          type: string
+        requested_level:
+          type: string
+        worker_full_name:
+          type: string
+        worker_user_email:
+          type: string
+        evidence_files:
+          type: string
+        admin_note:
+          type: string
+        created_at:
+          type: string
+
+    AdminOverview:
+      type: object
+      properties:
+        stats:
+          $ref: "#/components/schemas/AdminStats"
+        pending_workers:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingWorker"
+        pending_identities:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingIdentityDocument"
+        pending_skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingSkill"
+        pending_skill_upgrades:
+          type: array
+          items:
+            $ref: "#/components/schemas/PendingSkillUpgrade"
+
+    PaymentMethod:
+      type: object
+      properties:
+        payment_method_id:
+          type: integer
+        user_id:
+          type: integer
+        provider:
+          type: string
+          example: stripe
+        last4:
+          type: string
+          example: "4242"
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    PaymentMethodListResponse:
+      type: object
+      properties:
+        has_payment_method:
+          type: boolean
+        payment_method_id:
+          type: integer
+        provider:
+          type: string
+        last4:
+          type: string
+        is_active:
+          type: boolean
+        cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/PaymentMethod"
+      required:
+        - has_payment_method
+        - cards
+
+    UpsertPaymentMethodRequest:
+      type: object
+      properties:
+        provider:
+          type: string
+          default: stripe
+        last4:
+          type: string
+          minLength: 4
+          maxLength: 4
+      required:
+        - last4
+
+    PaymentSetupSessionResponse:
+      type: object
+      properties:
+        payment_setup_url:
+          type: string
+      required:
+        - payment_setup_url
+
+    ConfirmPaymentSetupSessionRequest:
+      type: object
+      properties:
+        session_id:
+          type: string
+      required:
+        - session_id
+
+    PaymentMethodStatusResponse:
+      type: object
+      properties:
+        has_payment_method:
+          type: boolean
+        payment_method_id:
+          type: integer
+        provider:
+          type: string
+        last4:
+          type: string
+        is_active:
+          type: boolean
+      required:
+        - has_payment_method
+        - payment_method_id
+        - provider
+        - last4
+        - is_active
+
+    Report:
+      type: object
+      properties:
+        report_id:
+          type: integer
+        booking_id:
+          type: integer
+          nullable: true
+        reporter_user_id:
+          type: integer
+        reported_user_id:
+          type: integer
+        assigned_manager_id:
+          type: integer
+          nullable: true
+        reason:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - open
+            - in_review
+            - waiting_customer
+            - waiting_worker
+            - resolved
+            - rejected
+        resolution:
+          type: string
+        penalty_type:
+          type: string
+        reporter_name:
+          type: string
+        reporter_email:
+          type: string
+        reported_name:
+          type: string
+        reported_email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateReportRequest:
+      type: object
+      properties:
+        booking_id:
+          type: integer
+          nullable: true
+        reported_user_id:
+          type: integer
+          description: Optional when booking_id is provided.
+        reason:
+          type: string
+        description:
+          type: string
+      required:
+        - reason
+
+    CreateReportMultipartRequest:
+      type: object
+      properties:
+        booking_id:
+          type: integer
+        reported_user_id:
+          type: integer
+        reason:
+          type: string
+        description:
+          type: string
+        report_files:
+          type: array
+          items:
+            type: string
+            format: binary
+      required:
+        - reason
+
+    ReportMessage:
+      type: object
+      properties:
+        message_id:
+          type: integer
+        report_id:
+          type: integer
+        conversation_side:
+          type: string
+          enum:
+            - reporter
+            - reported
+        sender_user_id:
+          type: integer
+        sender_name:
+          type: string
+        sender_email:
+          type: string
+        sender_role:
+          type: string
+        sender_avatar_url:
+          type: string
+        message_text:
+          type: string
+        attachment_url:
+          type: string
+        attachment_name:
+          type: string
+        attachment_type:
+          type: string
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    AddReportMessageRequest:
+      type: object
+      properties:
+        message_text:
+          type: string
+      required:
+        - message_text
+
+    AddReportMessageMultipartRequest:
+      type: object
+      properties:
+        message_text:
+          type: string
+        attachment:
+          type: string
+          format: binary
+
+    PenaltyType:
+      type: string
+      enum:
+        - warning
+        - temporary_suspend
+        - block_user
+        - unverify_skills
+
+    Penalty:
+      type: object
+      properties:
+        penalty_id:
+          type: integer
+        user_id:
+          type: integer
+        report_id:
+          type: integer
+          nullable: true
+        issued_by_user_id:
+          type: integer
+        penalty_type:
+          $ref: "#/components/schemas/PenaltyType"
+        reason:
+          type: string
+        status:
+          type: string
+          enum:
+            - active
+            - expired
+            - cancelled
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ApplyReportPenaltyRequest:
+      type: object
+      properties:
+        target_user_id:
+          type: integer
+        penalty_type:
+          $ref: "#/components/schemas/PenaltyType"
+        reason:
+          type: string
+        days:
+          type: integer
+          description: Used for temporary_suspend expiration.
+      required:
+        - target_user_id
+        - penalty_type
+
+    CloseReportRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - resolved
+            - rejected
+        resolution:
+          type: string
+      required:
+        - status
+
+    CreateServiceRequest:
+      type: object
+      properties:
+        category_id:
+          type: integer
+        description:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+      required:
+        - category_id
+        - description
+        - address
+        - latitude
+        - longitude
+
+    CreateServiceRequestResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        request_id:
+          type: integer
+      required:
+        - message
+        - request_id
+
+    RequestListItem:
+      type: object
+      properties:
+        request_id:
+          type: integer
+        category_id:
+          type: integer
+        category_name:
+          type: string
+        description:
+          type: string
+        address:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    CreateBookingRequest:
+      type: object
+      properties:
+        request_id:
+          type: integer
+        worker_profile_id:
+          type: integer
+      required:
+        - request_id
+        - worker_profile_id
+
+    CreateBookingResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        booking_id:
+          type: integer
+      required:
+        - message
+        - booking_id
+
+    CancelBookingByStaffRequest:
+      type: object
+      properties:
+        report_id:
+          type: integer
+        reason:
+          type: string
+
+    CompleteBookingRequest:
+      type: object
+      properties:
+        evidence:
+          type: string
+      required:
+        - evidence
+
+    CompleteBookingMultipartRequest:
+      type: object
+      properties:
+        evidence_file:
+          type: string
+          format: binary
+      required:
+        - evidence_file
+
+    ConfirmCompletionResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        payment_id:
+          type: integer
+        payment_status:
+          type: string
+        payment_url:
+          type: string
+      required:
+        - message
+        - payment_id
+        - payment_status
+        - payment_url
+
+    SetBookingPriceRequest:
+      type: object
+      properties:
+        final_price:
+          type: number
+          format: double
+        amount:
+          type: number
+          format: double
+          description: Alternative field accepted when final_price is omitted.
+
+    SetBookingPriceResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        final_price:
+          type: number
+          format: double
+      required:
+        - message
+        - final_price
+
+    BookingListItem:
+      type: object
+      properties:
+        booking_id:
+          type: integer
+        request_id:
+          type: integer
+        worker_profile_id:
+          type: integer
+        customer_profile_id:
+          type: integer
+        category_id:
+          type: integer
+        category_name:
+          type: string
+        request_description:
+          type: string
+        status:
+          type: string
+        scheduled_time:
+          type: string
+          format: date-time
+          nullable: true
+        start_time:
+          type: string
+          format: date-time
+          nullable: true
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+        final_price:
+          type: string
+          nullable: true
+        counterparty_name:
+          type: string
+        counterparty_role:
+          type: string
+        counterparty_photo_url:
+          type: string
+        address:
+          type: string
+        latitude:
+          type: number
+          format: double
+          nullable: true
+        longitude:
+          type: number
+          format: double
+          nullable: true
+        worker_latitude:
+          type: number
+          format: double
+          nullable: true
+        worker_longitude:
+          type: number
+          format: double
+          nullable: true
+        completion_evidence:
+          type: string
+          nullable: true
+        customer_confirmed:
+          type: boolean
+        review_id:
+          type: integer
+          nullable: true
+        review_rating:
+          type: integer
+          nullable: true
+        review_comment:
+          type: string
+          nullable: true
+        review_photo_url:
+          type: string
+          nullable: true
+        review_created_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateReviewRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+      required:
+        - rating
+
+    CreateReviewMultipartRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+        review_photo:
+          type: string
+          format: binary
+      required:
+        - rating
+
+    CreateReviewResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        review_id:
+          type: integer
+      required:
+        - message
+        - review_id
+
+    WorkerReviewSkill:
+      type: object
+      properties:
+        worker_skill_id:
+          type: integer
+        category_name:
+          type: string
+        experience_level:
+          type: string
+
+    WorkerReview:
+      type: object
+      properties:
+        review_id:
+          type: integer
+        booking_id:
+          type: integer
+        worker_profile_id:
+          type: integer
+        customer_name:
+          type: string
+        category_name:
+          type: string
+        rating:
+          type: integer
+        comment:
+          type: string
+        photo_url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    WorkerReviewSummary:
+      type: object
+      properties:
+        worker_profile_id:
+          type: integer
+        worker_name:
+          type: string
+        bio:
+          type: string
+        profile_photo_url:
+          type: string
+        average_rating:
+          type: number
+          format: double
+        review_count:
+          type: integer
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkerReviewSkill"
+        reviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkerReview"
+
+    CreateChatRequest:
+      type: object
+      properties:
+        booking_id:
+          type: integer
+          format: int64
+        customer_user_id:
+          type: integer
+          format: int64
+        worker_user_id:
+          type: integer
+          format: int64
+      required:
+        - booking_id
+        - customer_user_id
+        - worker_user_id
+
+    Chat:
+      type: object
+      properties:
+        chat_id:
+          type: integer
+          format: int64
+        booking_id:
+          type: integer
+          format: int64
+        customer_user_id:
+          type: integer
+          format: int64
+        worker_user_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        unread_count:
+          type: integer
+          format: int64
+
+    ChatMessage:
+      type: object
+      properties:
+        message_id:
+          type: integer
+          format: int64
+        chat_id:
+          type: integer
+          format: int64
+        sender_user_id:
+          type: integer
+          format: int64
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SendMessageRequest:
+      type: object
+      properties:
+        content:
+          type: string
+      required:
+        - content
+
+    MarkReadResponse:
+      type: object
+      properties:
+        read_messages:
+          type: integer
+      required:
+        - read_messages
+
+    LocationRequest:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+      required:
+        - latitude
+        - longitude
+
+    NearbyWorker:
+      type: object
+      properties:
+        worker_id:
+          type: integer
+        full_name:
+          type: string
+        price:
+          type: integer
+        experience_level:
+          type: string
+        category_name:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        distance_meters:
+          type: number
+          format: double
+
+    Notification:
+      type: object
+      properties:
+        notification_id:
+          type: integer
+        user_id:
+          type: integer
+        type:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        action_type:
+          type: string
+        action_ref:
+          type: string
+        action_label:
+          type: string
+        is_read:
+          type: boolean
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    MarkAllNotificationsReadResponse:
+      type: object
+      properties:
+        read_notifications:
+          type: integer
+          format: int64
+      required:
+        - read_notifications
+
+    StripeWebhookEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          example: checkout.session.completed
+        data:
+          type: object
+          properties:
+            object:
+              type: object
+              properties:
+                id:
+                  type: string
+                payment_status:
+                  type: string
+      required:
+        - type
+        - data
