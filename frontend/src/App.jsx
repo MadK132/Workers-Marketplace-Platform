@@ -18,6 +18,9 @@ const GIS_API_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 const TTS_VOICE_HINT = import.meta.env.VITE_TTS_VOICE_HINT || "";
 const ROUTE_REFRESH_MS = 90000;
 const ROUTE_REFRESH_DISTANCE_M = 200;
+const TOAST_TIMEOUT_MS = 10000;
+const PROFILE_BIO_MAX_LENGTH = 240;
+const PROFILE_ADDRESS_MAX_LENGTH = 120;
 const STAFF_AVATAR_URL = "/staff-avatar.png";
 
 const roleTabs = {
@@ -133,6 +136,26 @@ function openFilePreview(file) {
   window.dispatchEvent(new CustomEvent("wm-file-preview", { detail: file }));
 }
 
+function notifyUser({ title, message, variant = "success", timeoutMs }) {
+  window.dispatchEvent(new CustomEvent("wm-local-toast", {
+    detail: {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title,
+      message,
+      variant,
+      timeoutMs,
+    },
+  }));
+}
+
+function notifySuccess(title, message) {
+  notifyUser({ title, message, variant: "success" });
+}
+
+function notifyError(title, message) {
+  notifyUser({ title, message, variant: "error" });
+}
+
 function makeAvatarDraft(file) {
   if (!file) return null;
   return {
@@ -173,7 +196,7 @@ async function cropAvatarDraft(draft) {
   return new File([blob], draft.file.name.replace(/\.[^.]+$/, "") + "-avatar.png", { type: "image/png" });
 }
 
-function AvatarCropper({ draft, onChange, onClose, onCancel }) {
+function AvatarCropper({ draft, onChange, onApply, onCancel, applying = false }) {
   if (!draft) return null;
 
   const stageRef = useRef(null);
@@ -193,11 +216,11 @@ function AvatarCropper({ draft, onChange, onClose, onCancel }) {
   };
 
   return createPortal((
-    <div className="avatarEditorOverlay" role="dialog" aria-modal="true" aria-label="Edit image" onMouseDown={onClose}>
+    <div className="avatarEditorOverlay" role="dialog" aria-modal="true" aria-label="Edit image" onMouseDown={onCancel}>
       <div className="avatarEditorModal" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <strong>Edit image</strong>
-          <button type="button" aria-label="Cancel image upload" onClick={onCancel}>×</button>
+          <button type="button" aria-label="Cancel image upload" onClick={onCancel}>x</button>
         </header>
         <div
           className="avatarCropStage"
@@ -232,7 +255,7 @@ function AvatarCropper({ draft, onChange, onClose, onCancel }) {
           <span aria-hidden="true">▣</span>
         </div>
         <p className="avatarEditorHint">Drag the photo to choose the area inside the circle.</p>
-        <button className="avatarEditorApply" type="button" onClick={onClose}>Apply</button>
+        <button className="avatarEditorApply" type="button" onClick={onApply} disabled={applying}>{applying ? "Uploading..." : "Upload"}</button>
       </div>
     </div>
   ), document.body);
@@ -493,6 +516,7 @@ export default function App() {
         setPaymentReady(true);
         clearAuthURL();
         window.dispatchEvent(new CustomEvent("wm-payment-method-linked"));
+        notifySuccess("Card linked", "Your payment card is ready.");
       })
       .catch((err) => setPaymentError(err.message));
   }, [token]);
@@ -1593,11 +1617,11 @@ function CustomerApp({
 
   const searchWorkers = async () => {
     if (paymentLoading) {
-      setError("Checking payment method. Try again in a moment.");
+      notifyError("Payment check in progress", "Try again in a moment.");
       return;
     }
     if (!paymentReady) {
-      setError(paymentError || "Link a payment card before searching workers.");
+      notifyError("Payment card required", paymentError || "Link a payment card before searching workers.");
       localStorage.setItem(PAYMENT_SETUP_INTENT_KEY, JSON.stringify({
         action: "search",
         categoryID,
@@ -1609,7 +1633,7 @@ function CustomerApp({
       try {
         await onStartPaymentSetup?.();
       } catch (err) {
-        setError(err.message);
+        notifyError("Payment setup failed", err.message);
       }
       return;
     }
@@ -1672,7 +1696,7 @@ function CustomerApp({
         }
         onNavigate("chats", { detailID: chat?.chat_id });
       }
-      setMessage(`Chat opened with ${worker.full_name}. Agree on the price before booking starts.`);
+      notifySuccess("Chat opened", `Chat opened with ${worker.full_name}. Agree on the price before booking starts.`);
       loadCustomerBookings();
     } catch (err) {
       setError(err.message);
@@ -1920,7 +1944,7 @@ function WorkerApp({
   paymentError,
   onStartPaymentSetup,
 }) {
-  const { position, geoStatus, geoError, startWatch } = useGeolocation();
+  const { position, geoStatus, geoError, locate, startWatch } = useGeolocation();
   const mapRef = useRef(null);
   const [available, setAvailable] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -1962,22 +1986,29 @@ function WorkerApp({
     return () => window.clearInterval(intervalID);
   }, [loadBookings]);
 
-  const syncLocation = useCallback(async () => {
-    if (!position) {
+  const syncLocation = useCallback(async (nextPosition = position) => {
+    if (!nextPosition) {
       setError("Location is not ready.");
       return;
     }
     setError("");
     try {
       await apiPatch("/api/geo/worker/location", token, {
-        latitude: position.latitude,
-        longitude: position.longitude,
+        latitude: nextPosition.latitude,
+        longitude: nextPosition.longitude,
       });
-      setMessage("Location updated.");
     } catch (err) {
       setError(err.message);
     }
   }, [position, token]);
+
+  const useCurrentLocation = async () => {
+    const nextPosition = await locate();
+    if (nextPosition) {
+      await syncLocation(nextPosition);
+      mapRef.current?.recenter();
+    }
+  };
 
   const currentInProgressBooking = activeInProgressBooking(bookings);
 
@@ -2072,11 +2103,11 @@ function WorkerApp({
       const next = !available;
       if (next) {
         if (paymentLoading) {
-          setError("Checking payment method. Try again in a moment.");
+          notifyError("Payment check in progress", "Try again in a moment.");
           return;
         }
         if (!paymentReady) {
-          setError(paymentError || "Link a payment card before going online.");
+          notifyError("Payment card required", paymentError || "Link a payment card before going online.");
           await onStartPaymentSetup?.();
           return;
         }
@@ -2093,8 +2124,7 @@ function WorkerApp({
         if (activeInProgressBooking(nextBookings)) {
           setAvailable(false);
           setSearching(false);
-          setMessage("Offline.");
-          setError("You already have a job in progress. Finish it before going online.");
+          notifyError("Cannot go online", "You already have a job in progress. Finish it before going online.");
           return;
         }
       }
@@ -2109,13 +2139,13 @@ function WorkerApp({
       }
       setAvailable(next);
       setSearching(next);
-      setMessage(next ? "Online. Searching jobs..." : "Offline.");
+      notifySuccess(next ? "Online" : "Offline", next ? "Searching jobs..." : "Job search paused.");
       if (next) {
         await syncLocation();
         await loadBookings();
       }
     } catch (err) {
-      setError(err.message);
+      notifyError("Cannot update availability", err.message);
     }
   };
 
@@ -2134,10 +2164,10 @@ function WorkerApp({
         await apiPatch("/api/worker/availability", token, { is_available: false }).catch(() => {});
         setAvailable(false);
         setSearching(false);
-        setMessage("Proof photo sent. Waiting for customer confirmation.");
+        notifySuccess("Proof sent", "Waiting for customer confirmation.");
       } else {
         await apiPatch(`/api/bookings/${bookingID}/${action}`, token, {});
-        setMessage(action === "reject" ? "Booking rejected." : `Booking ${action}ed.`);
+        notifySuccess("Booking updated", action === "reject" ? "Booking rejected." : `Booking ${action}ed.`);
         if (action === "start") {
           await apiPatch("/api/worker/availability", token, { is_available: false }).catch(() => {});
           setSearching(false);
@@ -2178,7 +2208,7 @@ function WorkerApp({
 
   return (
     <div className="proPhoneShell">
-      <section className="proPhone" aria-label="Worker Pro map workspace">
+      <section className="proPhone workerMapPhone" aria-label="Worker Pro map workspace">
         <MapView
           ref={mapRef}
           position={position}
@@ -2225,7 +2255,7 @@ function WorkerApp({
               mapRef.current?.follow?.();
               return;
             }
-            mapRef.current?.recenter();
+            useCurrentLocation();
           }}
         >
           GPS
@@ -2342,6 +2372,8 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [rejectIdentityTarget, setRejectIdentityTarget] = useState(null);
+  const [rejectSkillTarget, setRejectSkillTarget] = useState(null);
+  const [rejectUpgradeTarget, setRejectUpgradeTarget] = useState(null);
   const [deleteUserTarget, setDeleteUserTarget] = useState(null);
 
   const loadOverview = useCallback(() => {
@@ -2397,7 +2429,21 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(id) });
-      setMessage("Skill verified. Worker becomes verified after ID document is verified too.");
+      notifySuccess("Skill verified", "Worker becomes verified after ID document is verified too.");
+      loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const rejectSkill = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/reject-skill", token, { worker_skill_id: Number(id) });
+      notifySuccess("Skill rejected", "Worker service request was rejected.");
+      setRejectSkillTarget(null);
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2410,7 +2456,21 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       await apiPost("/api/admin/verify-skill-upgrade", token, { upgrade_request_id: Number(id) });
-      setMessage("Skill level upgraded.");
+      notifySuccess("Skill upgraded", "Worker skill level was upgraded.");
+      loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const rejectSkillUpgrade = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/reject-skill-upgrade", token, { upgrade_request_id: Number(id) });
+      notifySuccess("Upgrade rejected", "Worker upgrade request was rejected.");
+      setRejectUpgradeTarget(null);
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2423,7 +2483,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       await apiPost("/api/admin/verify-identity-document", token, { identity_document_id: Number(id) });
-      setMessage("Identity document verified.");
+      notifySuccess("ID document verified", "Worker identity document was approved.");
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2436,7 +2496,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       await apiPost("/api/admin/assign-identity-document", token, { identity_document_id: Number(id) });
-      setMessage("Identity document assigned to you.");
+      notifySuccess("ID document assigned", "Identity document assigned to you.");
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2452,7 +2512,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
         identity_document_id: Number(id),
         reason,
       });
-      setMessage("Identity document rejected. Worker was notified.");
+      notifySuccess("ID document rejected", "Worker was notified.");
       setRejectIdentityTarget(null);
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
@@ -2466,7 +2526,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       await apiDelete(`/api/admin/users/${id}`, token);
-      setMessage("User deleted.");
+      notifySuccess("User deleted", "The user account was removed.");
       setDeleteUserTarget(null);
       loadUsers();
       loadOverview();
@@ -2481,7 +2541,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       await apiPatch(`/api/admin/users/${id}/activate`, token, {});
-      setMessage("User activated.");
+      notifySuccess("User activated", "The user account is active again.");
       loadUsers();
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
@@ -2497,7 +2557,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     try {
       const endpoint = staffForm.role === "admin" ? "/api/admin/admins" : "/api/admin/managers";
       await apiPost(endpoint, token, staffForm);
-      setMessage(`${staffForm.role === "admin" ? "Admin" : "Manager"} account created.`);
+      notifySuccess("Staff account created", `${staffForm.role === "admin" ? "Admin" : "Manager"} account created.`);
       setStaffForm({ full_name: "", email: "", phone: "", password: "", role: "manager" });
       loadUsers();
       loadOverview();
@@ -2526,7 +2586,9 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
           verifyIdentityDocument={verifyIdentityDocument}
           rejectIdentityDocument={(id) => setRejectIdentityTarget({ identity_document_id: id })}
           verifySkill={verifySkill}
+          rejectSkill={(skill) => setRejectSkillTarget(skill)}
           verifySkillUpgrade={verifySkillUpgrade}
+          rejectSkillUpgrade={(request) => setRejectUpgradeTarget(request)}
         />
       )}
       {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={setDeleteUserTarget} canDelete={isAdmin} onOpenProfile={openStaffProfile} />}
@@ -2551,6 +2613,26 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
           cancelLabel="Cancel"
           onConfirm={(reason) => rejectIdentityDocument(rejectIdentityTarget.identity_document_id, reason)}
           onCancel={() => setRejectIdentityTarget(null)}
+        />
+      )}
+      {rejectSkillTarget && (
+        <ConfirmDialog
+          title="Reject service?"
+          text={`Reject ${categoryTitle(rejectSkillTarget.category_name)} skill #${rejectSkillTarget.worker_skill_id}? The worker can submit it again with better evidence.`}
+          confirmLabel="Reject service"
+          cancelLabel="Cancel"
+          onConfirm={() => rejectSkill(rejectSkillTarget.worker_skill_id)}
+          onCancel={() => setRejectSkillTarget(null)}
+        />
+      )}
+      {rejectUpgradeTarget && (
+        <ConfirmDialog
+          title="Reject upgrade?"
+          text={`Reject upgrade request #${rejectUpgradeTarget.upgrade_request_id}? The worker can send a new upgrade request later.`}
+          confirmLabel="Reject upgrade"
+          cancelLabel="Cancel"
+          onConfirm={() => rejectSkillUpgrade(rejectUpgradeTarget.upgrade_request_id)}
+          onCancel={() => setRejectUpgradeTarget(null)}
         />
       )}
       {deleteUserTarget && (
@@ -2655,7 +2737,7 @@ function StaffUserProfilePanel({ token, userID, onBack }) {
     setMessage("");
     try {
       await apiPatch(`/api/admin/penalties/${cancelTarget.penalty_id}/cancel`, token, {});
-      setMessage("Penalty cancelled.");
+      notifySuccess("Penalty cancelled", "The penalty was cancelled.");
       setCancelTarget(null);
       loadProfile();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
@@ -2995,7 +3077,9 @@ function AdminVerificationPanel({
   verifyIdentityDocument,
   rejectIdentityDocument,
   verifySkill,
+  rejectSkill,
   verifySkillUpgrade,
+  rejectSkillUpgrade,
 }) {
   const pendingIdentities = overview?.pending_identities || [];
   const visibleIdentities = role === "manager"
@@ -3073,7 +3157,10 @@ function AdminVerificationPanel({
                 <span>Skill #{skill.worker_skill_id}</span>
               </div>
               <EvidenceLinks value={skill.evidence_files} />
-              <button type="button" onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill</button>
+              <div className="rowActions">
+                <button type="button" onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill</button>
+                <button type="button" className="dangerButton subtleDangerButton" onClick={() => rejectSkill(skill)}>Reject</button>
+              </div>
             </article>
           ))}
           {showingUpgrades && pendingUpgrades.length === 0 && <AdminEmptyState title="No upgrade requests" text="Requests for junior to middle or senior will appear here." />}
@@ -3090,7 +3177,10 @@ function AdminVerificationPanel({
               </div>
               {request.admin_note && <small>{request.admin_note}</small>}
               <EvidenceLinks value={request.evidence_files} />
-              <button type="button" onClick={() => verifySkillUpgrade(request.upgrade_request_id)}>Approve upgrade</button>
+              <div className="rowActions">
+                <button type="button" onClick={() => verifySkillUpgrade(request.upgrade_request_id)}>Approve upgrade</button>
+                <button type="button" className="dangerButton subtleDangerButton" onClick={() => rejectSkillUpgrade(request)}>Reject</button>
+              </div>
             </article>
           ))}
         </div>
@@ -3156,7 +3246,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
         window.location.href = result.payment_url;
         return;
       }
-      setMessage("Booking completed. Payment was created.");
+      notifySuccess("Booking completed", "Payment was created.");
       load();
     } catch (err) {
       setError(err.message);
@@ -3168,7 +3258,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
     setMessage("");
     try {
       await apiPatch(`/api/bookings/${id}/evidence/reject`, token, {});
-      setMessage("Proof rejected. The worker can send a new proof.");
+      notifySuccess("Proof rejected", "The worker can send a new proof.");
       load();
     } catch (err) {
       setError(err.message);
@@ -3183,7 +3273,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
       if (chat?.chat_id) {
         localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
       }
-      setMessage("Chat opened.");
+      notifySuccess("Chat opened", "You can continue the booking discussion in chat.");
       onNavigate?.("chats");
     } catch (err) {
       setError(err.message);
@@ -3284,6 +3374,7 @@ function BookingReviewBlock({ item, token, onSaved }) {
   const [reviewPhoto, setReviewPhoto] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const ratingLabel = reviewRatingLabel(rating);
 
   const saveReview = async () => {
     setError("");
@@ -3296,7 +3387,7 @@ function BookingReviewBlock({ item, token, onSaved }) {
         body.append("review_photo", reviewPhoto);
       }
       await apiMultipart(`/api/bookings/${item.booking_id || item.id}/review`, token, body);
-      setMessage("Review saved.");
+      notifySuccess("Review saved", "Thanks for sharing your feedback.");
       setReviewPhoto(null);
       onSaved();
     } catch (err) {
@@ -3327,9 +3418,11 @@ function BookingReviewBlock({ item, token, onSaved }) {
 
   return (
     <div className="reviewForm">
-      <div className="sectionTitleRow">
-        <strong>Rate the worker</strong>
-        <span>{renderStars(rating)}</span>
+      <div className="reviewHeader">
+        <div>
+          <strong>Rate the worker</strong>
+          <span>{ratingLabel}</span>
+        </div>
       </div>
       <div className="starPicker" role="group" aria-label="Worker rating">
         {[1, 2, 3, 4, 5].map((value) => (
@@ -3340,19 +3433,23 @@ function BookingReviewBlock({ item, token, onSaved }) {
             onClick={() => setRating(value)}
             aria-label={`${value} stars`}
           >
-            ★
+            <svg className="ratingStarIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 2.5l2.86 5.8 6.4.93-4.63 4.52 1.09 6.38L12 17.12l-5.72 3.01 1.09-6.38-4.63-4.52 6.4-.93L12 2.5z" />
+            </svg>
           </button>
         ))}
       </div>
       <textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Write what went well and what could be better..." />
-      <label className="fileButton fitButton">
-        Attach photo
-        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setReviewPhoto(event.target.files?.[0] || null)} />
-      </label>
-      {reviewPhoto && <span className="muted">{reviewPhoto.name}</span>}
-      <button className="secondaryButton" type="button" onClick={saveReview}>
-        Send review
-      </button>
+      <div className="reviewFooter">
+        <label className="fileButton reviewAttachButton">
+          Attach photo
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setReviewPhoto(event.target.files?.[0] || null)} />
+        </label>
+        <span className="reviewPhotoName">{reviewPhoto ? reviewPhoto.name : "Optional photo evidence"}</span>
+        <button className="reviewSubmitButton" type="button" onClick={saveReview}>
+          Send review
+        </button>
+      </div>
       <Messages message={message} error={error} />
     </div>
   );
@@ -3599,7 +3696,7 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
       setMessages((current) => [...current.filter((msg) => msg.message_id !== sent.message_id), sent]);
       setContent("");
       setAttachment(null);
-      setMessage("Message sent.");
+      notifySuccess("Message sent", "Your message was delivered.");
       loadChats();
     } catch (err) {
       setError(err.message);
@@ -3622,7 +3719,7 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
       await postChatText(priceText);
       loadBookings();
       setPriceDraft("");
-      setMessage("Price sent. Waiting for customer confirmation.");
+      notifySuccess("Price sent", "Waiting for customer confirmation.");
     } catch (err) {
       setError(err.message);
     }
@@ -3638,7 +3735,7 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
       await postChatText(`Price accepted: ${priceText}`);
       loadBookings();
       loadChats();
-      setMessage("Price accepted. Worker selected and booking is active.");
+      notifySuccess("Price accepted", "Worker selected and booking is active.");
       setPriceConfirm(null);
     } catch (err) {
       setError(err.message);
@@ -3654,7 +3751,7 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
       await postChatText("Price rejected.");
       loadBookings();
       loadChats();
-      setMessage("Price rejected. The worker can send a new price in this chat.");
+      notifySuccess("Price rejected", "The worker can send a new price in this chat.");
     } catch (err) {
       setError(err.message);
     }
@@ -4000,7 +4097,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
       setFiles([]);
       setShowCreateForm(false);
       setSupportChatOpen(true);
-      setMessage("Report created. You can continue in support chat.");
+      notifySuccess("Report created", "You can continue in support chat.");
       setActiveID(String(created.report_id || ""));
       loadReports();
       loadReportBookings();
@@ -4048,7 +4145,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
         reason: penalty.reason || activeReport.reason,
         days: penaltyUsesDays ? Number(penalty.days || 0) : 0,
       });
-      setMessage("Penalty applied and report resolved.");
+      notifySuccess("Penalty applied", "Report was resolved.");
       loadReports();
     } catch (err) {
       setError(err.message);
@@ -4064,7 +4161,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
         status,
         resolution: penalty.reason || "Closed by support",
       });
-      setMessage("Report closed.");
+      notifySuccess("Report closed", "Support case was closed.");
       loadReports();
     } catch (err) {
       setError(err.message);
@@ -4080,7 +4177,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
       setReports((current) => current.map((item) => (
         Number(item.report_id) === Number(assigned.report_id) ? assigned : item
       )));
-      setMessage("Report assigned to you.");
+      notifySuccess("Report assigned", "Support case assigned to you.");
       loadReports();
       window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
     } catch (err) {
@@ -4097,7 +4194,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
         report_id: cancelBookingTarget.report_id,
         reason: penalty.reason || cancelBookingTarget.reason || "Cancelled from support report",
       });
-      setMessage(`Booking #${cancelBookingTarget.booking_id} cancelled.`);
+      notifySuccess("Booking cancelled", `Booking #${cancelBookingTarget.booking_id} cancelled.`);
       setCancelBookingTarget(null);
       loadReports();
       window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
@@ -4608,14 +4705,43 @@ function useNotificationFeed(token) {
   const seenRef = useRef(new Set());
   const timersRef = useRef(new Map());
 
-  const dismissToastNotification = useCallback((id) => {
+  const dismissToastNotification = useCallback((id, options = {}) => {
     const timer = timersRef.current.get(id);
     if (timer) {
       window.clearTimeout(timer);
       timersRef.current.delete(id);
     }
+    if (options.markRead && token && id && !String(id).startsWith("local-")) {
+      apiPatch(`/api/notifications/${id}/read`, token, {}).catch(() => {});
+      window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
+    }
     setToastNotifications((current) => current.filter((item) => notificationID(item) !== id));
-  }, []);
+  }, [token]);
+
+  const showToastNotification = useCallback((item) => {
+    const id = notificationID(item);
+    if (!id) return;
+    const nextItem = {
+      ...item,
+      id,
+      created_at: item.created_at || new Date().toISOString(),
+    };
+    setToastNotifications((current) => [nextItem, ...current.filter((currentItem) => notificationID(currentItem) !== id)].slice(0, 5));
+    const currentTimer = timersRef.current.get(id);
+    if (currentTimer) {
+      window.clearTimeout(currentTimer);
+    }
+    const timer = window.setTimeout(() => dismissToastNotification(id), Number(item.timeoutMs || TOAST_TIMEOUT_MS));
+    timersRef.current.set(id, timer);
+  }, [dismissToastNotification]);
+
+  useEffect(() => {
+    const handleLocalToast = (event) => {
+      showToastNotification(event.detail || {});
+    };
+    window.addEventListener("wm-local-toast", handleLocalToast);
+    return () => window.removeEventListener("wm-local-toast", handleLocalToast);
+  }, [showToastNotification]);
 
   useEffect(() => {
     if (!token) {
@@ -4644,7 +4770,7 @@ function useNotificationFeed(token) {
             if (!id || timersRef.current.has(id)) {
               return;
             }
-            const timer = window.setTimeout(() => dismissToastNotification(id), 15000);
+            const timer = window.setTimeout(() => dismissToastNotification(id), TOAST_TIMEOUT_MS);
             timersRef.current.set(id, timer);
           });
           window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
@@ -4675,9 +4801,10 @@ function NotificationToasts({ items, onDismiss, onAction }) {
     <div className="notificationToastStack" aria-live="polite">
       {items.map((item) => {
         const id = notificationID(item);
+        const variant = item.variant === "error" ? " error" : item.variant === "success" ? " success" : "";
         return (
-          <article className="notificationToast" key={id}>
-            <button type="button" aria-label="Dismiss notification" onClick={() => onDismiss(id)}>x</button>
+          <article className={`notificationToast${variant}`} key={id}>
+            <button type="button" aria-label="Dismiss notification" onClick={() => onDismiss(id, { markRead: true })}>x</button>
             <strong>{item.title || item.type || "Notification"}</strong>
             <span>{item.message || item.body || ""}</span>
             {item.action_type && (
@@ -4701,7 +4828,8 @@ function CustomerProfilePanel({ token, onNavigate }) {
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({ address: "", bio: "", latitude: "", longitude: "" });
   const [avatarDraft, setAvatarDraft] = useState(null);
-  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -4729,7 +4857,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
   const cancelAvatarUpload = () => {
     revokeAvatarDraft(avatarDraft);
     setAvatarDraft(null);
-    setAvatarEditorOpen(false);
+    setAvatarUploading(false);
   };
 
   const assignReport = async () => {
@@ -4738,7 +4866,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
     setMessage("");
     try {
       await apiPatch(`/api/admin/reports/${activeReport.report_id}/assign`, token, {});
-      setMessage("Case assigned to you.");
+      notifySuccess("Case assigned", "Support case assigned to you.");
       loadReports();
     } catch (err) {
       setError(err.message);
@@ -4769,18 +4897,40 @@ function CustomerProfilePanel({ token, onNavigate }) {
       body.append("bio", form.bio);
       if (form.latitude) body.append("latitude", form.latitude);
       if (form.longitude) body.append("longitude", form.longitude);
-      if (avatarDraft) {
-        const croppedPhoto = await cropAvatarDraft(avatarDraft);
-        if (croppedPhoto) body.append("profile_photo", croppedPhoto);
-      }
       const updated = await apiMultipart("/api/customer/profile", token, body);
       setProfile((current) => ({ ...(current || {}), ...updated }));
-      revokeAvatarDraft(avatarDraft);
-      setAvatarDraft(null);
-      setAvatarEditorOpen(false);
-      setMessage("Profile saved.");
+      setEditingProfile(false);
+      notifySuccess("Profile saved", "Your customer profile was updated.");
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const uploadProfilePhoto = async (file) => {
+    if (!file) return;
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("profile_photo", file);
+      const updated = await apiMultipart("/api/customer/profile/photo", token, body);
+      setProfile((current) => ({ ...(current || {}), ...updated }));
+      notifySuccess("Photo updated", "Your profile photo was uploaded.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const uploadAvatarDraft = async () => {
+    if (!avatarDraft) return;
+    setAvatarUploading(true);
+    try {
+      const croppedPhoto = await cropAvatarDraft(avatarDraft);
+      await uploadProfilePhoto(croppedPhoto || avatarDraft.file);
+      revokeAvatarDraft(avatarDraft);
+      setAvatarDraft(null);
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -4819,18 +4969,12 @@ function CustomerProfilePanel({ token, onNavigate }) {
                 if (!nextFile) return;
                 revokeAvatarDraft(avatarDraft);
                 setAvatarDraft(makeAvatarDraft(nextFile));
-                setAvatarEditorOpen(true);
                 e.target.value = "";
               }}
             />
           </label>
-          {avatarDraft && (
-            <div className="avatarDraftActions">
-              <span className="muted">{avatarDraft.file.name}</span>
-              <button className="secondaryButton" type="button" onClick={() => setAvatarEditorOpen(true)}>Edit crop</button>
-            </div>
-          )}
         </section>
+        {editingProfile ? (
         <form className="profileEditorCard customerProfileForm" onSubmit={submit}>
           <div className="profileFormHeader">
             <div>
@@ -4840,19 +4984,13 @@ function CustomerProfilePanel({ token, onNavigate }) {
             <button className="profileSaveButton">Save profile</button>
           </div>
           <Field label="About me" light>
-            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
+            <textarea maxLength={PROFILE_BIO_MAX_LENGTH} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
+            <span className="fieldCounter">{form.bio.length}/{PROFILE_BIO_MAX_LENGTH}</span>
           </Field>
-          {avatarEditorOpen && (
-            <AvatarCropper
-              draft={avatarDraft}
-              onChange={setAvatarDraft}
-              onClose={() => setAvatarEditorOpen(false)}
-              onCancel={cancelAvatarUpload}
-            />
-          )}
           <div className="profileAddressRow">
             <Field label="Saved address" light>
-              <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
+              <input maxLength={PROFILE_ADDRESS_MAX_LENGTH} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
+              <span className="fieldCounter">{form.address.length}/{PROFILE_ADDRESS_MAX_LENGTH}</span>
             </Field>
             <div className="profileAddressPreview">
               <small>Current saved address</small>
@@ -4861,6 +4999,27 @@ function CustomerProfilePanel({ token, onNavigate }) {
           </div>
           <button type="button" className="secondaryButton profileLocationButton" onClick={useCurrentLocation}>Use current location</button>
         </form>
+        ) : (
+        <section className="profileEditorCard profileReadCard customerProfileForm">
+          <div className="profileReadHeader">
+            <div>
+              <h3>Booking preferences</h3>
+              <p>Notes here help workers arrive prepared and avoid extra messages.</p>
+            </div>
+            <button className="profileEditButton" type="button" aria-label="Edit profile" title="Edit profile" onClick={() => setEditingProfile(true)}>✎</button>
+          </div>
+          <div className="profileReadGrid">
+            <div className="profileReadBlock">
+              <small>About me</small>
+              <p>{profile?.bio || "No notes yet."}</p>
+            </div>
+            <div className="profileReadBlock">
+              <small>Saved address</small>
+              <strong title={savedAddressLabel}>{savedAddressLabel}</strong>
+            </div>
+          </div>
+        </section>
+        )}
       </div>
       <div className="profileLinks profileShortcutGrid">
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("bookings")}>
@@ -4887,6 +5046,15 @@ function CustomerProfilePanel({ token, onNavigate }) {
       </div>
       <PaymentMethodPanel token={token} />
       <Messages message={message} error={error} />
+      {avatarDraft && (
+        <AvatarCropper
+          draft={avatarDraft}
+          onChange={setAvatarDraft}
+          onApply={uploadAvatarDraft}
+          onCancel={cancelAvatarUpload}
+          applying={avatarUploading}
+        />
+      )}
     </section>
   );
 }
@@ -4896,7 +5064,8 @@ function WorkerProfilePanel({ token, onNavigate }) {
   const [bookings, setBookings] = useState([]);
   const [form, setForm] = useState({ bio: "" });
   const [avatarDraft, setAvatarDraft] = useState(null);
-  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [identityFile, setIdentityFile] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -4925,7 +5094,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
   const cancelAvatarUpload = () => {
     revokeAvatarDraft(avatarDraft);
     setAvatarDraft(null);
-    setAvatarEditorOpen(false);
+    setAvatarUploading(false);
   };
 
   const stats = useMemo(() => buildIncomeStats(bookings), [bookings]);
@@ -4937,16 +5106,10 @@ function WorkerProfilePanel({ token, onNavigate }) {
     try {
       const body = new FormData();
       body.append("bio", form.bio);
-      if (avatarDraft) {
-        const croppedPhoto = await cropAvatarDraft(avatarDraft);
-        if (croppedPhoto) body.append("profile_photo", croppedPhoto);
-      }
       const updated = await apiMultipart("/api/worker/profile", token, body);
       setProfile((current) => ({ ...(current || {}), ...updated }));
-      revokeAvatarDraft(avatarDraft);
-      setAvatarDraft(null);
-      setAvatarEditorOpen(false);
-      setMessage("Profile saved.");
+      setEditingProfile(false);
+      notifySuccess("Profile saved", "Your worker profile was updated.");
     } catch (err) {
       setError(err.message);
     }
@@ -4954,7 +5117,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
 
   const uploadIdentityDocument = async () => {
     if (!identityFile) {
-      setError("Choose an identity document first.");
+      notifyError("ID card required", "Choose an identity document first.");
       return;
     }
     setError("");
@@ -4965,9 +5128,37 @@ function WorkerProfilePanel({ token, onNavigate }) {
       const doc = await apiMultipart("/api/worker/identity-document", token, body);
       setProfile((current) => ({ ...(current || {}), identity_document: doc, verification_status: "pending" }));
       setIdentityFile(null);
-      setMessage("Identity document sent. Admin will verify it before you can go online.");
+      notifySuccess("ID card sent", "Admin will verify it before you can go online.");
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const uploadProfilePhoto = async (file) => {
+    if (!file) return;
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("profile_photo", file);
+      const updated = await apiMultipart("/api/worker/profile/photo", token, body);
+      setProfile((current) => ({ ...(current || {}), ...updated }));
+      notifySuccess("Photo updated", "Your profile photo was uploaded.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const uploadAvatarDraft = async () => {
+    if (!avatarDraft) return;
+    setAvatarUploading(true);
+    try {
+      const croppedPhoto = await cropAvatarDraft(avatarDraft);
+      await uploadProfilePhoto(croppedPhoto || avatarDraft.file);
+      revokeAvatarDraft(avatarDraft);
+      setAvatarDraft(null);
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -5007,18 +5198,12 @@ function WorkerProfilePanel({ token, onNavigate }) {
                 if (!nextFile) return;
                 revokeAvatarDraft(avatarDraft);
                 setAvatarDraft(makeAvatarDraft(nextFile));
-                setAvatarEditorOpen(true);
                 e.target.value = "";
               }}
             />
           </label>
-          {avatarDraft && (
-            <div className="avatarDraftActions">
-              <span className="muted">{avatarDraft.file.name}</span>
-              <button className="secondaryButton" type="button" onClick={() => setAvatarEditorOpen(true)}>Edit crop</button>
-            </div>
-          )}
         </section>
+        {editingProfile ? (
         <form className="profileEditorCard workerBioCard" onSubmit={submit}>
           <div className="profileFormHeader">
             <div>
@@ -5028,17 +5213,25 @@ function WorkerProfilePanel({ token, onNavigate }) {
             <button className="profileSaveButton">Save profile</button>
           </div>
           <Field label="About me" light>
-            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
+            <textarea maxLength={PROFILE_BIO_MAX_LENGTH} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
+            <span className="fieldCounter">{form.bio.length}/{PROFILE_BIO_MAX_LENGTH}</span>
           </Field>
-          {avatarEditorOpen && (
-            <AvatarCropper
-              draft={avatarDraft}
-              onChange={setAvatarDraft}
-              onClose={() => setAvatarEditorOpen(false)}
-              onCancel={cancelAvatarUpload}
-            />
-          )}
         </form>
+        ) : (
+        <section className="profileEditorCard profileReadCard workerBioCard">
+          <div className="profileReadHeader">
+            <div>
+              <h3>Public bio</h3>
+              <p>Tell customers where you work, how you approach jobs and what you do best.</p>
+            </div>
+            <button className="profileEditButton" type="button" aria-label="Edit profile" title="Edit profile" onClick={() => setEditingProfile(true)}>✎</button>
+          </div>
+          <div className="profileReadBlock">
+            <small>About me</small>
+            <p>{profile?.bio || "No bio yet."}</p>
+          </div>
+        </section>
+        )}
       </div>
       <div className="profileStatsGrid workerKpiGrid">
         <StatCard title="This week" value={formatMoney(stats.weekTotal) + " KZT"} text={stats.weekCompleted + " completed jobs"} />
@@ -5128,6 +5321,15 @@ function WorkerProfilePanel({ token, onNavigate }) {
       </div>
       <PaymentMethodPanel token={token} />
       <Messages message={message} error={error} />
+      {avatarDraft && (
+        <AvatarCropper
+          draft={avatarDraft}
+          onChange={setAvatarDraft}
+          onApply={uploadAvatarDraft}
+          onCancel={cancelAvatarUpload}
+          applying={avatarUploading}
+        />
+      )}
     </section>
   );
 }
@@ -5193,6 +5395,7 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
     try {
       await apiPatch(`/api/payment-method/${card.payment_method_id}/select`, token, {});
       load();
+      notifySuccess("Card selected", "This card will be used for marketplace payments.");
     } catch (err) {
       setError(err.message);
     }
@@ -5292,7 +5495,7 @@ function WorkerSkillsPanel({ token }) {
         // The service request was already created; profile refresh is only for the summary cards.
       }
       setFiles([]);
-      setMessage("Service request sent. Admin will review qualification evidence.");
+      notifySuccess("Service request sent", "Admin will review your qualification evidence.");
     } catch (err) {
       setError(err.message);
     }
@@ -5327,10 +5530,12 @@ function WorkerSkillsPanel({ token }) {
     setMessage("");
     try {
       if (!upgradeForm.worker_skill_id) {
-        throw new Error("Choose a verified service first.");
+        notifyError("Verified service required", "Choose a verified service first.");
+        return;
       }
       if (upgradeFiles.length === 0) {
-        throw new Error("Attach evidence for the upgrade.");
+        notifyError("Evidence required", "Attach evidence for the upgrade.");
+        return;
       }
       const body = new FormData();
       body.append("worker_skill_id", upgradeForm.worker_skill_id);
@@ -5339,7 +5544,7 @@ function WorkerSkillsPanel({ token }) {
       upgradeFiles.forEach((file) => body.append("evidence_files", file));
       await apiMultipart("/api/worker/skill-upgrades", token, body);
       closeUpgrade();
-      setMessage("Upgrade request sent. Admin will review new evidence.");
+      notifySuccess("Upgrade request sent", "Admin will review your new evidence.");
     } catch (err) {
       setError(err.message);
     }
@@ -5708,6 +5913,15 @@ function renderStars(value) {
   return "★★★★★".split("").map((star, index) => index < rating ? star : "☆").join("");
 }
 
+function reviewRatingLabel(value) {
+  const rating = Number(value) || 0;
+  if (rating >= 5) return "Excellent";
+  if (rating >= 4) return "Good";
+  if (rating >= 3) return "Okay";
+  if (rating >= 2) return "Needs work";
+  return "Poor";
+}
+
 function tokenUserID(token) {
   try {
     const payload = token?.split(".")?.[1];
@@ -5744,7 +5958,7 @@ function ProfileForm({ title, text, form, setForm, onSubmit, links = [], onNavig
     setError("");
     try {
       await onSubmit();
-      setMessage("Profile saved.");
+      notifySuccess("Profile saved", "Staff profile was updated.");
     } catch (err) {
       setError(err.message);
     }

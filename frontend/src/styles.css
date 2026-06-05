@@ -1212,6 +1212,18 @@ textarea {
   font-weight: 900;
 }
 
+.workerMapPhone .plusButton {
+  top: 260px;
+}
+
+.workerMapPhone .minusButton {
+  top: 334px;
+}
+
+.workerMapPhone .navButtonMap {
+  top: 408px;
+}
+
 /* Плашка активного маршрута для воркера во время движения к заказу. */
 .navigationOverlay {
   position: absolute;
@@ -1634,6 +1646,11 @@ textarea {
   gap: 14px;
 }
 
+.profileReadCard {
+  grid-template-rows: auto auto 1fr;
+  align-content: start;
+}
+
 .profileHeroCard {
   align-content: start;
 }
@@ -1873,6 +1890,88 @@ textarea {
   min-width: 0;
 }
 
+.profileReadHeader {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.profileReadHeader h3,
+.profileReadHeader p {
+  margin: 0;
+}
+
+.profileReadHeader h3 {
+  color: #10231f;
+  font-size: 20px;
+}
+
+.profileReadHeader p {
+  margin-top: 4px;
+  color: #64716c;
+  line-height: 1.4;
+}
+
+.profileEditButton {
+  display: grid;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: #111111;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.profileReadGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  gap: 12px;
+  align-items: start;
+  margin-top: 4px;
+}
+
+.profileReadBlock {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  align-content: start;
+  min-height: 96px;
+  border: 1px solid #d9ddd7;
+  border-radius: 8px;
+  padding: 13px 14px;
+  background: #fbfbfa;
+}
+
+.profileReadBlock small {
+  color: #718079;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.profileReadBlock p,
+.profileReadBlock strong {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #10231f;
+  line-height: 1.45;
+}
+
+.profileReadBlock p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
 .profileFormHeader h3,
 .profileFormHeader p {
   margin: 0;
@@ -1892,6 +1991,18 @@ textarea {
 .profileEditorCard textarea {
   min-height: 108px;
   background: #fbfbfa;
+}
+
+.profileEditorCard .field {
+  position: relative;
+}
+
+.fieldCounter {
+  justify-self: end;
+  margin-top: -4px;
+  color: #777777;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .profileEditorCard input {
@@ -4122,35 +4233,132 @@ textarea {
 /* Отзывы после завершения заказа: форма, звезды, фото и read-only состояние. */
 .reviewForm {
   display: grid;
-  gap: 10px;
-  margin-top: 8px;
-  border-top: 1px solid #eee3d2;
-  padding-top: 10px;
+  gap: 14px;
+  margin-top: 12px;
+  border-top: 1px solid #e3e3e3;
+  padding-top: 16px;
+}
+
+.reviewHeader {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+}
+
+.reviewHeader > div {
+  display: grid;
+  gap: 3px;
+  justify-items: center;
+}
+
+.reviewHeader strong {
+  font-size: 20px;
+}
+
+.reviewHeader span {
+  color: #626262;
+  font-size: 14px;
 }
 
 .starPicker {
-  display: flex;
-  gap: 4px;
+  display: inline-flex;
+  width: fit-content;
+  gap: 2px;
+  justify-self: center;
+  margin: 2px auto 4px;
+  padding: 6px;
+  border: 1px solid #dedede;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .starPicker button {
-  min-width: 34px;
-  min-height: 34px;
+  display: grid;
+  width: 46px;
+  min-width: 46px;
+  height: 42px;
+  min-height: 42px;
+  place-items: center;
   border: 0;
-  border-radius: 8px;
-  background: #f0eadc;
-  color: #6f716b;
-  font-size: 22px;
+  border-radius: 999px;
+  background: transparent;
+  color: #c8c8c8;
+  font-size: 25px;
   line-height: 1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
+.starPicker button span {
+  display: inline-block;
+  transform: translateY(-1px);
+}
+
+.starPicker button:hover,
 .starPicker button.active {
-  background: #ffd900;
-  color: #10231f;
+  background: #fff3b0;
+  color: #f0b400;
+}
+
+.starPicker button:hover {
+  transform: translateY(-1px);
 }
 
 .reviewForm textarea {
-  min-height: 86px;
+  min-height: 112px;
+  border-color: #d7d7d7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.reviewFooter {
+  display: grid;
+  grid-template-columns: auto minmax(140px, 1fr) minmax(180px, 260px);
+  gap: 12px;
+  align-items: center;
+}
+
+.reviewAttachButton {
+  width: fit-content;
+  min-height: 52px;
+  border-radius: 12px;
+}
+
+.reviewPhotoName {
+  overflow: hidden;
+  color: #676767;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewSubmitButton {
+  min-height: 52px;
+  border-radius: 12px;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 900;
+}
+
+@media (max-width: 760px) {
+  .profileReadGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .reviewHeader {
+    justify-items: center;
+  }
+
+  .reviewFooter {
+    grid-template-columns: 1fr;
+  }
+
+  .reviewAttachButton,
+  .reviewSubmitButton {
+    width: 100%;
+  }
 }
 
 .readOnlyReview p {
@@ -5796,13 +6004,31 @@ textarea {
   pointer-events: auto;
 }
 
+.notificationToast.success {
+  border-color: #a8d5bd;
+  background: rgba(241, 255, 247, 0.97);
+}
+
+.notificationToast.error {
+  border-color: #f1aaa5;
+  background: rgba(255, 244, 243, 0.98);
+}
+
 .notificationToast strong {
   color: #061f1a;
+}
+
+.notificationToast.error strong {
+  color: #8f1d18;
 }
 
 .notificationToast span {
   color: #58615b;
   line-height: 1.35;
+}
+
+.notificationToast.error span {
+  color: #733431;
 }
 
 .notificationToast button {
@@ -6729,4 +6955,51 @@ button:hover {
   .cancelPenaltyButton {
     width: 100%;
   }
+}
+
+.starPicker {
+  display: flex;
+  width: fit-content;
+  justify-self: center;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 4px auto 8px;
+  padding: 7px 8px;
+  border: 1px solid #d9d9d9;
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.starPicker button,
+.starPicker button:hover {
+  display: flex;
+  width: 48px;
+  min-width: 48px;
+  height: 48px;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  color: #c8c8c8;
+  line-height: 0;
+  box-shadow: none;
+  transform: none;
+}
+
+.starPicker button.active,
+.starPicker button.active:hover {
+  background: #fff1a3;
+  color: #e4a900;
+}
+
+.ratingStarIcon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  fill: currentColor;
 }

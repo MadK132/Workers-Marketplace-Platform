@@ -59,16 +59,16 @@ func (r *CustomerProfileRepository) Upsert(
 		INSERT INTO customer_profiles
 			(user_id, address, latitude, longitude, location, bio, profile_photo_url)
 		VALUES
-			($1, NULLIF($2, ''), $3, $4,
+			($1, $2, $3, $4,
 			 CASE WHEN $3::numeric IS NOT NULL AND $4::numeric IS NOT NULL
 			 THEN ST_SetSRID(ST_MakePoint($4, $3), 4326)::geography ELSE NULL END,
-			 NULLIF($5, ''), $6)
+			 $5, $6)
 		ON CONFLICT (user_id) DO UPDATE SET
-			address = COALESCE(NULLIF(EXCLUDED.address, ''), customer_profiles.address),
+			address = EXCLUDED.address,
 			latitude = COALESCE(EXCLUDED.latitude, customer_profiles.latitude),
 			longitude = COALESCE(EXCLUDED.longitude, customer_profiles.longitude),
 			location = COALESCE(EXCLUDED.location, customer_profiles.location),
-			bio = COALESCE(NULLIF(EXCLUDED.bio, ''), customer_profiles.bio),
+			bio = EXCLUDED.bio,
 			profile_photo_url = COALESCE(EXCLUDED.profile_photo_url, customer_profiles.profile_photo_url)
 		RETURNING customer_profile_id, user_id, address, latitude, longitude, bio, profile_photo_url
 	`, userID, address, latitude, longitude, bio, profilePhotoURL).Scan(
@@ -123,6 +123,45 @@ func (r *CustomerProfileRepository) GetByUserID(
 
 	applyCustomerProfileFields(&profile, address, latitude, longitude, bio, photo)
 
+	return &profile, nil
+}
+
+func (r *CustomerProfileRepository) UpdateProfilePhoto(
+	ctx context.Context,
+	userID int,
+	profilePhotoURL string,
+) (*model.CustomerProfile, error) {
+	if err := r.EnsureProfileColumns(ctx); err != nil {
+		return nil, err
+	}
+
+	var profile model.CustomerProfile
+	var address sql.NullString
+	var latitude sql.NullFloat64
+	var longitude sql.NullFloat64
+	var bio sql.NullString
+	var photo sql.NullString
+
+	err := r.db.QueryRow(ctx, `
+		INSERT INTO customer_profiles (user_id, profile_photo_url)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id) DO UPDATE SET
+			profile_photo_url = EXCLUDED.profile_photo_url
+		RETURNING customer_profile_id, user_id, address, latitude, longitude, bio, profile_photo_url
+	`, userID, profilePhotoURL).Scan(
+		&profile.ID,
+		&profile.UserID,
+		&address,
+		&latitude,
+		&longitude,
+		&bio,
+		&photo,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	applyCustomerProfileFields(&profile, address, latitude, longitude, bio, photo)
 	return &profile, nil
 }
 

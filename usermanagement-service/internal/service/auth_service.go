@@ -411,6 +411,20 @@ func (s *AuthService) UpsertCustomerProfile(
 	}
 	return s.customerProfiles.Upsert(ctx, userID, address, latitude, longitude, bio, profilePhotoURL)
 }
+func (s *AuthService) UpdateCustomerProfilePhoto(
+	ctx context.Context,
+	userID int,
+	profilePhotoURL string,
+) (*model.CustomerProfile, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.Role != model.RoleCustomer {
+		return nil, errors.New("not a customer")
+	}
+	return s.customerProfiles.UpdateProfilePhoto(ctx, userID, profilePhotoURL)
+}
 func (s *AuthService) CreateWorkerProfile(ctx context.Context, userID int) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
@@ -441,6 +455,25 @@ func (s *AuthService) UpsertWorkerProfile(
 	}
 
 	profile, err := s.workerProfiles.UpsertDetails(ctx, userID, bio, latitude, longitude, profilePhotoURL)
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+func (s *AuthService) UpdateWorkerProfilePhoto(
+	ctx context.Context,
+	userID int,
+	profilePhotoURL string,
+) (*model.WorkerProfile, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.Role != model.RoleWorker {
+		return nil, errors.New("not a worker")
+	}
+
+	profile, err := s.workerProfiles.UpdateProfilePhoto(ctx, userID, profilePhotoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -509,8 +542,16 @@ func (s *AuthService) VerifyWorkerSkill(ctx context.Context, skillID int) error 
 	return s.workerSkills.Verify(ctx, skillID)
 }
 
+func (s *AuthService) RejectWorkerSkill(ctx context.Context, skillID int) error {
+	return s.workerSkills.Reject(ctx, skillID)
+}
+
 func (s *AuthService) VerifyWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error {
 	return s.workerSkills.ApproveUpgradeRequest(ctx, requestID, reviewerUserID)
+}
+
+func (s *AuthService) RejectWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error {
+	return s.workerSkills.RejectUpgradeRequest(ctx, requestID, reviewerUserID)
 }
 
 func (s *AuthService) AddWorkerIdentityDocument(

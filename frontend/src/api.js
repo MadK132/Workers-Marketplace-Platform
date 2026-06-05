@@ -78,7 +78,14 @@ function authHeaders(token) {
 
 async function parseResponse(response) {
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text };
+    }
+  }
   if (!response.ok) {
     if (response.status === 401) {
       window.dispatchEvent(new CustomEvent("wm-auth-expired"));
