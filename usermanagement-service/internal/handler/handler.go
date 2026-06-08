@@ -1087,7 +1087,11 @@ func (h *AuthHandler) ApplyReportPenalty(c *gin.Context) {
 		}
 	}
 	var expiresAt *time.Time
-	if req.PenaltyType == "temporary_suspend" && req.Days > 0 {
+	if req.PenaltyType == "temporary_suspend" || req.PenaltyType == "block_user" {
+		if req.Days <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "days must be positive for this penalty"})
+			return
+		}
 		value := time.Now().Add(time.Duration(req.Days) * 24 * time.Hour)
 		expiresAt = &value
 	}

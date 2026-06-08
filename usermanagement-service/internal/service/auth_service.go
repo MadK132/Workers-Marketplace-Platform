@@ -234,6 +234,13 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult,
 	if err != nil {
 		return LoginResult{}, errors.New("invalid credentials")
 	}
+	if err := s.reports.ExpireExpiredPenalties(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	}
+	user, err = s.users.GetByID(ctx, user.ID)
+	if err != nil {
+		return LoginResult{}, err
+	}
 
 	if user.Status != model.StatusActive {
 		return LoginResult{}, errors.New("email not verified")
@@ -269,6 +276,16 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (LoginRe
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return LoginResult{}, err
+	}
+	if err := s.reports.ExpireExpiredPenalties(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	}
+	user, err = s.users.GetByID(ctx, userID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if user.Status != model.StatusActive {
+		return LoginResult{}, errors.New("user is not active")
 	}
 
 	token, expiresAt, err := s.tokens.GenerateAccessToken(user)

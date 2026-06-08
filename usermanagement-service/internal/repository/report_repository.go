@@ -717,6 +717,65 @@ func (r *ReportRepository) CancelPenalty(ctx context.Context, penaltyID int) err
 	return tx.Commit(ctx)
 }
 
+func (r *ReportRepository) ExpireExpiredPenalties(ctx context.Context, userID int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		UPDATE penalties
+		SET status = 'expired'
+		WHERE user_id = $1
+		  AND status = 'active'
+		  AND expires_at IS NOT NULL
+		  AND expires_at <= NOW()
+		RETURNING penalty_type
+	`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	expiredBlock := false
+	for rows.Next() {
+		var penaltyType string
+		if err := rows.Scan(&penaltyType); err != nil {
+			return err
+		}
+		if penaltyType == "block_user" {
+			expiredBlock = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if expiredBlock {
+		var hasBlock bool
+		if err = tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM penalties
+				WHERE user_id = $1
+				  AND status = 'active'
+				  AND penalty_type = 'block_user'
+				  AND (expires_at IS NULL OR expires_at > NOW())
+			)
+		`, userID).Scan(&hasBlock); err != nil {
+			return err
+		}
+		if !hasBlock {
+			if _, err = tx.Exec(ctx, `UPDATE users SET status = 'active' WHERE user_id = $1 AND status = 'banned'`, userID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *ReportRepository) CloseReport(ctx context.Context, reportID int, status string, resolution string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE reports
@@ -727,6 +786,9 @@ func (r *ReportRepository) CloseReport(ctx context.Context, reportID int, status
 }
 
 func (r *ReportRepository) HasActiveOnlineBlock(ctx context.Context, userID int) (bool, error) {
+	if err := r.ExpireExpiredPenalties(ctx, userID); err != nil {
+		return false, err
+	}
 	var blocked bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -734,7 +796,7 @@ func (r *ReportRepository) HasActiveOnlineBlock(ctx context.Context, userID int)
 			FROM penalties
 			WHERE user_id = $1
 			  AND status = 'active'
-			  AND penalty_type IN ('temporary_suspend', 'block_user', 'unverify_skills')
+			  AND penalty_type IN ('temporary_suspend', 'block_user')
 			  AND (expires_at IS NULL OR expires_at > NOW())
 		)
 	`, userID).Scan(&blocked)
