@@ -802,3 +802,38 @@ func (r *ReportRepository) HasActiveOnlineBlock(ctx context.Context, userID int)
 	`, userID).Scan(&blocked)
 	return blocked, err
 }
+
+func (r *ReportRepository) ActiveAccessPenalty(ctx context.Context, userID int) (Penalty, bool, error) {
+	if err := r.ExpireExpiredPenalties(ctx, userID); err != nil {
+		return Penalty{}, false, err
+	}
+	var penalty Penalty
+	err := r.db.QueryRow(ctx, `
+		SELECT penalty_id, user_id, report_id, issued_by_user_id, penalty_type,
+			reason, status, expires_at, created_at
+		FROM penalties
+		WHERE user_id = $1
+		  AND status = 'active'
+		  AND penalty_type IN ('temporary_suspend', 'block_user')
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		ORDER BY CASE WHEN penalty_type = 'block_user' THEN 0 ELSE 1 END, created_at DESC
+		LIMIT 1
+	`, userID).Scan(
+		&penalty.PenaltyID,
+		&penalty.UserID,
+		&penalty.ReportID,
+		&penalty.IssuedByUserID,
+		&penalty.PenaltyType,
+		&penalty.Reason,
+		&penalty.Status,
+		&penalty.ExpiresAt,
+		&penalty.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Penalty{}, false, nil
+	}
+	if err != nil {
+		return Penalty{}, false, err
+	}
+	return penalty, true, nil
+}

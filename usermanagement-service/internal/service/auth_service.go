@@ -226,6 +226,22 @@ func isEmailRequired() bool {
 		return true
 	}
 }
+
+func accessPenaltyMessage(penalty repository.Penalty) string {
+	reason := strings.TrimSpace(penalty.Reason)
+	if reason == "" {
+		reason = "No reason provided"
+	}
+	until := ""
+	if penalty.ExpiresAt != nil {
+		until = " until " + penalty.ExpiresAt.Format("2006-01-02 15:04")
+	}
+	if penalty.PenaltyType == "temporary_suspend" {
+		return "account temporarily suspended by support" + until + ": " + reason
+	}
+	return "account blocked by support" + until + ": " + reason
+}
+
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	password := strings.TrimSpace(input.Password)
@@ -240,6 +256,11 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult,
 	user, err = s.users.GetByID(ctx, user.ID)
 	if err != nil {
 		return LoginResult{}, err
+	}
+	if penalty, blocked, err := s.reports.ActiveAccessPenalty(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	} else if blocked {
+		return LoginResult{}, errors.New(accessPenaltyMessage(penalty))
 	}
 
 	if user.Status != model.StatusActive {
@@ -283,6 +304,11 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (LoginRe
 	user, err = s.users.GetByID(ctx, userID)
 	if err != nil {
 		return LoginResult{}, err
+	}
+	if penalty, blocked, err := s.reports.ActiveAccessPenalty(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	} else if blocked {
+		return LoginResult{}, errors.New(accessPenaltyMessage(penalty))
 	}
 	if user.Status != model.StatusActive {
 		return LoginResult{}, errors.New("user is not active")

@@ -724,8 +724,18 @@ function AuthScreen({ onAuth }) {
     try {
       await action();
     } catch (err) {
-      if (String(err.message || "").toLowerCase().includes("invalid credentials")) {
+      const errorText = String(err.message || "");
+      const normalizedError = errorText.toLowerCase();
+      if (normalizedError.includes("invalid credentials")) {
         notifyError("Sign in failed", "Invalid email or password.");
+        return;
+      }
+      if (normalizedError.includes("account blocked by support")) {
+        notifyError("Account blocked", errorText);
+        return;
+      }
+      if (normalizedError.includes("account temporarily suspended by support")) {
+        notifyError("Account temporarily suspended", errorText);
         return;
       }
       setError(err.message);
@@ -4175,6 +4185,10 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
       notifySuccess("Penalty applied", "Report was resolved.");
       loadReports();
     } catch (err) {
+      if (String(err.message || "").toLowerCase().includes("days must be positive for this penalty")) {
+        notifyError("Penalty duration required", "Enter a positive number of days for this penalty.");
+        return;
+      }
       setError(err.message);
     }
   };
