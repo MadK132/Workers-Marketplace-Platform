@@ -593,14 +593,66 @@ func (r *ReportRepository) ApplyPenalty(ctx context.Context, reportID int, targe
 			return Penalty{}, err
 		}
 	case "unverify_skills":
-		if _, err = tx.Exec(ctx, `
-			UPDATE worker_skills
-			SET is_verified = false
-			WHERE worker_profile_id IN (SELECT worker_profile_id FROM worker_profiles WHERE user_id = $1)
-		`, targetUserID); err != nil {
+		var workerProfileID int
+		err = tx.QueryRow(ctx, `
+			WITH booking_skill AS (
+				SELECT b.worker_profile_id, sr.category_id
+				FROM reports r
+				JOIN bookings b ON b.booking_id = r.booking_id
+				JOIN service_requests sr ON sr.request_id = b.request_id
+				JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+				WHERE r.report_id = $1
+				  AND wp.user_id = $2
+			),
+			updated AS (
+				UPDATE worker_skills ws
+				SET is_verified = false
+				FROM booking_skill bs
+				WHERE ws.worker_profile_id = bs.worker_profile_id
+				  AND ws.category_id = bs.category_id
+				  AND ws.is_verified = true
+				RETURNING ws.worker_profile_id
+			)
+			SELECT worker_profile_id FROM updated LIMIT 1
+		`, reportID, targetUserID).Scan(&workerProfileID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Penalty{}, errors.New("booking worker skill not found or already unverified")
+		}
+		if err != nil {
 			return Penalty{}, err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE worker_profiles SET verification_status = 'unverified', is_available = false WHERE user_id = $1`, targetUserID); err != nil {
+		if _, err = tx.Exec(ctx, `
+			UPDATE worker_profiles wp
+			SET verification_status = CASE
+					WHEN EXISTS (
+						SELECT 1 FROM worker_identity_documents wid
+						WHERE wid.worker_profile_id = wp.worker_profile_id
+						  AND wid.status = 'verified'
+					)
+					AND EXISTS (
+						SELECT 1 FROM worker_skills ws
+						WHERE ws.worker_profile_id = wp.worker_profile_id
+						  AND ws.is_verified = true
+					)
+					THEN 'verified'::verification_status
+					ELSE 'unverified'::verification_status
+				END,
+				is_available = CASE
+					WHEN EXISTS (
+						SELECT 1 FROM worker_identity_documents wid
+						WHERE wid.worker_profile_id = wp.worker_profile_id
+						  AND wid.status = 'verified'
+					)
+					AND EXISTS (
+						SELECT 1 FROM worker_skills ws
+						WHERE ws.worker_profile_id = wp.worker_profile_id
+						  AND ws.is_verified = true
+					)
+					THEN wp.is_available
+					ELSE false
+				END
+			WHERE wp.worker_profile_id = $1
+		`, workerProfileID); err != nil {
 			return Penalty{}, err
 		}
 	}

@@ -15,7 +15,6 @@ const ASTANA_BOUNDS = {
   maxLongitude: 71.75,
 };
 const GIS_API_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
-const TTS_VOICE_HINT = import.meta.env.VITE_TTS_VOICE_HINT || "";
 const ROUTE_REFRESH_MS = 90000;
 const ROUTE_REFRESH_DISTANCE_M = 200;
 const TOAST_TIMEOUT_MS = 10000;
@@ -609,7 +608,12 @@ export default function App() {
   }, [role, token]);
 
   if (!token) {
-    return <AuthScreen onAuth={saveSession} />;
+    return (
+      <>
+        <AuthScreen onAuth={saveSession} />
+        <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+      </>
+    );
   }
 
   const startPaymentSetup = async () => {
@@ -717,6 +721,10 @@ function AuthScreen({ onAuth }) {
     try {
       await action();
     } catch (err) {
+      if (String(err.message || "").toLowerCase().includes("invalid credentials")) {
+        notifyError("Sign in failed", "Invalid email or password.");
+        return;
+      }
       setError(err.message);
     } finally {
       setBusy(false);
@@ -2068,22 +2076,6 @@ function WorkerApp({
   }, [currentInProgressBooking?.booking_id]);
 
   useEffect(() => {
-    if (!position || !currentInProgressBooking?.latitude || !currentInProgressBooking?.longitude) {
-      return;
-    }
-    announceNavigationHint(position, {
-      latitude: currentInProgressBooking.latitude,
-      longitude: currentInProgressBooking.longitude,
-    });
-  }, [
-    position?.latitude,
-    position?.longitude,
-    currentInProgressBooking?.booking_id,
-    currentInProgressBooking?.latitude,
-    currentInProgressBooking?.longitude,
-  ]);
-
-  useEffect(() => {
     if ((!available && !currentInProgressBooking) || !position) {
       return undefined;
     }
@@ -3037,6 +3029,17 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
   );
 }
 
+function RefreshIcon() {
+  return (
+    <svg className="refreshIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M20 6v5h-5" />
+      <path d="M4 18v-5h5" />
+      <path d="M6.2 9A7 7 0 0 1 18 6.8L20 11" />
+      <path d="M17.8 15A7 7 0 0 1 6 17.2L4 13" />
+    </svg>
+  );
+}
+
 function RequestsPanel({ token }) {
   const [items, setItems] = useState([]);
   const [error, setError] = useState("");
@@ -3282,7 +3285,15 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
 
   return (
     <section className="pagePanel">
-      <SectionHeader title="Bookings" text="Current and past bookings." />
+      <SectionHeader
+        title="Bookings"
+        text="Current and past bookings."
+        action={(
+          <button className="refreshIconButton" type="button" onClick={load} aria-label="Refresh bookings" title="Refresh bookings">
+            <RefreshIcon />
+          </button>
+        )}
+      />
       <Messages message={message} error={error} />
       <div className="dataList">
         {items.length === 0 && <EmptyState title="No bookings" text="Bookings will appear here after customer selects a worker." />}
@@ -3340,7 +3351,9 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
               <button className="secondaryButton" type="button" onClick={() => setRequestHistoryOpen((value) => !value)}>
                 {requestHistoryOpen ? "Hide" : `Show ${requests.length ? `(${requests.length})` : ""}`} history
               </button>
-              <button className="secondaryButton" type="button" onClick={loadRequests}>Refresh</button>
+              <button className="refreshIconButton" type="button" onClick={loadRequests} aria-label="Refresh requests" title="Refresh requests">
+                <RefreshIcon />
+              </button>
             </div>
           </div>
           {requestHistoryOpen && (
@@ -4199,7 +4212,11 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
       loadReports();
       window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
     } catch (err) {
-      setError(err.message);
+      if (String(err.message || "").toLowerCase().includes("invalid transition")) {
+        notifyError("Booking cannot be cancelled", "Completed or already cancelled bookings cannot be cancelled.");
+        return;
+      }
+      notifyError("Booking cancel failed", err.message);
     }
   };
 
@@ -4400,7 +4417,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
                       <select value={penalty.penalty_type} onChange={(event) => setPenalty({ ...penalty, penalty_type: event.target.value })}>
                         <option value="warning">Warning</option>
                         <option value="temporary_suspend">Temporary suspend</option>
-                        <option value="unverify_skills">Unverify worker skills</option>
+                        <option value="unverify_skills">Unverify booking skill</option>
                         {role === "admin" && <option value="block_user">Block user</option>}
                       </select>
                     </Field>
@@ -5774,11 +5791,6 @@ function formatDistanceLabel(value) {
   return `${Math.round(distance)} m away`;
 }
 
-const navigationSpeechState = {
-  key: "",
-  spokenAt: 0,
-};
-
 function announceNewScheduledBookings(bookings, knownRef) {
   if (!knownRef.current) {
     knownRef.current = new Set(
@@ -5795,61 +5807,10 @@ function announceNewScheduledBookings(bookings, knownRef) {
     if (!id) {
       continue;
     }
-    if (status === "scheduled" && !knownRef.current.has(id)) {
-      knownRef.current.add(id);
-      speakText("Клиент принял цену. Начните поездку.");
-    } else if (status === "scheduled") {
+    if (status === "scheduled") {
       knownRef.current.add(id);
     }
   }
-}
-
-function announceNavigationHint(current, destination) {
-  const meters = haversineMeters(current, destination);
-  const bucket = meters < 35 ? "arrived" : String(Math.round(meters / 100) * 100);
-  const now = Date.now();
-  if (navigationSpeechState.key === bucket && now - navigationSpeechState.spokenAt < 45000) {
-    return;
-  }
-  navigationSpeechState.key = bucket;
-  navigationSpeechState.spokenAt = now;
-  const text = meters < 35
-    ? "Вы на месте."
-    : `Следуйте по маршруту примерно ${formatNavigationDistance(meters)}.`;
-  speakText(text);
-}
-
-function speakText(text) {
-  if (!("speechSynthesis" in window)) {
-    return;
-  }
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "ru-RU";
-  const voice = preferredRussianVoice();
-  if (voice) {
-    utterance.voice = voice;
-  }
-  utterance.rate = 0.9;
-  utterance.pitch = 1.05;
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utterance);
-}
-
-function preferredRussianVoice() {
-  if (!("speechSynthesis" in window)) {
-    return null;
-  }
-  const voices = window.speechSynthesis.getVoices?.() || [];
-  const hint = TTS_VOICE_HINT.trim().toLowerCase();
-  if (hint) {
-    const hintedVoice = voices.find((voice) => voice.name.toLowerCase().includes(hint) || voice.lang.toLowerCase().includes(hint));
-    if (hintedVoice) {
-      return hintedVoice;
-    }
-  }
-  return voices.find((voice) => /ru/i.test(voice.lang) && /natural|online|google|microsoft|irina|milena|dariya|svetlana|female/i.test(voice.name)) ||
-    voices.find((voice) => /ru/i.test(voice.lang)) ||
-    null;
 }
 
 function formatNavigationDistance(meters) {
@@ -6036,13 +5997,14 @@ function JobBoard({ bookings, onProgress, compact }) {
   );
 }
 
-function SectionHeader({ title, text }) {
+function SectionHeader({ title, text, action }) {
   return (
     <header className="resultsHeader">
       <div>
         <h2>{title}</h2>
         <p>{text}</p>
       </div>
+      {action}
     </header>
   );
 }

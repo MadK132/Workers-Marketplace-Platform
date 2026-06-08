@@ -3919,6 +3919,36 @@ textarea {
   background: #276a5f;
 }
 
+.refreshIconButton {
+  display: inline-grid;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  place-items: center;
+  border: 1px solid #d9d0be;
+  border-radius: 999px;
+  padding: 0;
+  background: #fffaf2;
+  color: #10231f;
+  box-shadow: 0 10px 24px rgba(16, 35, 31, 0.08);
+}
+
+.refreshIconButton:hover {
+  background: #10231f;
+  color: #fffaf2;
+}
+
+.refreshIcon {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .statusStack {
   display: grid;
   gap: 6px;

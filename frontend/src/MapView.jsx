@@ -3,12 +3,17 @@ import { loadMapGL } from "./mapgl.js";
 
 const MAP_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 
-const DRIVER_MARKER_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
+function driverMarkerIcon(rotation = 0) {
+  const angle = Number.isFinite(Number(rotation)) ? Number(rotation) : 0;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg width="44" height="54" viewBox="0 0 44 54" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M22 2L42 52L22 38L2 52L22 2Z" fill="#FFC21A" stroke="#24302C" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M22 2L22 38" stroke="#F7A900" stroke-width="1.5"/>
+  <g transform="rotate(${angle} 22 27)">
+    <path d="M22 2L42 52L22 38L2 52L22 2Z" fill="#FFC21A" stroke="#24302C" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M22 2L22 38" stroke="#F7A900" stroke-width="1.5"/>
+  </g>
 </svg>
 `)}`;
+}
 
 const WORKER_MARKER_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg width="42" height="48" viewBox="0 0 42 48" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -48,6 +53,8 @@ const MapView = forwardRef(function MapView({
   const userMarkerRef = useRef(null);
   const pickedMarkerRef = useRef(null);
   const routeLineRef = useRef(null);
+  const driverBearingRef = useRef(0);
+  const previousDriverPositionRef = useRef(null);
   const pickModeRef = useRef(pickMode);
   const onPickPositionRef = useRef(onPickPosition);
   const userAdjustedMapRef = useRef(false);
@@ -214,7 +221,10 @@ const MapView = forwardRef(function MapView({
     };
 
     if (userMarker === "driver") {
-      markerOptions.icon = DRIVER_MARKER_ICON;
+      const nextBearing = driverBearing(position, previousDriverPositionRef.current, routeLine, driverBearingRef.current);
+      driverBearingRef.current = nextBearing;
+      previousDriverPositionRef.current = position;
+      markerOptions.icon = driverMarkerIcon(nextBearing);
       markerOptions.size = [44, 54];
       markerOptions.anchor = [22, 27];
       markerOptions.zIndex = 10;
@@ -228,7 +238,7 @@ const MapView = forwardRef(function MapView({
       userMarkerRef.current?.destroy?.();
       userMarkerRef.current = null;
     };
-  }, [mapReady, position, userMarker]);
+  }, [mapReady, position, routeLine, userMarker]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.mapgl || !position) {
@@ -303,3 +313,47 @@ const MapView = forwardRef(function MapView({
 });
 
 export default MapView;
+
+function driverBearing(position, previousPosition, routeLine, fallbackBearing) {
+  if (previousPosition && metersBetween(previousPosition, position) >= 2) {
+    return bearingDegrees(previousPosition, position);
+  }
+
+  const routePoints = Array.isArray(routeLine) ? routeLine : [];
+  const target = routePoints.find((point) => metersBetween(position, point) >= 8) || routePoints[routePoints.length - 1];
+  if (target && Number.isFinite(Number(target.latitude)) && Number.isFinite(Number(target.longitude))) {
+    return bearingDegrees(position, target);
+  }
+
+  return Number.isFinite(Number(fallbackBearing)) ? Number(fallbackBearing) : 0;
+}
+
+function bearingDegrees(from, to) {
+  const lat1 = degreesToRadians(Number(from.latitude));
+  const lat2 = degreesToRadians(Number(to.latitude));
+  const deltaLon = degreesToRadians(Number(to.longitude) - Number(from.longitude));
+  const y = Math.sin(deltaLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
+  return (radiansToDegrees(Math.atan2(y, x)) + 360) % 360;
+}
+
+function metersBetween(a, b) {
+  if (!a || !b) return 0;
+  const radius = 6371000;
+  const lat1 = degreesToRadians(Number(a.latitude));
+  const lat2 = degreesToRadians(Number(b.latitude));
+  const deltaLat = degreesToRadians(Number(b.latitude) - Number(a.latitude));
+  const deltaLon = degreesToRadians(Number(b.longitude) - Number(a.longitude));
+  const halfChord = Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
+  return 2 * radius * Math.atan2(Math.sqrt(halfChord), Math.sqrt(1 - halfChord));
+}
+
+function degreesToRadians(value) {
+  return value * Math.PI / 180;
+}
+
+function radiansToDegrees(value) {
+  return value * 180 / Math.PI;
+}
