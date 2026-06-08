@@ -4241,6 +4241,12 @@ textarea {
   align-items: center;
 }
 
+.bookingRowActions {
+  justify-content: flex-end;
+  justify-self: stretch;
+  width: 100%;
+}
+
 .bookingActions button {
   flex: 0 1 auto;
   min-width: 84px;

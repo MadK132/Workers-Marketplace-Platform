@@ -6,10 +6,10 @@ const MAP_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 function driverMarkerIcon(rotation = 0) {
   const angle = Number.isFinite(Number(rotation)) ? Number(rotation) : 0;
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
-<svg width="44" height="54" viewBox="0 0 44 54" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <g transform="rotate(${angle} 22 27)">
-    <path d="M22 2L42 52L22 38L2 52L22 2Z" fill="#FFC21A" stroke="#24302C" stroke-width="2" stroke-linejoin="round"/>
-    <path d="M22 2L22 38" stroke="#F7A900" stroke-width="1.5"/>
+<svg width="52" height="52" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="rotate(${angle} 32 32)">
+    <path d="M32 8L50 56L32 43L14 56L32 8Z" fill="#FFC21A" stroke="#24302C" stroke-width="2.6" stroke-linejoin="round"/>
+    <path d="M32 8L32 43" stroke="#F7A900" stroke-width="1.8"/>
   </g>
 </svg>
 `)}`;
@@ -45,6 +45,7 @@ const MapView = forwardRef(function MapView({
   routeFocusKey = "",
   followPosition = false,
   navigationMode = false,
+  onUserControl,
 }, ref) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -57,38 +58,54 @@ const MapView = forwardRef(function MapView({
   const previousDriverPositionRef = useRef(null);
   const pickModeRef = useRef(pickMode);
   const onPickPositionRef = useRef(onPickPosition);
+  const onUserControlRef = useRef(onUserControl);
   const userAdjustedMapRef = useRef(false);
+  const programmaticCameraRef = useRef(false);
+  const programmaticCameraTimerRef = useRef(null);
   const centeredWorkersRef = useRef("");
   const focusedRouteRef = useRef("");
+  const navigationCameraKeyRef = useRef("");
   const [mapError, setMapError] = useState("");
   const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => {
     pickModeRef.current = pickMode;
     onPickPositionRef.current = onPickPosition;
-  }, [onPickPosition, pickMode]);
+    onUserControlRef.current = onUserControl;
+  }, [onPickPosition, onUserControl, pickMode]);
 
   useImperativeHandle(ref, () => ({
     zoomIn() {
       userAdjustedMapRef.current = true;
+      onUserControlRef.current?.();
       setMapZoom(zoomRef.current + 1);
     },
     zoomOut() {
       userAdjustedMapRef.current = true;
+      onUserControlRef.current?.();
       setMapZoom(zoomRef.current - 1);
     },
     recenter() {
       if (mapRef.current && position) {
         userAdjustedMapRef.current = false;
-        mapRef.current.setCenter([position.longitude, position.latitude]);
-        setMapZoom(Math.max(zoomRef.current, 15));
+        runProgrammaticCamera(() => {
+          mapRef.current.setCenter([position.longitude, position.latitude]);
+          setMapZoom(Math.max(zoomRef.current, 15));
+        });
       }
     },
     follow() {
       if (mapRef.current && position) {
         userAdjustedMapRef.current = false;
-        mapRef.current.setCenter([position.longitude, position.latitude]);
-        setMapZoom(Math.max(zoomRef.current, 17));
+        if (navigationMode) {
+          const nextBearing = driverBearing(position, previousDriverPositionRef.current, routeLine, driverBearingRef.current);
+          setNavigationCamera(position, nextBearing, true);
+        } else {
+          runProgrammaticCamera(() => {
+            mapRef.current.setCenter([position.longitude, position.latitude]);
+            setMapZoom(Math.max(zoomRef.current, 17));
+          });
+        }
       }
     },
   }));
@@ -127,12 +144,25 @@ const MapView = forwardRef(function MapView({
             latitude: Number(latitude),
           });
         });
+        ["dragstart", "movestart", "zoomstart", "rotatestart", "pitchstart"].forEach((eventName) => {
+          mapRef.current.on(eventName, () => {
+            if (programmaticCameraRef.current) {
+              return;
+            }
+            userAdjustedMapRef.current = true;
+            onUserControlRef.current?.();
+          });
+        });
         zoomRef.current = 13;
       })
       .catch((error) => setMapError(error.message));
 
     return () => {
       cancelled = true;
+      if (programmaticCameraTimerRef.current) {
+        window.clearTimeout(programmaticCameraTimerRef.current);
+        programmaticCameraTimerRef.current = null;
+      }
     };
   }, [position]);
 
@@ -194,15 +224,35 @@ const MapView = forwardRef(function MapView({
   }, [followPosition, mapReady, navigationMode, routeFocusKey, routeLine]);
 
   useEffect(() => {
+    if (!mapReady || !mapRef.current || navigationMode) {
+      return;
+    }
+    navigationCameraKeyRef.current = "";
+    if (typeof mapRef.current.setRotation === "function") {
+      mapRef.current.setRotation(0);
+    }
+    if (typeof mapRef.current.setPitch === "function") {
+      mapRef.current.setPitch(0);
+    }
+  }, [mapReady, navigationMode]);
+
+  useEffect(() => {
     if (!mapReady || !mapRef.current || !position || !followPosition) {
       return;
     }
     userAdjustedMapRef.current = false;
-    mapRef.current.setCenter([position.longitude, position.latitude]);
-    if (zoomRef.current < 17) {
-      setMapZoom(17);
+    if (navigationMode) {
+      const nextBearing = driverBearing(position, previousDriverPositionRef.current, routeLine, driverBearingRef.current);
+      setNavigationCamera(position, nextBearing);
+      return;
     }
-  }, [followPosition, mapReady, position?.latitude, position?.longitude]);
+    runProgrammaticCamera(() => {
+      mapRef.current.setCenter([position.longitude, position.latitude]);
+      if (zoomRef.current < 17) {
+        setMapZoom(17);
+      }
+    });
+  }, [followPosition, mapReady, navigationMode, position?.latitude, position?.longitude, routeLine]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.mapgl || !position) {
@@ -224,9 +274,10 @@ const MapView = forwardRef(function MapView({
       const nextBearing = driverBearing(position, previousDriverPositionRef.current, routeLine, driverBearingRef.current);
       driverBearingRef.current = nextBearing;
       previousDriverPositionRef.current = position;
-      markerOptions.icon = driverMarkerIcon(nextBearing);
-      markerOptions.size = [44, 54];
-      markerOptions.anchor = [22, 27];
+      const mapRotatesWithDriver = navigationMode && followPosition && typeof mapRef.current.setRotation === "function";
+      markerOptions.icon = driverMarkerIcon(mapRotatesWithDriver ? 0 : nextBearing);
+      markerOptions.size = [52, 52];
+      markerOptions.anchor = [26, 26];
       markerOptions.zIndex = 10;
     } else if (userMarker === "default") {
       markerOptions.label = { text: "You" };
@@ -238,7 +289,7 @@ const MapView = forwardRef(function MapView({
       userMarkerRef.current?.destroy?.();
       userMarkerRef.current = null;
     };
-  }, [mapReady, position, routeLine, userMarker]);
+  }, [followPosition, mapReady, navigationMode, position, routeLine, userMarker]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.mapgl || !position) {
@@ -299,6 +350,41 @@ const MapView = forwardRef(function MapView({
     mapRef.current?.setZoom(zoom);
   }
 
+  function setNavigationCamera(nextPosition, nextBearing, force = false) {
+    if (!mapRef.current || !nextPosition) {
+      return;
+    }
+    const bearing = Number.isFinite(Number(nextBearing)) ? Number(nextBearing) : 0;
+    const cameraKey = `${roundCoord(nextPosition.latitude)}:${roundCoord(nextPosition.longitude)}:${Math.round(bearing)}`;
+    if (!force && navigationCameraKeyRef.current === cameraKey) {
+      return;
+    }
+    navigationCameraKeyRef.current = cameraKey;
+    const center = navigationCenter(nextPosition, bearing);
+    runProgrammaticCamera(() => {
+      mapRef.current.setCenter([center.longitude, center.latitude]);
+      setMapZoom(Math.max(zoomRef.current, 18.2));
+      if (typeof mapRef.current.setRotation === "function") {
+        mapRef.current.setRotation(bearing);
+      }
+      if (typeof mapRef.current.setPitch === "function") {
+        mapRef.current.setPitch(45);
+      }
+    });
+  }
+
+  function runProgrammaticCamera(action) {
+    programmaticCameraRef.current = true;
+    if (programmaticCameraTimerRef.current) {
+      window.clearTimeout(programmaticCameraTimerRef.current);
+    }
+    action();
+    programmaticCameraTimerRef.current = window.setTimeout(() => {
+      programmaticCameraRef.current = false;
+      programmaticCameraTimerRef.current = null;
+    }, 350);
+  }
+
   function focusRoute(points) {
     if (!mapRef.current || points.length < 2) {
       return;
@@ -313,6 +399,39 @@ const MapView = forwardRef(function MapView({
 });
 
 export default MapView;
+
+function navigationCenter(position, bearing) {
+  const lookAhead = destinationPoint(position, bearing, 40);
+  if (!lookAhead) {
+    return position;
+  }
+  return lookAhead;
+}
+
+function destinationPoint(origin, bearing, meters) {
+  if (!origin) return null;
+  const radius = 6371000;
+  const angularDistance = Number(meters) / radius;
+  const bearingRad = degreesToRadians(Number(bearing));
+  const lat1 = degreesToRadians(Number(origin.latitude));
+  const lon1 = degreesToRadians(Number(origin.longitude));
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angularDistance) +
+    Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearingRad),
+  );
+  const lon2 = lon1 + Math.atan2(
+    Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(lat1),
+    Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2),
+  );
+  return {
+    latitude: radiansToDegrees(lat2),
+    longitude: ((radiansToDegrees(lon2) + 540) % 360) - 180,
+  };
+}
+
+function roundCoord(value) {
+  return Number(value).toFixed(5);
+}
 
 function driverBearing(position, previousPosition, routeLine, fallbackBearing) {
   if (previousPosition && metersBetween(previousPosition, position) >= 2) {

@@ -17,6 +17,9 @@ const ASTANA_BOUNDS = {
 const GIS_API_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
 const ROUTE_REFRESH_MS = 90000;
 const ROUTE_REFRESH_DISTANCE_M = 200;
+const NAVIGATION_ROUTE_REFRESH_MS = 25000;
+const NAVIGATION_ROUTE_REFRESH_DISTANCE_M = 35;
+const NAVIGATION_OFF_ROUTE_DISTANCE_M = 70;
 const TOAST_TIMEOUT_MS = 10000;
 const PROFILE_BIO_MAX_LENGTH = 240;
 const PROFILE_ADDRESS_MAX_LENGTH = 120;
@@ -1963,7 +1966,12 @@ function WorkerApp({
   const [followRoute, setFollowRoute] = useState(false);
   const knownScheduledBookingsRef = useRef(null);
   const workerRouteRequestRef = useRef(null);
+  const routePointsRef = useRef(null);
   const offersDrawer = useBottomDrawer(180);
+
+  useEffect(() => {
+    routePointsRef.current = routePoints;
+  }, [routePoints]);
 
   const loadBookings = useCallback(async () => {
     setError("");
@@ -2039,7 +2047,7 @@ function WorkerApp({
       longitude: currentInProgressBooking.longitude,
     };
     const routeKey = `${currentInProgressBooking.booking_id || currentInProgressBooking.id || ""}:${destination.latitude}:${destination.longitude}`;
-    if (!shouldRefreshRoute(workerRouteRequestRef.current, routeKey, position)) {
+    if (!shouldRefreshNavigationRoute(workerRouteRequestRef.current, routeKey, position, routePointsRef.current)) {
       return () => {
         cancelled = true;
       };
@@ -2072,7 +2080,9 @@ function WorkerApp({
   useEffect(() => {
     if (!currentInProgressBooking) {
       setFollowRoute(false);
+      return;
     }
+    setFollowRoute(true);
   }, [currentInProgressBooking?.booking_id]);
 
   useEffect(() => {
@@ -2213,6 +2223,11 @@ function WorkerApp({
           autoCenterOnPosition={!currentInProgressBooking}
           followPosition={followRoute && Boolean(currentInProgressBooking)}
           navigationMode={Boolean(currentInProgressBooking)}
+          onUserControl={() => {
+            if (currentInProgressBooking) {
+              setFollowRoute(false);
+            }
+          }}
         />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         {currentInProgressBooking && (
@@ -3305,7 +3320,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
             <small>{item.description || item.address || ""}</small>
             {item.completion_evidence && <EvidenceLinks value={item.completion_evidence} />}
             {canProgress && (
-              <div className="rowActions">
+              <div className="rowActions bookingRowActions">
                 <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
                 <button className="secondaryButton" onClick={() => {
                   localStorage.setItem("workers_marketplace_report_booking", String(item.booking_id || item.id));
@@ -3316,7 +3331,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
               </div>
             )}
             {canConfirm && (canChatBooking(item) || String(item.status).toLowerCase() === "awaiting_confirmation") && (
-              <div className="rowActions bookingActions">
+              <div className="rowActions bookingActions bookingRowActions">
                 {canChatBooking(item) && (
                   <>
                     <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
@@ -5848,6 +5863,61 @@ function shouldRefreshRoute(cache, key, start) {
     return false;
   }
   return haversineMeters(cache.start, start) >= ROUTE_REFRESH_DISTANCE_M;
+}
+
+function shouldRefreshNavigationRoute(cache, key, start, routePoints) {
+  if (!cache || cache.key !== key || !cache.start) {
+    return true;
+  }
+  const points = Array.isArray(routePoints) ? routePoints : [];
+  if (points.length >= 2) {
+    const offRouteMeters = distanceToRouteMeters(start, points);
+    if (offRouteMeters >= NAVIGATION_OFF_ROUTE_DISTANCE_M) {
+      return true;
+    }
+  }
+  const elapsed = Date.now() - Number(cache.at || 0);
+  if (elapsed < NAVIGATION_ROUTE_REFRESH_MS) {
+    return false;
+  }
+  return haversineMeters(cache.start, start) >= NAVIGATION_ROUTE_REFRESH_DISTANCE_M;
+}
+
+function distanceToRouteMeters(position, points) {
+  if (!position || !Array.isArray(points) || points.length < 2) {
+    return Number.POSITIVE_INFINITY;
+  }
+  let minDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const distance = distanceToSegmentMeters(position, points[index], points[index + 1]);
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+  return minDistance;
+}
+
+function distanceToSegmentMeters(point, start, end) {
+  if (!point || !start || !end) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const originLat = degreesToRadians(Number(point.latitude));
+  const metersPerDegreeLat = 111320;
+  const metersPerDegreeLon = 111320 * Math.max(0.01, Math.cos(originLat));
+  const px = 0;
+  const py = 0;
+  const ax = (Number(start.longitude) - Number(point.longitude)) * metersPerDegreeLon;
+  const ay = (Number(start.latitude) - Number(point.latitude)) * metersPerDegreeLat;
+  const bx = (Number(end.longitude) - Number(point.longitude)) * metersPerDegreeLon;
+  const by = (Number(end.latitude) - Number(point.latitude)) * metersPerDegreeLat;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) {
+    return Math.hypot(ax - px, ay - py);
+  }
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared));
+  return Math.hypot(ax + t * dx - px, ay + t * dy - py);
 }
 
 function formatChatTime(value) {
