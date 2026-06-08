@@ -3724,7 +3724,6 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
       setMessages((current) => [...current.filter((msg) => msg.message_id !== sent.message_id), sent]);
       setContent("");
       setAttachment(null);
-      notifySuccess("Message sent", "Your message was delivered.");
       loadChats();
     } catch (err) {
       setError(err.message);
