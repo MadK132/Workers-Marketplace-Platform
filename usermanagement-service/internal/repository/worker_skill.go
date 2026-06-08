@@ -229,6 +229,27 @@ func (r *WorkerSkillRepository) ApproveUpgradeRequest(ctx context.Context, reque
 	return tx.Commit(ctx)
 }
 
+func (r *WorkerSkillRepository) RejectUpgradeRequest(ctx context.Context, requestID int, reviewerUserID int) error {
+	if err := r.EnsureEvidenceTable(ctx); err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(ctx, `
+		UPDATE worker_skill_upgrade_requests
+		SET status = 'rejected',
+			reviewed_at = now(),
+			reviewed_by_user_id = $2
+		WHERE upgrade_request_id = $1
+		  AND status = 'pending'
+	`, requestID, reviewerUserID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("pending upgrade request not found")
+	}
+	return nil
+}
+
 func experienceRank(level string) int {
 	switch level {
 	case "junior":
@@ -275,6 +296,24 @@ func (r *WorkerSkillRepository) Verify(ctx context.Context, skillID int) error {
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (r *WorkerSkillRepository) Reject(ctx context.Context, skillID int) error {
+	if err := r.EnsureEvidenceTable(ctx); err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(ctx, `
+		DELETE FROM worker_skills
+		WHERE worker_skill_id = $1
+		  AND is_verified = false
+	`, skillID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return errors.New("pending worker skill not found")
+	}
+	return nil
 }
 func (r *WorkerSkillRepository) FindWorkersByCategory(
 	ctx context.Context,

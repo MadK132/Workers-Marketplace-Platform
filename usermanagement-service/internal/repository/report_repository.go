@@ -593,14 +593,66 @@ func (r *ReportRepository) ApplyPenalty(ctx context.Context, reportID int, targe
 			return Penalty{}, err
 		}
 	case "unverify_skills":
-		if _, err = tx.Exec(ctx, `
-			UPDATE worker_skills
-			SET is_verified = false
-			WHERE worker_profile_id IN (SELECT worker_profile_id FROM worker_profiles WHERE user_id = $1)
-		`, targetUserID); err != nil {
+		var workerProfileID int
+		err = tx.QueryRow(ctx, `
+			WITH booking_skill AS (
+				SELECT b.worker_profile_id, sr.category_id
+				FROM reports r
+				JOIN bookings b ON b.booking_id = r.booking_id
+				JOIN service_requests sr ON sr.request_id = b.request_id
+				JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+				WHERE r.report_id = $1
+				  AND wp.user_id = $2
+			),
+			updated AS (
+				UPDATE worker_skills ws
+				SET is_verified = false
+				FROM booking_skill bs
+				WHERE ws.worker_profile_id = bs.worker_profile_id
+				  AND ws.category_id = bs.category_id
+				  AND ws.is_verified = true
+				RETURNING ws.worker_profile_id
+			)
+			SELECT worker_profile_id FROM updated LIMIT 1
+		`, reportID, targetUserID).Scan(&workerProfileID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Penalty{}, errors.New("booking worker skill not found or already unverified")
+		}
+		if err != nil {
 			return Penalty{}, err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE worker_profiles SET verification_status = 'unverified', is_available = false WHERE user_id = $1`, targetUserID); err != nil {
+		if _, err = tx.Exec(ctx, `
+			UPDATE worker_profiles wp
+			SET verification_status = CASE
+					WHEN EXISTS (
+						SELECT 1 FROM worker_identity_documents wid
+						WHERE wid.worker_profile_id = wp.worker_profile_id
+						  AND wid.status = 'verified'
+					)
+					AND EXISTS (
+						SELECT 1 FROM worker_skills ws
+						WHERE ws.worker_profile_id = wp.worker_profile_id
+						  AND ws.is_verified = true
+					)
+					THEN 'verified'::verification_status
+					ELSE 'unverified'::verification_status
+				END,
+				is_available = CASE
+					WHEN EXISTS (
+						SELECT 1 FROM worker_identity_documents wid
+						WHERE wid.worker_profile_id = wp.worker_profile_id
+						  AND wid.status = 'verified'
+					)
+					AND EXISTS (
+						SELECT 1 FROM worker_skills ws
+						WHERE ws.worker_profile_id = wp.worker_profile_id
+						  AND ws.is_verified = true
+					)
+					THEN wp.is_available
+					ELSE false
+				END
+			WHERE wp.worker_profile_id = $1
+		`, workerProfileID); err != nil {
 			return Penalty{}, err
 		}
 	}
@@ -619,6 +671,111 @@ func (r *ReportRepository) ApplyPenalty(ctx context.Context, reportID int, targe
 	return penalty, nil
 }
 
+func (r *ReportRepository) CancelPenalty(ctx context.Context, penaltyID int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var userID int
+	var penaltyType string
+	err = tx.QueryRow(ctx, `
+		UPDATE penalties
+		SET status = 'cancelled'
+		WHERE penalty_id = $1 AND status = 'active'
+		RETURNING user_id, penalty_type
+	`, penaltyID).Scan(&userID, &penaltyType)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrReportNotFound
+		}
+		return err
+	}
+
+	if penaltyType == "block_user" {
+		var hasBlock bool
+		if err = tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM penalties
+				WHERE user_id = $1
+				  AND status = 'active'
+				  AND penalty_type = 'block_user'
+				  AND (expires_at IS NULL OR expires_at > NOW())
+			)
+		`, userID).Scan(&hasBlock); err != nil {
+			return err
+		}
+		if !hasBlock {
+			if _, err = tx.Exec(ctx, `UPDATE users SET status = 'active' WHERE user_id = $1 AND status = 'banned'`, userID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *ReportRepository) ExpireExpiredPenalties(ctx context.Context, userID int) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		UPDATE penalties
+		SET status = 'expired'
+		WHERE user_id = $1
+		  AND status = 'active'
+		  AND expires_at IS NOT NULL
+		  AND expires_at <= NOW()
+		RETURNING penalty_type
+	`, userID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	expiredBlock := false
+	for rows.Next() {
+		var penaltyType string
+		if err := rows.Scan(&penaltyType); err != nil {
+			return err
+		}
+		if penaltyType == "block_user" {
+			expiredBlock = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if expiredBlock {
+		var hasBlock bool
+		if err = tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM penalties
+				WHERE user_id = $1
+				  AND status = 'active'
+				  AND penalty_type = 'block_user'
+				  AND (expires_at IS NULL OR expires_at > NOW())
+			)
+		`, userID).Scan(&hasBlock); err != nil {
+			return err
+		}
+		if !hasBlock {
+			if _, err = tx.Exec(ctx, `UPDATE users SET status = 'active' WHERE user_id = $1 AND status = 'banned'`, userID); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *ReportRepository) CloseReport(ctx context.Context, reportID int, status string, resolution string) error {
 	_, err := r.db.Exec(ctx, `
 		UPDATE reports
@@ -629,6 +786,9 @@ func (r *ReportRepository) CloseReport(ctx context.Context, reportID int, status
 }
 
 func (r *ReportRepository) HasActiveOnlineBlock(ctx context.Context, userID int) (bool, error) {
+	if err := r.ExpireExpiredPenalties(ctx, userID); err != nil {
+		return false, err
+	}
 	var blocked bool
 	err := r.db.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -636,9 +796,44 @@ func (r *ReportRepository) HasActiveOnlineBlock(ctx context.Context, userID int)
 			FROM penalties
 			WHERE user_id = $1
 			  AND status = 'active'
-			  AND penalty_type IN ('temporary_suspend', 'block_user', 'unverify_skills')
+			  AND penalty_type IN ('temporary_suspend', 'block_user')
 			  AND (expires_at IS NULL OR expires_at > NOW())
 		)
 	`, userID).Scan(&blocked)
 	return blocked, err
+}
+
+func (r *ReportRepository) ActiveAccessPenalty(ctx context.Context, userID int) (Penalty, bool, error) {
+	if err := r.ExpireExpiredPenalties(ctx, userID); err != nil {
+		return Penalty{}, false, err
+	}
+	var penalty Penalty
+	err := r.db.QueryRow(ctx, `
+		SELECT penalty_id, user_id, report_id, issued_by_user_id, penalty_type,
+			reason, status, expires_at, created_at
+		FROM penalties
+		WHERE user_id = $1
+		  AND status = 'active'
+		  AND penalty_type IN ('temporary_suspend', 'block_user')
+		  AND (expires_at IS NULL OR expires_at > NOW())
+		ORDER BY CASE WHEN penalty_type = 'block_user' THEN 0 ELSE 1 END, created_at DESC
+		LIMIT 1
+	`, userID).Scan(
+		&penalty.PenaltyID,
+		&penalty.UserID,
+		&penalty.ReportID,
+		&penalty.IssuedByUserID,
+		&penalty.PenaltyType,
+		&penalty.Reason,
+		&penalty.Status,
+		&penalty.ExpiresAt,
+		&penalty.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Penalty{}, false, nil
+	}
+	if err != nil {
+		return Penalty{}, false, err
+	}
+	return penalty, true, nil
 }

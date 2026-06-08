@@ -139,6 +139,47 @@ func (r *WorkerProfileRepository) UpsertDetails(
 	)
 	return worker, err
 }
+
+func (r *WorkerProfileRepository) UpdateProfilePhoto(
+	ctx context.Context,
+	userID int,
+	profilePhotoURL string,
+) (model.WorkerProfile, error) {
+	if err := r.EnsureProfileColumns(ctx); err != nil {
+		return model.WorkerProfile{}, err
+	}
+
+	query := `
+		INSERT INTO worker_profiles (user_id, profile_photo_url, verification_status)
+		VALUES ($1, $2, 'pending')
+		ON CONFLICT (user_id) DO UPDATE SET
+			profile_photo_url = EXCLUDED.profile_photo_url
+		RETURNING
+			worker_profile_id,
+			user_id,
+			COALESCE(bio, ''),
+			COALESCE(rating, 0),
+			verification_status,
+			is_available,
+			current_latitude,
+			current_longitude,
+			profile_photo_url
+	`
+
+	var worker model.WorkerProfile
+	err := r.db.QueryRow(ctx, query, userID, profilePhotoURL).Scan(
+		&worker.ID,
+		&worker.UserID,
+		&worker.Bio,
+		&worker.Rating,
+		&worker.VerificationStatus,
+		&worker.IsAvailable,
+		&worker.CurrentLatitude,
+		&worker.CurrentLongitude,
+		&worker.ProfilePhotoURL,
+	)
+	return worker, err
+}
 func (r *WorkerProfileRepository) GetByUserID(ctx context.Context, userID int) (int, error) {
 	var workerID int
 

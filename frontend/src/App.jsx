@@ -15,9 +15,14 @@ const ASTANA_BOUNDS = {
   maxLongitude: 71.75,
 };
 const GIS_API_KEY = import.meta.env.VITE_2GIS_API_KEY || "";
-const TTS_VOICE_HINT = import.meta.env.VITE_TTS_VOICE_HINT || "";
 const ROUTE_REFRESH_MS = 90000;
 const ROUTE_REFRESH_DISTANCE_M = 200;
+const NAVIGATION_ROUTE_REFRESH_MS = 25000;
+const NAVIGATION_ROUTE_REFRESH_DISTANCE_M = 35;
+const NAVIGATION_OFF_ROUTE_DISTANCE_M = 70;
+const TOAST_TIMEOUT_MS = 10000;
+const PROFILE_BIO_MAX_LENGTH = 240;
+const PROFILE_ADDRESS_MAX_LENGTH = 120;
 const STAFF_AVATAR_URL = "/staff-avatar.png";
 
 const roleTabs = {
@@ -104,6 +109,13 @@ const slugRouteTabs = Object.fromEntries(
   ])
 );
 
+const routeDetailSlugs = {
+  chat: "chat",
+  reports: "reports",
+  workers: "workers",
+  users: "users",
+};
+
 const reportReasonLabels = {
   bad_quality: "Bad quality",
   no_show: "No show",
@@ -124,6 +136,26 @@ const reportStatusLabels = {
 
 function openFilePreview(file) {
   window.dispatchEvent(new CustomEvent("wm-file-preview", { detail: file }));
+}
+
+function notifyUser({ title, message, variant = "success", timeoutMs }) {
+  window.dispatchEvent(new CustomEvent("wm-local-toast", {
+    detail: {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      title,
+      message,
+      variant,
+      timeoutMs,
+    },
+  }));
+}
+
+function notifySuccess(title, message) {
+  notifyUser({ title, message, variant: "success" });
+}
+
+function notifyError(title, message) {
+  notifyUser({ title, message, variant: "error" });
 }
 
 function makeAvatarDraft(file) {
@@ -166,7 +198,7 @@ async function cropAvatarDraft(draft) {
   return new File([blob], draft.file.name.replace(/\.[^.]+$/, "") + "-avatar.png", { type: "image/png" });
 }
 
-function AvatarCropper({ draft, onChange, onClose, onCancel }) {
+function AvatarCropper({ draft, onChange, onApply, onCancel, applying = false }) {
   if (!draft) return null;
 
   const stageRef = useRef(null);
@@ -186,11 +218,11 @@ function AvatarCropper({ draft, onChange, onClose, onCancel }) {
   };
 
   return createPortal((
-    <div className="avatarEditorOverlay" role="dialog" aria-modal="true" aria-label="Edit image" onMouseDown={onClose}>
+    <div className="avatarEditorOverlay" role="dialog" aria-modal="true" aria-label="Edit image" onMouseDown={onCancel}>
       <div className="avatarEditorModal" onMouseDown={(event) => event.stopPropagation()}>
         <header>
           <strong>Edit image</strong>
-          <button type="button" aria-label="Cancel image upload" onClick={onCancel}>×</button>
+          <button type="button" aria-label="Cancel image upload" onClick={onCancel}>x</button>
         </header>
         <div
           className="avatarCropStage"
@@ -225,16 +257,140 @@ function AvatarCropper({ draft, onChange, onClose, onCancel }) {
           <span aria-hidden="true">▣</span>
         </div>
         <p className="avatarEditorHint">Drag the photo to choose the area inside the circle.</p>
-        <button className="avatarEditorApply" type="button" onClick={onClose}>Apply</button>
+        <button className="avatarEditorApply" type="button" onClick={onApply} disabled={applying}>{applying ? "Uploading..." : "Upload"}</button>
       </div>
     </div>
   ), document.body);
 }
 
+function ConfirmDialog({ title, text, confirmLabel = "Confirm", cancelLabel = "Cancel", onConfirm, onCancel }) {
+  return createPortal((
+    <div className="appConfirmOverlay" role="dialog" aria-modal="true" aria-label={title} onMouseDown={onCancel}>
+      <div className="appConfirmModal" onMouseDown={(event) => event.stopPropagation()}>
+        <strong>{title}</strong>
+        <p>{text}</p>
+        <div className="appConfirmActions">
+          <button className="appConfirmCancel" type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button className="appConfirmPrimary" type="button" onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  ), document.body);
+}
+
+function TextPromptDialog({
+  title,
+  text,
+  placeholder = "",
+  confirmLabel = "Submit",
+  cancelLabel = "Cancel",
+  onConfirm,
+  onCancel,
+}) {
+  const [value, setValue] = useState("");
+  const trimmedValue = value.trim();
+
+  return createPortal((
+    <div className="appConfirmOverlay" role="dialog" aria-modal="true" aria-label={title} onMouseDown={onCancel}>
+      <form
+        className="appConfirmModal appPromptModal"
+        onMouseDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (trimmedValue) onConfirm(trimmedValue);
+        }}
+      >
+        <strong>{title}</strong>
+        {text && <p>{text}</p>}
+        <textarea
+          autoFocus
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder={placeholder}
+        />
+        <div className="appConfirmActions">
+          <button className="appConfirmCancel" type="button" onClick={onCancel}>{cancelLabel}</button>
+          <button className="appConfirmPrimary" type="submit" disabled={!trimmedValue}>{confirmLabel}</button>
+        </div>
+      </form>
+    </div>
+  ), document.body);
+}
+
+function useBottomDrawer(defaultHeight = 220) {
+  const [height, setHeight] = useState(defaultHeight);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef({ active: false, startY: 0, startHeight: defaultHeight });
+
+  const clampHeight = useCallback((nextHeight) => {
+    const viewportHeight = window.innerHeight || 800;
+    const viewportWidth = window.innerWidth || 1200;
+    const maxRatio = viewportWidth <= 760 ? 0.64 : 0.46;
+    const maxHeight = Math.round(Math.min(viewportHeight * maxRatio, 560));
+    return Math.min(maxHeight, Math.max(defaultHeight, nextHeight));
+  }, [defaultHeight]);
+
+  const startDrag = useCallback((event) => {
+    const pointer = event.touches?.[0] || event;
+    event.preventDefault?.();
+    setDragging(true);
+    dragRef.current = { active: true, startY: pointer.clientY, startHeight: clampHeight(height) };
+    event.currentTarget?.setPointerCapture?.(event.pointerId);
+  }, [clampHeight, height]);
+
+  const moveDrag = useCallback((event) => {
+    if (!dragRef.current.active) return;
+    event.preventDefault?.();
+    const pointer = event.touches?.[0] || event;
+    const delta = dragRef.current.startY - pointer.clientY;
+    setHeight(clampHeight(dragRef.current.startHeight + delta));
+  }, [clampHeight]);
+
+  const endDrag = useCallback(() => {
+    if (!dragRef.current.active) return;
+    dragRef.current.active = false;
+    setDragging(false);
+  }, []);
+
+  useEffect(() => {
+    if (!dragging) return undefined;
+    const move = (event) => moveDrag(event);
+    const end = () => endDrag();
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    window.addEventListener("touchmove", move, { passive: false });
+    window.addEventListener("touchend", end);
+    window.addEventListener("touchcancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", end);
+      window.removeEventListener("touchcancel", end);
+    };
+  }, [dragging, endDrag, moveDrag]);
+
+  return {
+    style: { "--drawer-height": `${height}px` },
+    dragging,
+    handleProps: {
+      onPointerDown: startDrag,
+      onTouchStart: startDrag,
+    },
+  };
+}
+
+function DrawerHandle({ drag }) {
+  return <button className={drag.dragging ? "drawerDragHandle dragging" : "drawerDragHandle"} type="button" aria-label="Resize panel" {...drag.handleProps}><span /></button>;
+}
+
 export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY) || readRole(token));
-  const [activeTab, setActiveTab] = useState(() => tabFromCurrentRoute(role) || defaultTabForRole(role));
+  const [activeTab, setActiveTab] = useState(() => currentRouteForRole(role).tab || defaultTabForRole(role));
+  const [routeVersion, setRouteVersion] = useState(0);
   const [paymentReady, setPaymentReady] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentError, setPaymentError] = useState("");
@@ -244,7 +400,9 @@ export default function App() {
   const navigateToTab = useCallback((nextTab, options = {}) => {
     setActiveTab(nextTab);
     writeTabRoute(role, nextTab, options);
+    setRouteVersion((current) => current + 1);
   }, [role]);
+  const routeDetail = useMemo(() => currentRouteForRole(role), [role, activeTab, routeVersion]);
 
   const openToastAction = useCallback(async (item) => {
     if (!token) {
@@ -255,15 +413,15 @@ export default function App() {
       if (chat?.chat_id) {
         localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
       }
-      navigateToTab("chats");
+      navigateToTab("chats", { detailID: chat?.chat_id });
     } else if (item.action_type === "chat" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_chat", String(item.action_ref));
-      navigateToTab("chats");
+      navigateToTab("chats", { detailID: item.action_ref });
     } else if (item.action_type === "booking_map") {
       navigateToTab(role === "worker" ? "pro" : "find");
     } else if (item.action_type === "report" && item.action_ref) {
       localStorage.setItem("workers_marketplace_active_report", String(item.action_ref));
-      navigateToTab("reports");
+      navigateToTab("reports", { detailID: item.action_ref });
     } else if (item.action_type === "verify") {
       navigateToTab("verify");
     }
@@ -277,13 +435,14 @@ export default function App() {
 
   const saveSession = useCallback((nextToken, fallbackRole) => {
     const nextRole = readRole(nextToken) || fallbackRole || "";
-    const nextTab = tabFromCurrentRoute(nextRole) || defaultTabForRole(nextRole);
+    const nextRoute = currentRouteForRole(nextRole);
+    const nextTab = nextRoute.tab || defaultTabForRole(nextRole);
     localStorage.setItem(TOKEN_KEY, nextToken);
     localStorage.setItem(ROLE_KEY, nextRole);
     setToken(nextToken);
     setRole(nextRole);
     setActiveTab(nextTab);
-    writeTabRoute(nextRole, nextTab, { replace: true });
+    writeTabRoute(nextRole, nextTab, { replace: true, detailID: nextRoute.detailID });
     setPaymentReady(false);
   }, []);
 
@@ -359,6 +518,7 @@ export default function App() {
         setPaymentReady(true);
         clearAuthURL();
         window.dispatchEvent(new CustomEvent("wm-payment-method-linked"));
+        notifySuccess("Card linked", "Your payment card is ready.");
       })
       .catch((err) => setPaymentError(err.message));
   }, [token]);
@@ -431,9 +591,18 @@ export default function App() {
       return undefined;
     }
     const handleRouteChange = () => {
-      const routedTab = tabFromCurrentRoute(role);
-      if (routedTab) {
-        setActiveTab(routedTab);
+      const routed = currentRouteForRole(role);
+      setRouteVersion((current) => current + 1);
+      if (routed.tab) {
+        setActiveTab(routed.tab);
+      } else {
+        const fallbackTab = defaultTabForRole(role);
+        setActiveTab(fallbackTab);
+        writeTabRoute(role, fallbackTab, { replace: true });
+        return;
+      }
+      if (routed.shouldReplace) {
+        writeTabRoute(role, routed.tab || defaultTabForRole(role), { replace: true });
       }
     };
     window.addEventListener("popstate", handleRouteChange);
@@ -442,7 +611,12 @@ export default function App() {
   }, [role, token]);
 
   if (!token) {
-    return <AuthScreen onAuth={saveSession} />;
+    return (
+      <>
+        <AuthScreen onAuth={saveSession} />
+        <NotificationToasts items={toastNotifications} onDismiss={dismissToastNotification} onAction={openToastAction} />
+      </>
+    );
   }
 
   const startPaymentSetup = async () => {
@@ -462,6 +636,7 @@ export default function App() {
           <CustomerApp
             token={token}
             activeTab={activeTab}
+            routeDetail={routeDetail}
             onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
@@ -483,6 +658,7 @@ export default function App() {
           <WorkerApp
             token={token}
             activeTab={activeTab}
+            routeDetail={routeDetail}
             onNavigate={navigateToTab}
             onSignOut={signOut}
             paymentReady={paymentReady}
@@ -500,7 +676,7 @@ export default function App() {
   return (
     <>
       <AppFrame token={token} role={role} session={session} activeTab={activeTab} onTab={navigateToTab} onSignOut={signOut}>
-        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} onNavigate={navigateToTab} />}
+        {(role === "admin" || role === "manager") && <AdminApp token={token} role={role} activeTab={activeTab} routeDetail={routeDetail} onNavigate={navigateToTab} />}
         {!["customer", "worker", "admin", "manager"].includes(role) && (
           <EmptyState title="Role is missing" text="Sign out and sign in again, or select a role in the backend." />
         )}
@@ -548,6 +724,20 @@ function AuthScreen({ onAuth }) {
     try {
       await action();
     } catch (err) {
+      const errorText = String(err.message || "");
+      const normalizedError = errorText.toLowerCase();
+      if (normalizedError.includes("invalid credentials")) {
+        notifyError("Sign in failed", "Invalid email or password.");
+        return;
+      }
+      if (normalizedError.includes("account blocked by support")) {
+        notifyError("Account blocked", errorText);
+        return;
+      }
+      if (normalizedError.includes("account temporarily suspended by support")) {
+        notifyError("Account temporarily suspended", errorText);
+        return;
+      }
       setError(err.message);
     } finally {
       setBusy(false);
@@ -1128,26 +1318,52 @@ function clearAuthURL() {
   }
 }
 
-function tabFromCurrentRoute(role) {
+function currentRouteForRole(role) {
   const prefix = roleRoutePrefixes[role];
-  if (!prefix) return "";
+  if (!prefix) return { tab: "" };
   const segments = window.location.pathname
     .split("/")
     .filter(Boolean)
     .map((segment) => decodeURIComponent(segment).toLowerCase());
-  if (segments[0] !== prefix) return "";
-  if (!segments[1]) return defaultTabForRole(role);
-  return slugRouteTabs[role]?.[segments[1]] || "";
+  if (segments[0] === routeDetailSlugs.reports) {
+    return { tab: "reports", detailType: "report", detailID: segments[1] || "" };
+  }
+  if (segments[0] !== prefix) return { tab: "" };
+  if (!segments[1]) return { tab: defaultTabForRole(role) };
+  if (segments[1] === routeDetailSlugs.chat) {
+    return { tab: "chats", detailType: "chat", detailID: segments[2] || "" };
+  }
+  if (segments[1] === routeDetailSlugs.reports) {
+    return { tab: "reports", detailType: "report", detailID: segments[2] || "" };
+  }
+  if (role === "customer" && segments[1] === routeDetailSlugs.workers) {
+    return { tab: "worker-profile", detailType: "worker", detailID: segments[2] || "", shouldReplace: !segments[2] };
+  }
+  if ((role === "admin" || role === "manager") && segments[1] === routeDetailSlugs.users) {
+    return { tab: "users", detailType: "user", detailID: segments[2] || "" };
+  }
+  const tab = slugRouteTabs[role]?.[segments[1]] || "";
+  return tab ? { tab } : { tab: defaultTabForRole(role), shouldReplace: true };
 }
 
-function routePathForTab(role, tab) {
+function tabFromCurrentRoute(role) {
+  return currentRouteForRole(role).tab || "";
+}
+
+function routePathForTab(role, tab, options = {}) {
   const prefix = roleRoutePrefixes[role];
+  if (!prefix) return "";
+  const detailID = options.detailID ? encodeURIComponent(String(options.detailID)) : "";
+  if (detailID && tab === "chats") return `/${prefix}/chat/${detailID}`;
+  if (detailID && tab === "reports") return `/reports/${detailID}`;
+  if (detailID && role === "customer" && tab === "worker-profile") return `/${prefix}/workers/${detailID}`;
+  if (detailID && (role === "admin" || role === "manager") && tab === "users") return `/${prefix}/users/${detailID}`;
   const slug = tabRouteSlugs[role]?.[tab];
   return prefix && slug ? `/${prefix}/${slug}` : "";
 }
 
 function writeTabRoute(role, tab, options = {}) {
-  const nextPath = routePathForTab(role, tab);
+  const nextPath = routePathForTab(role, tab, options);
   if (!nextPath) return;
   if (window.location.pathname === nextPath && !window.location.search && !window.location.hash) {
     return;
@@ -1260,6 +1476,7 @@ function AppFrame({ token, role, session, activeTab, onTab, onSignOut, children 
 function CustomerApp({
   token,
   activeTab,
+  routeDetail,
   onNavigate,
   onSignOut,
   paymentReady,
@@ -1286,6 +1503,7 @@ function CustomerApp({
   const [error, setError] = useState("");
   const [routePoints, setRoutePoints] = useState(null);
   const customerRouteRequestRef = useRef(null);
+  const offersDrawer = useBottomDrawer(176);
 
   useEffect(() => {
     apiGet("/api/categories", token).then(setCategories).catch((err) => setError(err.message));
@@ -1420,11 +1638,11 @@ function CustomerApp({
 
   const searchWorkers = async () => {
     if (paymentLoading) {
-      setError("Checking payment method. Try again in a moment.");
+      notifyError("Payment check in progress", "Try again in a moment.");
       return;
     }
     if (!paymentReady) {
-      setError(paymentError || "Link a payment card before searching workers.");
+      notifyError("Payment card required", paymentError || "Link a payment card before searching workers.");
       localStorage.setItem(PAYMENT_SETUP_INTENT_KEY, JSON.stringify({
         action: "search",
         categoryID,
@@ -1436,7 +1654,7 @@ function CustomerApp({
       try {
         await onStartPaymentSetup?.();
       } catch (err) {
-        setError(err.message);
+        notifyError("Payment setup failed", err.message);
       }
       return;
     }
@@ -1497,9 +1715,9 @@ function CustomerApp({
         if (chat?.chat_id) {
           localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
         }
-        onNavigate("chats");
+        onNavigate("chats", { detailID: chat?.chat_id });
       }
-      setMessage(`Chat opened with ${worker.full_name}. Agree on the price before booking starts.`);
+      notifySuccess("Chat opened", `Chat opened with ${worker.full_name}. Agree on the price before booking starts.`);
       loadCustomerBookings();
     } catch (err) {
       setError(err.message);
@@ -1519,9 +1737,9 @@ function CustomerApp({
 
   if (activeTab === "requests") return <CustomerPhonePage activeTab="bookings" onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} showRequests /></CustomerPhonePage>;
   if (activeTab === "bookings") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canConfirm onNavigate={onNavigate} showRequests /></CustomerPhonePage>;
-  if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" /></CustomerPhonePage>;
-  if (activeTab === "reports") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="customer" /></CustomerPhonePage>;
-  if (activeTab === "worker-profile") return <CustomerPhonePage activeTab="find" onNavigate={onNavigate} onSignOut={onSignOut}><WorkerPublicProfilePage token={token} worker={profileWorker} onBack={() => onNavigate("find")} onHireWorker={hireWorker} /></CustomerPhonePage>;
+  if (activeTab === "chats") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="customer" initialChatID={routeDetail?.detailType === "chat" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></CustomerPhonePage>;
+  if (activeTab === "reports") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="customer" initialReportID={routeDetail?.detailType === "report" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></CustomerPhonePage>;
+  if (activeTab === "worker-profile") return <CustomerPhonePage activeTab="find" onNavigate={onNavigate} onSignOut={onSignOut}><WorkerPublicProfilePage token={token} worker={profileWorker} workerIDOverride={routeDetail?.detailType === "worker" ? routeDetail.detailID : ""} onBack={() => onNavigate("find")} onHireWorker={hireWorker} /></CustomerPhonePage>;
   if (activeTab === "profile") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><CustomerProfilePanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
   if (activeTab === "notifications") return <CustomerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><NotificationsPanel token={token} onNavigate={onNavigate} /></CustomerPhonePage>;
 
@@ -1551,7 +1769,8 @@ function CustomerApp({
         <button className="roundMapButton plusButton" onClick={() => mapRef.current?.zoomIn()}>+</button>
         <button className="roundMapButton minusButton" onClick={() => mapRef.current?.zoomOut()}>-</button>
         <button className="roundMapButton navButtonMap" onClick={useCurrentLocation}>GPS</button>
-        <div className="offersDrawer customerOffersDrawer">
+        <div className={offersDrawer.dragging ? "offersDrawer draggableDrawer customerOffersDrawer isDragging" : "offersDrawer draggableDrawer customerOffersDrawer"} style={offersDrawer.style}>
+          <DrawerHandle drag={offersDrawer} />
           <div className="dockHeader">
             <div>
               <h2>Find a worker</h2>
@@ -1591,7 +1810,7 @@ function CustomerApp({
             onHireWorker={hireWorker}
             onOpenProfile={(worker) => {
               setProfileWorker(worker);
-              onNavigate("worker-profile");
+              onNavigate("worker-profile", { detailID: worker.worker_id || worker.worker_profile_id });
             }}
             loading={loading}
           />
@@ -1614,8 +1833,8 @@ function CustomerPhonePage({ activeTab, onNavigate, onSignOut, children }) {
   );
 }
 
-function WorkerPublicProfilePage({ token, worker, onBack, onHireWorker }) {
-  const workerID = worker?.worker_id || worker?.worker_profile_id;
+function WorkerPublicProfilePage({ token, worker, workerIDOverride, onBack, onHireWorker }) {
+  const workerID = workerIDOverride || worker?.worker_id || worker?.worker_profile_id;
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState("");
 
@@ -1641,7 +1860,7 @@ function WorkerPublicProfilePage({ token, worker, onBack, onHireWorker }) {
     <section className="pagePanel workerPublicProfile">
       <div className="sectionTitleRow">
         <button className="secondaryButton fitButton" type="button" onClick={onBack}>Back</button>
-        <button type="button" className="fitButton" onClick={() => worker && onHireWorker(worker)}>Open chat</button>
+        <button type="button" className="fitButton" disabled={!worker} onClick={() => worker && onHireWorker(worker)}>Open chat</button>
       </div>
       <div className="publicProfileHero">
         <div className="profilePhoto compactPhoto">
@@ -1738,6 +1957,7 @@ function CustomerPhoneTabs({ activeTab, onNavigate, onSignOut }) {
 function WorkerApp({
   token,
   activeTab,
+  routeDetail,
   onNavigate,
   onSignOut,
   paymentReady,
@@ -1745,7 +1965,7 @@ function WorkerApp({
   paymentError,
   onStartPaymentSetup,
 }) {
-  const { position, geoStatus, geoError, startWatch } = useGeolocation();
+  const { position, geoStatus, geoError, locate, startWatch } = useGeolocation();
   const mapRef = useRef(null);
   const [available, setAvailable] = useState(false);
   const [searching, setSearching] = useState(false);
@@ -1756,6 +1976,12 @@ function WorkerApp({
   const [followRoute, setFollowRoute] = useState(false);
   const knownScheduledBookingsRef = useRef(null);
   const workerRouteRequestRef = useRef(null);
+  const routePointsRef = useRef(null);
+  const offersDrawer = useBottomDrawer(180);
+
+  useEffect(() => {
+    routePointsRef.current = routePoints;
+  }, [routePoints]);
 
   const loadBookings = useCallback(async () => {
     setError("");
@@ -1786,22 +2012,29 @@ function WorkerApp({
     return () => window.clearInterval(intervalID);
   }, [loadBookings]);
 
-  const syncLocation = useCallback(async () => {
-    if (!position) {
+  const syncLocation = useCallback(async (nextPosition = position) => {
+    if (!nextPosition) {
       setError("Location is not ready.");
       return;
     }
     setError("");
     try {
       await apiPatch("/api/geo/worker/location", token, {
-        latitude: position.latitude,
-        longitude: position.longitude,
+        latitude: nextPosition.latitude,
+        longitude: nextPosition.longitude,
       });
-      setMessage("Location updated.");
     } catch (err) {
       setError(err.message);
     }
   }, [position, token]);
+
+  const useCurrentLocation = async () => {
+    const nextPosition = await locate();
+    if (nextPosition) {
+      await syncLocation(nextPosition);
+      mapRef.current?.recenter();
+    }
+  };
 
   const currentInProgressBooking = activeInProgressBooking(bookings);
 
@@ -1824,7 +2057,7 @@ function WorkerApp({
       longitude: currentInProgressBooking.longitude,
     };
     const routeKey = `${currentInProgressBooking.booking_id || currentInProgressBooking.id || ""}:${destination.latitude}:${destination.longitude}`;
-    if (!shouldRefreshRoute(workerRouteRequestRef.current, routeKey, position)) {
+    if (!shouldRefreshNavigationRoute(workerRouteRequestRef.current, routeKey, position, routePointsRef.current)) {
       return () => {
         cancelled = true;
       };
@@ -1857,24 +2090,10 @@ function WorkerApp({
   useEffect(() => {
     if (!currentInProgressBooking) {
       setFollowRoute(false);
-    }
-  }, [currentInProgressBooking?.booking_id]);
-
-  useEffect(() => {
-    if (!position || !currentInProgressBooking?.latitude || !currentInProgressBooking?.longitude) {
       return;
     }
-    announceNavigationHint(position, {
-      latitude: currentInProgressBooking.latitude,
-      longitude: currentInProgressBooking.longitude,
-    });
-  }, [
-    position?.latitude,
-    position?.longitude,
-    currentInProgressBooking?.booking_id,
-    currentInProgressBooking?.latitude,
-    currentInProgressBooking?.longitude,
-  ]);
+    setFollowRoute(true);
+  }, [currentInProgressBooking?.booking_id]);
 
   useEffect(() => {
     if ((!available && !currentInProgressBooking) || !position) {
@@ -1896,11 +2115,11 @@ function WorkerApp({
       const next = !available;
       if (next) {
         if (paymentLoading) {
-          setError("Checking payment method. Try again in a moment.");
+          notifyError("Payment check in progress", "Try again in a moment.");
           return;
         }
         if (!paymentReady) {
-          setError(paymentError || "Link a payment card before going online.");
+          notifyError("Payment card required", paymentError || "Link a payment card before going online.");
           await onStartPaymentSetup?.();
           return;
         }
@@ -1917,8 +2136,7 @@ function WorkerApp({
         if (activeInProgressBooking(nextBookings)) {
           setAvailable(false);
           setSearching(false);
-          setMessage("Offline.");
-          setError("You already have a job in progress. Finish it before going online.");
+          notifyError("Cannot go online", "You already have a job in progress. Finish it before going online.");
           return;
         }
       }
@@ -1933,13 +2151,13 @@ function WorkerApp({
       }
       setAvailable(next);
       setSearching(next);
-      setMessage(next ? "Online. Searching jobs..." : "Offline.");
+      notifySuccess(next ? "Online" : "Offline", next ? "Searching jobs..." : "Job search paused.");
       if (next) {
         await syncLocation();
         await loadBookings();
       }
     } catch (err) {
-      setError(err.message);
+      notifyError("Cannot update availability", err.message);
     }
   };
 
@@ -1958,10 +2176,10 @@ function WorkerApp({
         await apiPatch("/api/worker/availability", token, { is_available: false }).catch(() => {});
         setAvailable(false);
         setSearching(false);
-        setMessage("Proof photo sent. Waiting for customer confirmation.");
+        notifySuccess("Proof sent", "Waiting for customer confirmation.");
       } else {
         await apiPatch(`/api/bookings/${bookingID}/${action}`, token, {});
-        setMessage(action === "reject" ? "Booking rejected." : `Booking ${action}ed.`);
+        notifySuccess("Booking updated", action === "reject" ? "Booking rejected." : `Booking ${action}ed.`);
         if (action === "start") {
           await apiPatch("/api/worker/availability", token, { is_available: false }).catch(() => {});
           setSearching(false);
@@ -1981,10 +2199,10 @@ function WorkerApp({
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><BookingsPanel token={token} canProgress onProgress={updateBooking} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
   if (activeTab === "chats") {
-    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="worker" /></WorkerPhonePage>;
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ChatPanel token={token} role="worker" initialChatID={routeDetail?.detailType === "chat" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
   if (activeTab === "reports") {
-    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="worker" /></WorkerPhonePage>;
+    return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><ReportsPanel token={token} role="worker" initialReportID={routeDetail?.detailType === "report" ? routeDetail.detailID : ""} onNavigate={onNavigate} /></WorkerPhonePage>;
   }
   if (activeTab === "skills") {
     return <WorkerPhonePage activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut}><WorkerSkillsPanel token={token} /></WorkerPhonePage>;
@@ -2002,7 +2220,7 @@ function WorkerApp({
 
   return (
     <div className="proPhoneShell">
-      <section className="proPhone" aria-label="Worker Pro map workspace">
+      <section className="proPhone workerMapPhone" aria-label="Worker Pro map workspace">
         <MapView
           ref={mapRef}
           position={position}
@@ -2015,6 +2233,11 @@ function WorkerApp({
           autoCenterOnPosition={!currentInProgressBooking}
           followPosition={followRoute && Boolean(currentInProgressBooking)}
           navigationMode={Boolean(currentInProgressBooking)}
+          onUserControl={() => {
+            if (currentInProgressBooking) {
+              setFollowRoute(false);
+            }
+          }}
         />
         <WorkerPhoneTabs activeTab={activeTab} onNavigate={onNavigate} onSignOut={onSignOut} />
         {currentInProgressBooking && (
@@ -2049,13 +2272,14 @@ function WorkerApp({
               mapRef.current?.follow?.();
               return;
             }
-            mapRef.current?.recenter();
+            useCurrentLocation();
           }}
         >
           GPS
         </button>
-        <div className="offersDrawer">
-          <div>
+        <div className={offersDrawer.dragging ? "offersDrawer draggableDrawer isDragging" : "offersDrawer draggableDrawer"} style={offersDrawer.style}>
+          <DrawerHandle drag={offersDrawer} />
+          <div className="offersDrawerHeader">
             <h2>Offers</h2>
             <button className="walletButton" onClick={() => onNavigate("jobs")}>Jobs</button>
           </div>
@@ -2156,7 +2380,7 @@ function phoneTabIconName(id) {
   return iconNames[id] || "page";
 }
 
-function AdminApp({ token, role, activeTab, onNavigate }) {
+function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
   const [overview, setOverview] = useState(null);
   const [users, setUsers] = useState([]);
   const [reports, setReports] = useState([]);
@@ -2164,6 +2388,10 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
   const [staffForm, setStaffForm] = useState({ full_name: "", email: "", phone: "", password: "", role: "manager" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [rejectIdentityTarget, setRejectIdentityTarget] = useState(null);
+  const [rejectSkillTarget, setRejectSkillTarget] = useState(null);
+  const [rejectUpgradeTarget, setRejectUpgradeTarget] = useState(null);
+  const [deleteUserTarget, setDeleteUserTarget] = useState(null);
 
   const loadOverview = useCallback(() => {
     apiGet("/api/admin/overview", token).then(setOverview).catch((err) => setError(err.message));
@@ -2187,28 +2415,52 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     }
   }, [activeTab, loadOverview, loadReports, loadUsers]);
 
+  const routeUserID = routeDetail?.detailType === "user" ? routeDetail.detailID : "";
+
   useEffect(() => {
+    if (activeTab === "users" && routeUserID) {
+      setStaffProfileUserID(String(routeUserID));
+      return;
+    }
     setStaffProfileUserID("");
-  }, [activeTab]);
+  }, [activeTab, routeUserID]);
 
   const openStaffProfile = (userID) => {
     if (!userID) return;
     setStaffProfileUserID(String(userID));
+    onNavigate?.("users", { detailID: userID });
   };
 
   if (staffProfileUserID) {
-    return <StaffUserProfilePanel token={token} userID={staffProfileUserID} onBack={() => setStaffProfileUserID("")} />;
+    return <StaffUserProfilePanel token={token} userID={staffProfileUserID} onBack={() => {
+      setStaffProfileUserID("");
+      onNavigate?.("users", { replace: true });
+    }} />;
   }
 
   if (activeTab === "notifications") return <NotificationsPanel token={token} onNavigate={onNavigate} />;
-  if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff onOpenProfile={openStaffProfile} />;
+  if (activeTab === "reports") return <ReportsPanel token={token} role={role} staff initialReportID={routeDetail?.detailType === "report" ? routeDetail.detailID : ""} onNavigate={onNavigate} onOpenProfile={openStaffProfile} />;
 
   const verifySkill = async (id) => {
     setError("");
     setMessage("");
     try {
       await apiPost("/api/admin/verify-skill", token, { worker_skill_id: Number(id) });
-      setMessage("Skill verified. Worker becomes verified after ID document is verified too.");
+      notifySuccess("Skill verified", "Worker becomes verified after ID document is verified too.");
+      loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const rejectSkill = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/reject-skill", token, { worker_skill_id: Number(id) });
+      notifySuccess("Skill rejected", "Worker service request was rejected.");
+      setRejectSkillTarget(null);
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2221,7 +2473,21 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     setMessage("");
     try {
       await apiPost("/api/admin/verify-skill-upgrade", token, { upgrade_request_id: Number(id) });
-      setMessage("Skill level upgraded.");
+      notifySuccess("Skill upgraded", "Worker skill level was upgraded.");
+      loadOverview();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const rejectSkillUpgrade = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPost("/api/admin/reject-skill-upgrade", token, { upgrade_request_id: Number(id) });
+      notifySuccess("Upgrade rejected", "Worker upgrade request was rejected.");
+      setRejectUpgradeTarget(null);
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2234,7 +2500,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     setMessage("");
     try {
       await apiPost("/api/admin/verify-identity-document", token, { identity_document_id: Number(id) });
-      setMessage("Identity document verified.");
+      notifySuccess("ID document verified", "Worker identity document was approved.");
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2247,7 +2513,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     setMessage("");
     try {
       await apiPost("/api/admin/assign-identity-document", token, { identity_document_id: Number(id) });
-      setMessage("Identity document assigned to you.");
+      notifySuccess("ID document assigned", "Identity document assigned to you.");
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2255,11 +2521,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     }
   };
 
-  const rejectIdentityDocument = async (id) => {
-    const reason = window.prompt("Why should this identity document be rejected?");
-    if (reason === null) {
-      return;
-    }
+  const rejectIdentityDocument = async (id, reason) => {
     setError("");
     setMessage("");
     try {
@@ -2267,7 +2529,8 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
         identity_document_id: Number(id),
         reason,
       });
-      setMessage("Identity document rejected. Worker was notified.");
+      notifySuccess("ID document rejected", "Worker was notified.");
+      setRejectIdentityTarget(null);
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
@@ -2280,7 +2543,8 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     setMessage("");
     try {
       await apiDelete(`/api/admin/users/${id}`, token);
-      setMessage("User deleted.");
+      notifySuccess("User deleted", "The user account was removed.");
+      setDeleteUserTarget(null);
       loadUsers();
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
@@ -2294,7 +2558,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     setMessage("");
     try {
       await apiPatch(`/api/admin/users/${id}/activate`, token, {});
-      setMessage("User activated.");
+      notifySuccess("User activated", "The user account is active again.");
       loadUsers();
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
@@ -2310,7 +2574,7 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
     try {
       const endpoint = staffForm.role === "admin" ? "/api/admin/admins" : "/api/admin/managers";
       await apiPost(endpoint, token, staffForm);
-      setMessage(`${staffForm.role === "admin" ? "Admin" : "Manager"} account created.`);
+      notifySuccess("Staff account created", `${staffForm.role === "admin" ? "Admin" : "Manager"} account created.`);
       setStaffForm({ full_name: "", email: "", phone: "", password: "", role: "manager" });
       loadUsers();
       loadOverview();
@@ -2337,12 +2601,14 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
           currentUserID={tokenUserID(token)}
           assignIdentityDocument={assignIdentityDocument}
           verifyIdentityDocument={verifyIdentityDocument}
-          rejectIdentityDocument={rejectIdentityDocument}
+          rejectIdentityDocument={(id) => setRejectIdentityTarget({ identity_document_id: id })}
           verifySkill={verifySkill}
+          rejectSkill={(skill) => setRejectSkillTarget(skill)}
           verifySkillUpgrade={verifySkillUpgrade}
+          rejectSkillUpgrade={(request) => setRejectUpgradeTarget(request)}
         />
       )}
-      {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={deleteUser} canDelete={isAdmin} onOpenProfile={openStaffProfile} />}
+      {activeTab === "users" && <AdminUsersPanel users={users} onActivate={activateUser} onDelete={setDeleteUserTarget} canDelete={isAdmin} onOpenProfile={openStaffProfile} />}
       {activeTab === "accounts" && isAdmin && (
         <AdminCreatePanel
           admins={admins}
@@ -2350,11 +2616,52 @@ function AdminApp({ token, role, activeTab, onNavigate }) {
           form={staffForm}
           setForm={setStaffForm}
           onSubmit={createStaff}
-          onDelete={deleteUser}
+          onDelete={setDeleteUserTarget}
         />
       )}
       {activeTab === "accounts" && !isAdmin && <EmptyState title="Admins only" text="Managers can review queues and help users, but cannot create staff accounts." />}
       <Messages message={message} error={error} />
+      {rejectIdentityTarget && (
+        <TextPromptDialog
+          title="Reject identity document"
+          text="Write a short reason. The worker will see it and can upload a corrected document."
+          placeholder="For example: document is unreadable, wrong file, expired document..."
+          confirmLabel="Reject document"
+          cancelLabel="Cancel"
+          onConfirm={(reason) => rejectIdentityDocument(rejectIdentityTarget.identity_document_id, reason)}
+          onCancel={() => setRejectIdentityTarget(null)}
+        />
+      )}
+      {rejectSkillTarget && (
+        <ConfirmDialog
+          title="Reject service?"
+          text={`Reject ${categoryTitle(rejectSkillTarget.category_name)} skill #${rejectSkillTarget.worker_skill_id}? The worker can submit it again with better evidence.`}
+          confirmLabel="Reject service"
+          cancelLabel="Cancel"
+          onConfirm={() => rejectSkill(rejectSkillTarget.worker_skill_id)}
+          onCancel={() => setRejectSkillTarget(null)}
+        />
+      )}
+      {rejectUpgradeTarget && (
+        <ConfirmDialog
+          title="Reject upgrade?"
+          text={`Reject upgrade request #${rejectUpgradeTarget.upgrade_request_id}? The worker can send a new upgrade request later.`}
+          confirmLabel="Reject upgrade"
+          cancelLabel="Cancel"
+          onConfirm={() => rejectSkillUpgrade(rejectUpgradeTarget.upgrade_request_id)}
+          onCancel={() => setRejectUpgradeTarget(null)}
+        />
+      )}
+      {deleteUserTarget && (
+        <ConfirmDialog
+          title="Delete user?"
+          text={`Delete ${deleteUserTarget.full_name || deleteUserTarget.email || "this user"}? This action removes the account and related profile data.`}
+          confirmLabel="Delete user"
+          cancelLabel="Cancel"
+          onConfirm={() => deleteUser(deleteUserTarget.user_id)}
+          onCancel={() => setDeleteUserTarget(null)}
+        />
+      )}
     </section>
   );
 }
@@ -2426,14 +2733,35 @@ function AdminOverviewPanel({ overview, users, reports, onNavigate, isAdmin }) {
 function StaffUserProfilePanel({ token, userID, onBack }) {
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [cancelTarget, setCancelTarget] = useState(null);
 
-  useEffect(() => {
+  const loadProfile = useCallback(() => {
     setError("");
     setProfile(null);
     apiGet(`/api/admin/users/${userID}/profile`, token)
       .then(setProfile)
       .catch((err) => setError(err.message));
   }, [token, userID]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  const cancelPenalty = async () => {
+    if (!cancelTarget?.penalty_id) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/admin/penalties/${cancelTarget.penalty_id}/cancel`, token, {});
+      notifySuccess("Penalty cancelled", "The penalty was cancelled.");
+      setCancelTarget(null);
+      loadProfile();
+      window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   const user = profile?.user || {};
   const customer = profile?.customer_profile;
@@ -2448,7 +2776,7 @@ function StaffUserProfilePanel({ token, userID, onBack }) {
     <section className="adminWorkspace staffProfilePage">
       <button className="secondaryButton staffBackButton" type="button" onClick={onBack}>Back</button>
       <SectionHeader title="User profile" text="Staff-only account view with warnings, penalties and verified worker data." />
-      <Messages error={error} />
+      <Messages message={message} error={error} />
       {!profile && !error && <EmptyState title="Loading profile" text="Fetching user details..." />}
       {profile && (
         <div className="staffProfileLayout">
@@ -2538,10 +2866,24 @@ function StaffUserProfilePanel({ token, userID, onBack }) {
                 </div>
                 <span className={`statusPill ${item.status || ""}`}>{item.status}</span>
                 <small>{item.report_id ? `Report #${item.report_id}` : "No report"}</small>
+                {item.status === "active" && (
+                  <button className="secondaryButton cancelPenaltyButton" type="button" onClick={() => setCancelTarget(item)}>
+                    Cancel
+                  </button>
+                )}
               </article>
             ))}
           </section>
         </div>
+      )}
+      {cancelTarget && (
+        <ConfirmDialog
+          title="Cancel penalty"
+          text={`Cancel ${String(cancelTarget.penalty_type || "penalty").replaceAll("_", " ")} for this user?`}
+          confirmLabel="Cancel penalty"
+          onConfirm={cancelPenalty}
+          onCancel={() => setCancelTarget(null)}
+        />
       )}
     </section>
   );
@@ -2652,7 +2994,7 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete, onOpenProfile
             <span className={`statusPill ${String(user.status || "").toLowerCase()}`}>{user.status}</span>
             <div className="adminUserActions">
               {user.status !== "active" && <button type="button" onClick={() => onActivate(user.user_id)}>Activate</button>}
-              {canDelete && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user.user_id)}>Delete</button>}
+              {canDelete && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user)}>Delete</button>}
             </div>
           </article>
         ))}
@@ -2701,7 +3043,7 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
                 </div>
               </div>
               <span className={`rolePill ${staff.role}`}>{staff.role}</span>
-              <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff.user_id)}>
+              <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff)}>
                 Delete
               </button>
             </article>
@@ -2709,6 +3051,17 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
         </div>
       </section>
     </div>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg className="refreshIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M20 6v5h-5" />
+      <path d="M4 18v-5h5" />
+      <path d="M6.2 9A7 7 0 0 1 18 6.8L20 11" />
+      <path d="M17.8 15A7 7 0 0 1 6 17.2L4 13" />
+    </svg>
   );
 }
 
@@ -2752,7 +3105,9 @@ function AdminVerificationPanel({
   verifyIdentityDocument,
   rejectIdentityDocument,
   verifySkill,
+  rejectSkill,
   verifySkillUpgrade,
+  rejectSkillUpgrade,
 }) {
   const pendingIdentities = overview?.pending_identities || [];
   const visibleIdentities = role === "manager"
@@ -2830,7 +3185,10 @@ function AdminVerificationPanel({
                 <span>Skill #{skill.worker_skill_id}</span>
               </div>
               <EvidenceLinks value={skill.evidence_files} />
-              <button type="button" onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill</button>
+              <div className="rowActions">
+                <button type="button" onClick={() => verifySkill(skill.worker_skill_id)}>Verify skill</button>
+                <button type="button" className="dangerButton subtleDangerButton" onClick={() => rejectSkill(skill)}>Reject</button>
+              </div>
             </article>
           ))}
           {showingUpgrades && pendingUpgrades.length === 0 && <AdminEmptyState title="No upgrade requests" text="Requests for junior to middle or senior will appear here." />}
@@ -2847,7 +3205,10 @@ function AdminVerificationPanel({
               </div>
               {request.admin_note && <small>{request.admin_note}</small>}
               <EvidenceLinks value={request.evidence_files} />
-              <button type="button" onClick={() => verifySkillUpgrade(request.upgrade_request_id)}>Approve upgrade</button>
+              <div className="rowActions">
+                <button type="button" onClick={() => verifySkillUpgrade(request.upgrade_request_id)}>Approve upgrade</button>
+                <button type="button" className="dangerButton subtleDangerButton" onClick={() => rejectSkillUpgrade(request)}>Reject</button>
+              </div>
             </article>
           ))}
         </div>
@@ -2913,7 +3274,19 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
         window.location.href = result.payment_url;
         return;
       }
-      setMessage("Booking completed. Payment was created.");
+      notifySuccess("Booking completed", "Payment was created.");
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const rejectCompletionEvidence = async (id) => {
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/bookings/${id}/evidence/reject`, token, {});
+      notifySuccess("Proof rejected", "The worker can send a new proof.");
       load();
     } catch (err) {
       setError(err.message);
@@ -2928,7 +3301,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
       if (chat?.chat_id) {
         localStorage.setItem("workers_marketplace_active_chat", String(chat.chat_id));
       }
-      setMessage("Chat opened.");
+      notifySuccess("Chat opened", "You can continue the booking discussion in chat.");
       onNavigate?.("chats");
     } catch (err) {
       setError(err.message);
@@ -2937,7 +3310,15 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
 
   return (
     <section className="pagePanel">
-      <SectionHeader title="Bookings" text="Current and past bookings." />
+      <SectionHeader
+        title="Bookings"
+        text="Current and past bookings."
+        action={(
+          <button className="refreshIconButton" type="button" onClick={load} aria-label="Refresh bookings" title="Refresh bookings">
+            <RefreshIcon />
+          </button>
+        )}
+      />
       <Messages message={message} error={error} />
       <div className="dataList">
         {items.length === 0 && <EmptyState title="No bookings" text="Bookings will appear here after customer selects a worker." />}
@@ -2949,7 +3330,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
             <small>{item.description || item.address || ""}</small>
             {item.completion_evidence && <EvidenceLinks value={item.completion_evidence} />}
             {canProgress && (
-              <div className="rowActions">
+              <div className="rowActions bookingRowActions">
                 <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
                 <button className="secondaryButton" onClick={() => {
                   localStorage.setItem("workers_marketplace_report_booking", String(item.booking_id || item.id));
@@ -2960,7 +3341,7 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
               </div>
             )}
             {canConfirm && (canChatBooking(item) || String(item.status).toLowerCase() === "awaiting_confirmation") && (
-              <div className="rowActions bookingActions">
+              <div className="rowActions bookingActions bookingRowActions">
                 {canChatBooking(item) && (
                   <>
                     <button className="secondaryButton" onClick={() => openChat(item.booking_id || item.id)}>Chat</button>
@@ -2971,7 +3352,10 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
                   </>
                 )}
                 {String(item.status).toLowerCase() === "awaiting_confirmation" && (
-                  <button className="primaryBookingAction" onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
+                  <>
+                    <button className="primaryBookingAction" onClick={() => confirmCompletion(item.booking_id || item.id)}>Confirm completion</button>
+                    <button className="secondaryButton" onClick={() => rejectCompletionEvidence(item.booking_id || item.id)}>Reject proof</button>
+                  </>
                 )}
               </div>
             )}
@@ -2992,7 +3376,9 @@ function BookingsPanel({ token, canProgress, canConfirm, onProgress, onNavigate,
               <button className="secondaryButton" type="button" onClick={() => setRequestHistoryOpen((value) => !value)}>
                 {requestHistoryOpen ? "Hide" : `Show ${requests.length ? `(${requests.length})` : ""}`} history
               </button>
-              <button className="secondaryButton" type="button" onClick={loadRequests}>Refresh</button>
+              <button className="refreshIconButton" type="button" onClick={loadRequests} aria-label="Refresh requests" title="Refresh requests">
+                <RefreshIcon />
+              </button>
             </div>
           </div>
           {requestHistoryOpen && (
@@ -3026,6 +3412,7 @@ function BookingReviewBlock({ item, token, onSaved }) {
   const [reviewPhoto, setReviewPhoto] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const ratingLabel = reviewRatingLabel(rating);
 
   const saveReview = async () => {
     setError("");
@@ -3038,7 +3425,7 @@ function BookingReviewBlock({ item, token, onSaved }) {
         body.append("review_photo", reviewPhoto);
       }
       await apiMultipart(`/api/bookings/${item.booking_id || item.id}/review`, token, body);
-      setMessage("Review saved.");
+      notifySuccess("Review saved", "Thanks for sharing your feedback.");
       setReviewPhoto(null);
       onSaved();
     } catch (err) {
@@ -3069,9 +3456,11 @@ function BookingReviewBlock({ item, token, onSaved }) {
 
   return (
     <div className="reviewForm">
-      <div className="sectionTitleRow">
-        <strong>Rate the worker</strong>
-        <span>{renderStars(rating)}</span>
+      <div className="reviewHeader">
+        <div>
+          <strong>Rate the worker</strong>
+          <span>{ratingLabel}</span>
+        </div>
       </div>
       <div className="starPicker" role="group" aria-label="Worker rating">
         {[1, 2, 3, 4, 5].map((value) => (
@@ -3082,27 +3471,31 @@ function BookingReviewBlock({ item, token, onSaved }) {
             onClick={() => setRating(value)}
             aria-label={`${value} stars`}
           >
-            ★
+            <svg className="ratingStarIcon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 2.5l2.86 5.8 6.4.93-4.63 4.52 1.09 6.38L12 17.12l-5.72 3.01 1.09-6.38-4.63-4.52 6.4-.93L12 2.5z" />
+            </svg>
           </button>
         ))}
       </div>
       <textarea value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Write what went well and what could be better..." />
-      <label className="fileButton fitButton">
-        Attach photo
-        <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setReviewPhoto(event.target.files?.[0] || null)} />
-      </label>
-      {reviewPhoto && <span className="muted">{reviewPhoto.name}</span>}
-      <button className="secondaryButton" type="button" onClick={saveReview}>
-        Send review
-      </button>
+      <div className="reviewFooter">
+        <label className="fileButton reviewAttachButton">
+          Attach photo
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setReviewPhoto(event.target.files?.[0] || null)} />
+        </label>
+        <span className="reviewPhotoName">{reviewPhoto ? reviewPhoto.name : "Optional photo evidence"}</span>
+        <button className="reviewSubmitButton" type="button" onClick={saveReview}>
+          Send review
+        </button>
+      </div>
       <Messages message={message} error={error} />
     </div>
   );
 }
 
-function ChatPanel({ token, role }) {
+function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
   const [chats, setChats] = useState([]);
-  const [activeChatID, setActiveChatID] = useState("");
+  const [activeChatID, setActiveChatID] = useState(() => initialChatID || localStorage.getItem("workers_marketplace_active_chat") || "");
   const [messages, setMessages] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [content, setContent] = useState("");
@@ -3112,6 +3505,7 @@ function ChatPanel({ token, role }) {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [selfAvatarURL, setSelfAvatarURL] = useState("");
+  const [priceConfirm, setPriceConfirm] = useState(null);
   const currentUserID = useMemo(() => tokenUserID(token), [token]);
   const activeChat = useMemo(
     () => chats.find((chat) => String(chat.chat_id) === String(activeChatID)),
@@ -3129,6 +3523,34 @@ function ChatPanel({ token, role }) {
   const activeChats = useMemo(() => chats.filter((chat) => !isArchivedBookingStatus(chat.status) && !isArchivedBookingStatus(chat.booking_status)), [chats]);
   const archivedChats = useMemo(() => chats.filter((chat) => isArchivedBookingStatus(chat.status) || isArchivedBookingStatus(chat.booking_status)), [chats]);
   const visibleChats = useMemo(() => (chatFolder === "archived" ? archivedChats : activeChats), [activeChats, archivedChats, chatFolder]);
+  const emptyChatTitle = chatFolder === "active" ? "No active chats" : "No completed chats";
+  const emptyChatText = chatFolder === "active" && archivedChats.length > 0
+    ? "You have completed chats in history. Switch to Completed to view them."
+    : chatFolder === "active"
+      ? "Open a chat from a booking card."
+      : "Completed booking chats will stay here as history.";
+  const lastReadSignatureRef = useRef("");
+
+  const markChatRead = useCallback((chatID, nextMessages = []) => {
+    if (!chatID) return;
+    const unreadPartnerIDs = nextMessages
+      .filter((msg) => Number(msg.sender_user_id) !== Number(currentUserID) && !msg.read_status)
+      .map((msg) => msg.message_id)
+      .filter(Boolean);
+    if (unreadPartnerIDs.length === 0) return;
+    const signature = `${chatID}:${unreadPartnerIDs.join(",")}`;
+    if (lastReadSignatureRef.current === signature) return;
+    lastReadSignatureRef.current = signature;
+    apiPatch(`/api/chats/${chatID}/read`, token, {})
+      .then(() => {
+        setChats((current) => current.map((chat) => (
+          String(chat.chat_id) === String(chatID) ? { ...chat, unread_count: 0 } : chat
+        )));
+      })
+      .catch(() => {
+        lastReadSignatureRef.current = "";
+      });
+  }, [currentUserID, token]);
 
   const loadChats = useCallback(() => {
     setError("");
@@ -3136,11 +3558,6 @@ function ChatPanel({ token, role }) {
       .then((data) => {
         const next = Array.isArray(data) ? data : data.chats || [];
         setChats(next);
-        const storedID = localStorage.getItem("workers_marketplace_active_chat");
-        const selectedID = storedID && next.some((chat) => String(chat.chat_id) === storedID)
-          ? storedID
-          : String(next[0]?.chat_id || "");
-        setActiveChatID((current) => current || selectedID);
       })
       .catch((err) => setError(err.message));
   }, [token]);
@@ -3157,16 +3574,45 @@ function ChatPanel({ token, role }) {
       return;
     }
     apiGet(`/api/chats/${chatID}/messages`, token)
-      .then((data) => setMessages(Array.isArray(data) ? data : data.messages || []))
-      .then(() => apiPatch(`/api/chats/${chatID}/read`, token, {}))
-      .then(() => loadChats())
+      .then((data) => {
+        const nextMessages = Array.isArray(data) ? data : data.messages || [];
+        setMessages(nextMessages);
+        markChatRead(chatID, nextMessages);
+      })
       .catch((err) => setError(err.message));
-  }, [loadChats, token]);
+  }, [markChatRead, token]);
+
+  const selectChat = useCallback((chatID, options = {}) => {
+    const nextID = String(chatID || "");
+    setActiveChatID(nextID);
+    if (nextID) {
+      localStorage.setItem("workers_marketplace_active_chat", nextID);
+      onNavigate?.("chats", { detailID: nextID, replace: options.replace });
+    }
+  }, [onNavigate]);
+
+  const switchChatFolder = useCallback((folder) => {
+    setChatFolder(folder);
+    const nextChats = folder === "archived" ? archivedChats : activeChats;
+    if (nextChats.length === 0) {
+      setActiveChatID("");
+      return;
+    }
+    if (!nextChats.some((chat) => String(chat.chat_id) === String(activeChatID))) {
+      selectChat(nextChats[0].chat_id);
+    }
+  }, [activeChatID, activeChats, archivedChats, selectChat]);
 
   useEffect(() => {
     loadChats();
     loadBookings();
   }, [loadBookings, loadChats]);
+
+  useEffect(() => {
+    if (initialChatID) {
+      selectChat(initialChatID, { replace: true });
+    }
+  }, [initialChatID, selectChat]);
 
   useEffect(() => {
     const endpoint = role === "worker" ? "/api/worker/profile" : role === "customer" ? "/api/customer/profile" : "";
@@ -3180,14 +3626,24 @@ function ChatPanel({ token, role }) {
   }, [role, token]);
 
   useEffect(() => {
+    const currentChat = chats.find((chat) => String(chat.chat_id) === String(activeChatID));
+    if (currentChat) {
+      const nextFolder = isArchivedBookingStatus(currentChat.status) || isArchivedBookingStatus(currentChat.booking_status) ? "archived" : "active";
+      setChatFolder((current) => (current === nextFolder ? current : nextFolder));
+      return;
+    }
     if (visibleChats.length === 0) {
-      setActiveChatID("");
+      setActiveChatID((current) => (current ? "" : current));
       return;
     }
     if (!visibleChats.some((chat) => String(chat.chat_id) === String(activeChatID))) {
-      setActiveChatID(String(visibleChats[0].chat_id));
+      const storedID = localStorage.getItem("workers_marketplace_active_chat");
+      const selectedID = storedID && visibleChats.some((chat) => String(chat.chat_id) === storedID)
+        ? storedID
+        : String(visibleChats[0].chat_id);
+      selectChat(selectedID, { replace: true });
     }
-  }, [activeChatID, visibleChats]);
+  }, [activeChatID, chats, selectChat, visibleChats]);
 
   useEffect(() => {
     loadMessages(activeChatID);
@@ -3204,6 +3660,9 @@ function ChatPanel({ token, role }) {
         const payload = JSON.parse(event.data);
         if (payload.type === "message.created" && payload.message) {
           setMessages((current) => [...current.filter((msg) => msg.message_id !== payload.message.message_id), payload.message]);
+          if (Number(payload.message.sender_user_id) !== Number(currentUserID)) {
+            markChatRead(activeChatID, [payload.message]);
+          }
           loadBookings();
           loadChats();
         }
@@ -3215,17 +3674,23 @@ function ChatPanel({ token, role }) {
       // REST polling below keeps chat usable when WebSocket is unavailable on deploy.
     };
     return () => socket.close();
-  }, [activeChatID, loadBookings, loadChats, token]);
+  }, [activeChatID, currentUserID, loadBookings, loadChats, markChatRead, token]);
 
   useEffect(() => {
     if (!activeChatID) return undefined;
     const intervalID = window.setInterval(() => {
       loadMessages(activeChatID);
+    }, 5000);
+    return () => window.clearInterval(intervalID);
+  }, [activeChatID, loadMessages]);
+
+  useEffect(() => {
+    const intervalID = window.setInterval(() => {
       loadChats();
       loadBookings();
-    }, 4000);
+    }, 12000);
     return () => window.clearInterval(intervalID);
-  }, [activeChatID, loadBookings, loadChats, loadMessages]);
+  }, [loadBookings, loadChats]);
 
   useEffect(() => {
     const messageList = messageListRef.current;
@@ -3269,7 +3734,6 @@ function ChatPanel({ token, role }) {
       setMessages((current) => [...current.filter((msg) => msg.message_id !== sent.message_id), sent]);
       setContent("");
       setAttachment(null);
-      setMessage("Message sent.");
       loadChats();
     } catch (err) {
       setError(err.message);
@@ -3292,7 +3756,7 @@ function ChatPanel({ token, role }) {
       await postChatText(priceText);
       loadBookings();
       setPriceDraft("");
-      setMessage("Price sent. Waiting for customer confirmation.");
+      notifySuccess("Price sent", "Waiting for customer confirmation.");
     } catch (err) {
       setError(err.message);
     }
@@ -3300,10 +3764,7 @@ function ChatPanel({ token, role }) {
 
   const acceptPrice = async () => {
     if (!activeChat?.booking_id) return;
-    const priceText = activeBookingPrice > 0 ? `${formatMoney(activeBookingPrice)} KZT` : "this price";
-    if (!window.confirm(`Are you sure you want to accept ${priceText}?`)) {
-      return;
-    }
+    const priceText = priceConfirm?.priceText || (activeBookingPrice > 0 ? `${formatMoney(activeBookingPrice)} KZT` : "this price");
     setError("");
     setMessage("");
     try {
@@ -3311,7 +3772,8 @@ function ChatPanel({ token, role }) {
       await postChatText(`Price accepted: ${priceText}`);
       loadBookings();
       loadChats();
-      setMessage("Price accepted. Worker selected and booking is active.");
+      notifySuccess("Price accepted", "Worker selected and booking is active.");
+      setPriceConfirm(null);
     } catch (err) {
       setError(err.message);
     }
@@ -3326,7 +3788,7 @@ function ChatPanel({ token, role }) {
       await postChatText("Price rejected.");
       loadBookings();
       loadChats();
-      setMessage("Price rejected. The worker can send a new price in this chat.");
+      notifySuccess("Price rejected", "The worker can send a new price in this chat.");
     } catch (err) {
       setError(err.message);
     }
@@ -3336,23 +3798,24 @@ function ChatPanel({ token, role }) {
   const canCustomerDecidePrice = !activeChatArchived && role === "customer" && activeBookingStatus === "price_pending";
 
   return (
+    <>
     <section className="pagePanel chatPage">
       <SectionHeader title="Chat" text="Talk about details, timing, price and files." />
       <Messages message={message} error={error} />
-      <div className="chatLayout">
+      <div className={visibleChats.length === 0 ? "chatLayout emptyChatLayout" : "chatLayout"}>
         <aside className="chatList">
           <div className="chatFolderTabs" role="tablist" aria-label="Chat folders">
-            <button type="button" className={chatFolder === "active" ? "active" : ""} onClick={() => setChatFolder("active")}>
+            <button type="button" className={chatFolder === "active" ? "active" : ""} onClick={() => switchChatFolder("active")}>
               Active <span>{activeChats.length}</span>
             </button>
-            <button type="button" className={chatFolder === "archived" ? "active" : ""} onClick={() => setChatFolder("archived")}>
+            <button type="button" className={chatFolder === "archived" ? "active" : ""} onClick={() => switchChatFolder("archived")}>
               Completed <span>{archivedChats.length}</span>
             </button>
           </div>
           {visibleChats.length === 0 && (
             <EmptyState
-              title={chatFolder === "active" ? "No active chats" : "No completed chats"}
-              text={chatFolder === "active" ? "Open a chat from a booking card." : "Completed booking chats will stay here as history."}
+              title={emptyChatTitle}
+              text={emptyChatText}
             />
           )}
           {visibleChats.map((chat) => (
@@ -3360,14 +3823,14 @@ function ChatPanel({ token, role }) {
               key={chat.chat_id}
               className={String(activeChatID) === String(chat.chat_id) ? "active" : ""}
               type="button"
-              onClick={() => setActiveChatID(String(chat.chat_id))}
+              onClick={() => selectChat(chat.chat_id)}
             >
               <strong>Booking #{chat.booking_id}</strong>
               <span>{chat.unread_count ? `${chat.unread_count} unread` : chat.booking_status || chat.status}</span>
             </button>
           ))}
         </aside>
-        <div className="chatConversation">
+        <div className={activeChatID ? "chatConversation" : "chatConversation noActiveChat"}>
           {activeChatArchived && (
             <div className="chatArchiveNotice">
               This booking is completed. The chat is kept as history and is read-only.
@@ -3389,14 +3852,26 @@ function ChatPanel({ token, role }) {
               </div>
               {activeBookingPrice > 0 && (
                 <div className="rowActions">
-                  <button type="button" onClick={acceptPrice}>Accept price</button>
+                  <button
+                    type="button"
+                    onClick={() => setPriceConfirm({
+                      priceText: `${formatMoney(activeBookingPrice)} KZT`,
+                    })}
+                  >
+                    Accept price
+                  </button>
                   <button className="secondaryButton" type="button" onClick={rejectPrice}>Reject</button>
                 </div>
               )}
             </div>
           )}
           <div className="chatMessageList" ref={messageListRef}>
-            {!activeChatID && <EmptyState title="Choose chat" text="Select a booking chat on the left." />}
+            {!activeChatID && (
+              <EmptyState
+                title={visibleChats.length === 0 ? emptyChatTitle : "Choose chat"}
+                text={visibleChats.length === 0 ? emptyChatText : "Select a booking chat on the left."}
+              />
+            )}
             {messages.map((msg) => (
               <ChatBubble
                 key={msg.message_id}
@@ -3407,22 +3882,35 @@ function ChatPanel({ token, role }) {
               />
             ))}
           </div>
-          <form className={activeChatArchived ? "chatComposer archived" : "chatComposer"} onSubmit={send}>
-            <textarea value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={submitTextareaOnEnter} placeholder={activeChatArchived ? "This chat is archived" : "Write a message..."} disabled={activeChatArchived} />
-            <label className="fileButton chatFileButton" aria-label="Attach file" title="Attach file">
-              <span aria-hidden="true">+</span>
-              <span className="visuallyHidden">Attach file</span>
-              <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" disabled={activeChatArchived} onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
-            </label>
-            <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={activeChatArchived || !activeChatID || (!content.trim() && !attachment)}>
-              <span aria-hidden="true" />
-              <span className="visuallyHidden">Send</span>
-            </button>
-            {attachment && <span className="muted">{attachment.name}</span>}
-          </form>
+          {activeChatID && (
+            <form className={activeChatArchived ? "chatComposer archived" : "chatComposer"} onSubmit={send}>
+              <textarea value={content} onChange={(event) => setContent(event.target.value)} onKeyDown={submitTextareaOnEnter} placeholder={activeChatArchived ? "This chat is archived" : "Write a message..."} disabled={activeChatArchived} />
+              <label className="fileButton chatFileButton" aria-label="Attach file" title="Attach file">
+                <span aria-hidden="true">+</span>
+                <span className="visuallyHidden">Attach file</span>
+                <input type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,.doc,.docx,.txt" disabled={activeChatArchived} onChange={(event) => setAttachment(event.target.files?.[0] || null)} />
+              </label>
+              <button className="chatSendButton" aria-label="Send message" title="Send message" disabled={activeChatArchived || !activeChatID || (!content.trim() && !attachment)}>
+                <span aria-hidden="true" />
+                <span className="visuallyHidden">Send</span>
+              </button>
+              {attachment && <span className="muted">{attachment.name}</span>}
+            </form>
+          )}
         </div>
       </div>
     </section>
+    {priceConfirm && (
+      <ConfirmDialog
+        title="Accept price?"
+        text={`You are about to accept ${priceConfirm.priceText}. The worker will be selected and the booking will become active.`}
+        confirmLabel="Accept"
+        cancelLabel="Cancel"
+        onConfirm={acceptPrice}
+        onCancel={() => setPriceConfirm(null)}
+      />
+    )}
+    </>
   );
 }
 
@@ -3483,10 +3971,10 @@ function AttachmentPreview({ msg }) {
   );
 }
 
-function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
+function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavigate, onOpenProfile }) {
   const [reports, setReports] = useState([]);
   const [reportBookings, setReportBookings] = useState([]);
-  const [activeID, setActiveID] = useState(() => localStorage.getItem("workers_marketplace_active_report") || "");
+  const [activeID, setActiveID] = useState(() => initialReportID || localStorage.getItem("workers_marketplace_active_report") || "");
   const [activeSide, setActiveSide] = useState(() => localStorage.getItem("workers_marketplace_active_report_side") || "reporter");
   const [reportPerspective, setReportPerspective] = useState("created");
   const [showCreateForm, setShowCreateForm] = useState(() => Boolean(localStorage.getItem("workers_marketplace_report_booking")));
@@ -3501,6 +3989,7 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
   const [messageText, setMessageText] = useState("");
   const [attachment, setAttachment] = useState(null);
   const [penalty, setPenalty] = useState({ penalty_type: "warning", days: "7", reason: "" });
+  const [cancelBookingTarget, setCancelBookingTarget] = useState(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -3544,6 +4033,27 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
       .catch((err) => setError(err.message));
   }, [token]);
 
+  const selectReport = useCallback((reportID, side, options = {}) => {
+    const nextID = String(reportID || "");
+    setActiveID(nextID);
+    if (side) {
+      setActiveSide(side);
+    }
+    if (nextID) {
+      localStorage.setItem("workers_marketplace_active_report", nextID);
+      if (side) {
+        localStorage.setItem("workers_marketplace_active_report_side", side);
+      }
+      onNavigate?.("reports", { detailID: nextID, replace: options.replace });
+    }
+  }, [onNavigate]);
+
+  useEffect(() => {
+    if (initialReportID) {
+      selectReport(initialReportID, undefined, { replace: true });
+    }
+  }, [initialReportID, selectReport]);
+
   useEffect(() => {
     loadReports();
     const intervalID = window.setInterval(loadReports, 5000);
@@ -3578,6 +4088,15 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
   const reporterLabel = (report) => report?.reporter_email || report?.reporter_name || "Reporter";
   const reportedLabel = (report) => report?.reported_email || report?.reported_name || "Reported";
   const activeReportClosed = activeReport ? !isOpenReportStatus(activeReport.status) : false;
+  const penaltyUsesDays = penalty.penalty_type === "temporary_suspend" || penalty.penalty_type === "block_user";
+
+  useEffect(() => {
+    if (staff || !initialReportID || reports.length === 0) return;
+    const routedReport = reports.find((report) => String(report.report_id) === String(initialReportID));
+    if (!routedReport) return;
+    const nextPerspective = Number(routedReport.reported_user_id) === Number(currentUserID) ? "against" : "created";
+    setReportPerspective((current) => (current === nextPerspective ? current : nextPerspective));
+  }, [currentUserID, initialReportID, reports, staff]);
 
   useEffect(() => {
     if (staff || !activeReport) return;
@@ -3591,10 +4110,13 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
       if (!staff) setActiveID("");
       return;
     }
-    if (!visibleReports.some((report) => String(report.report_id) === String(activeID))) {
-      setActiveID(String(visibleReports[0].report_id));
+    if (activeID && reports.some((report) => String(report.report_id) === String(activeID))) {
+      return;
     }
-  }, [activeID, staff, visibleReports]);
+    if (!visibleReports.some((report) => String(report.report_id) === String(activeID))) {
+      selectReport(visibleReports[0].report_id, undefined, { replace: true });
+    }
+  }, [activeID, reports, selectReport, staff, visibleReports]);
 
   const createReport = async (event) => {
     event.preventDefault();
@@ -3612,7 +4134,7 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
       setFiles([]);
       setShowCreateForm(false);
       setSupportChatOpen(true);
-      setMessage("Report created. You can continue in support chat.");
+      notifySuccess("Report created", "You can continue in support chat.");
       setActiveID(String(created.report_id || ""));
       loadReports();
       loadReportBookings();
@@ -3658,11 +4180,15 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
         target_user_id: activeReport.reported_user_id,
         penalty_type: penalty.penalty_type,
         reason: penalty.reason || activeReport.reason,
-        days: Number(penalty.days || 0),
+        days: penaltyUsesDays ? Number(penalty.days || 0) : 0,
       });
-      setMessage("Penalty applied and report resolved.");
+      notifySuccess("Penalty applied", "Report was resolved.");
       loadReports();
     } catch (err) {
+      if (String(err.message || "").toLowerCase().includes("days must be positive for this penalty")) {
+        notifyError("Penalty duration required", "Enter a positive number of days for this penalty.");
+        return;
+      }
       setError(err.message);
     }
   };
@@ -3676,7 +4202,7 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
         status,
         resolution: penalty.reason || "Closed by support",
       });
-      setMessage("Report closed.");
+      notifySuccess("Report closed", "Support case was closed.");
       loadReports();
     } catch (err) {
       setError(err.message);
@@ -3692,11 +4218,33 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
       setReports((current) => current.map((item) => (
         Number(item.report_id) === Number(assigned.report_id) ? assigned : item
       )));
-      setMessage("Report assigned to you.");
+      notifySuccess("Report assigned", "Support case assigned to you.");
       loadReports();
       window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const cancelReportBooking = async () => {
+    if (!cancelBookingTarget?.booking_id) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/bookings/${cancelBookingTarget.booking_id}/admin/cancel`, token, {
+        report_id: cancelBookingTarget.report_id,
+        reason: penalty.reason || cancelBookingTarget.reason || "Cancelled from support report",
+      });
+      notifySuccess("Booking cancelled", `Booking #${cancelBookingTarget.booking_id} cancelled.`);
+      setCancelBookingTarget(null);
+      loadReports();
+      window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
+    } catch (err) {
+      if (String(err.message || "").toLowerCase().includes("invalid transition")) {
+        notifyError("Booking cannot be cancelled", "Completed or already cancelled bookings cannot be cancelled.");
+        return;
+      }
+      notifyError("Booking cancel failed", err.message);
     }
   };
 
@@ -3798,8 +4346,7 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
             {visibleReports.length === 0 && <EmptyState title="No reports" text="Reports will appear here." />}
             {visibleReports.map((report) => (
               <button key={report.report_id} className={String(activeID) === String(report.report_id) ? "active" : ""} onClick={() => {
-                setActiveID(String(report.report_id));
-                setActiveSide(staff ? activeSide : Number(report.reported_user_id) === Number(currentUserID) ? "reported" : "reporter");
+                selectReport(report.report_id, staff ? activeSide : Number(report.reported_user_id) === Number(currentUserID) ? "reported" : "reporter");
               }}>
                 <div className="reportCardTop">
                   <strong>Report #{report.report_id}</strong>
@@ -3898,14 +4445,27 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
                       <select value={penalty.penalty_type} onChange={(event) => setPenalty({ ...penalty, penalty_type: event.target.value })}>
                         <option value="warning">Warning</option>
                         <option value="temporary_suspend">Temporary suspend</option>
-                        <option value="unverify_skills">Unverify worker skills</option>
+                        <option value="unverify_skills">Unverify booking skill</option>
                         {role === "admin" && <option value="block_user">Block user</option>}
                       </select>
                     </Field>
-                    <Field label="Days for suspend" light><input value={penalty.days} onChange={(event) => setPenalty({ ...penalty, days: event.target.value })} /></Field>
+                    {penaltyUsesDays && (
+                      <Field label={penalty.penalty_type === "block_user" ? "Block days" : "Days for suspend"} light>
+                        <input value={penalty.days} onChange={(event) => setPenalty({ ...penalty, days: event.target.value })} />
+                      </Field>
+                    )}
                   </div>
                   <Field label="Resolution note" light><textarea value={penalty.reason} onChange={(event) => setPenalty({ ...penalty, reason: event.target.value })} placeholder="What decision was made?" /></Field>
                   <div className="rowActions">
+                    {activeReport.booking_id && (
+                      <button
+                        type="button"
+                        className="secondaryButton"
+                        onClick={() => setCancelBookingTarget(activeReport)}
+                      >
+                        Cancel booking
+                      </button>
+                    )}
                     <button type="button" onClick={applyPenalty}>Apply penalty</button>
                     <button type="button" className="secondaryButton" onClick={() => closeReport("rejected")}>Reject report</button>
                     <button type="button" className="secondaryButton" onClick={() => closeReport("resolved")}>Close without penalty</button>
@@ -3961,6 +4521,16 @@ function ReportsPanel({ token, role, staff = false, onOpenProfile }) {
             </form>
           )}
         </div>
+      )}
+      {cancelBookingTarget && (
+        <ConfirmDialog
+          title="Cancel booking?"
+          text={`Booking #${cancelBookingTarget.booking_id} will be cancelled for both customer and worker. The report will stay open for the support decision.`}
+          confirmLabel="Cancel booking"
+          cancelLabel="Keep booking"
+          onConfirm={cancelReportBooking}
+          onCancel={() => setCancelBookingTarget(null)}
+        />
       )}
     </section>
   );
@@ -4180,14 +4750,43 @@ function useNotificationFeed(token) {
   const seenRef = useRef(new Set());
   const timersRef = useRef(new Map());
 
-  const dismissToastNotification = useCallback((id) => {
+  const dismissToastNotification = useCallback((id, options = {}) => {
     const timer = timersRef.current.get(id);
     if (timer) {
       window.clearTimeout(timer);
       timersRef.current.delete(id);
     }
+    if (options.markRead && token && id && !String(id).startsWith("local-")) {
+      apiPatch(`/api/notifications/${id}/read`, token, {}).catch(() => {});
+      window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
+    }
     setToastNotifications((current) => current.filter((item) => notificationID(item) !== id));
-  }, []);
+  }, [token]);
+
+  const showToastNotification = useCallback((item) => {
+    const id = notificationID(item);
+    if (!id) return;
+    const nextItem = {
+      ...item,
+      id,
+      created_at: item.created_at || new Date().toISOString(),
+    };
+    setToastNotifications((current) => [nextItem, ...current.filter((currentItem) => notificationID(currentItem) !== id)].slice(0, 5));
+    const currentTimer = timersRef.current.get(id);
+    if (currentTimer) {
+      window.clearTimeout(currentTimer);
+    }
+    const timer = window.setTimeout(() => dismissToastNotification(id), Number(item.timeoutMs || TOAST_TIMEOUT_MS));
+    timersRef.current.set(id, timer);
+  }, [dismissToastNotification]);
+
+  useEffect(() => {
+    const handleLocalToast = (event) => {
+      showToastNotification(event.detail || {});
+    };
+    window.addEventListener("wm-local-toast", handleLocalToast);
+    return () => window.removeEventListener("wm-local-toast", handleLocalToast);
+  }, [showToastNotification]);
 
   useEffect(() => {
     if (!token) {
@@ -4216,7 +4815,7 @@ function useNotificationFeed(token) {
             if (!id || timersRef.current.has(id)) {
               return;
             }
-            const timer = window.setTimeout(() => dismissToastNotification(id), 15000);
+            const timer = window.setTimeout(() => dismissToastNotification(id), TOAST_TIMEOUT_MS);
             timersRef.current.set(id, timer);
           });
           window.dispatchEvent(new CustomEvent("wm-notifications-updated"));
@@ -4247,9 +4846,10 @@ function NotificationToasts({ items, onDismiss, onAction }) {
     <div className="notificationToastStack" aria-live="polite">
       {items.map((item) => {
         const id = notificationID(item);
+        const variant = item.variant === "error" ? " error" : item.variant === "success" ? " success" : "";
         return (
-          <article className="notificationToast" key={id}>
-            <button type="button" aria-label="Dismiss notification" onClick={() => onDismiss(id)}>x</button>
+          <article className={`notificationToast${variant}`} key={id}>
+            <button type="button" aria-label="Dismiss notification" onClick={() => onDismiss(id, { markRead: true })}>x</button>
             <strong>{item.title || item.type || "Notification"}</strong>
             <span>{item.message || item.body || ""}</span>
             {item.action_type && (
@@ -4273,7 +4873,8 @@ function CustomerProfilePanel({ token, onNavigate }) {
   const [profile, setProfile] = useState(null);
   const [form, setForm] = useState({ address: "", bio: "", latitude: "", longitude: "" });
   const [avatarDraft, setAvatarDraft] = useState(null);
-  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -4301,7 +4902,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
   const cancelAvatarUpload = () => {
     revokeAvatarDraft(avatarDraft);
     setAvatarDraft(null);
-    setAvatarEditorOpen(false);
+    setAvatarUploading(false);
   };
 
   const assignReport = async () => {
@@ -4310,7 +4911,7 @@ function CustomerProfilePanel({ token, onNavigate }) {
     setMessage("");
     try {
       await apiPatch(`/api/admin/reports/${activeReport.report_id}/assign`, token, {});
-      setMessage("Case assigned to you.");
+      notifySuccess("Case assigned", "Support case assigned to you.");
       loadReports();
     } catch (err) {
       setError(err.message);
@@ -4341,18 +4942,40 @@ function CustomerProfilePanel({ token, onNavigate }) {
       body.append("bio", form.bio);
       if (form.latitude) body.append("latitude", form.latitude);
       if (form.longitude) body.append("longitude", form.longitude);
-      if (avatarDraft) {
-        const croppedPhoto = await cropAvatarDraft(avatarDraft);
-        if (croppedPhoto) body.append("profile_photo", croppedPhoto);
-      }
       const updated = await apiMultipart("/api/customer/profile", token, body);
       setProfile((current) => ({ ...(current || {}), ...updated }));
-      revokeAvatarDraft(avatarDraft);
-      setAvatarDraft(null);
-      setAvatarEditorOpen(false);
-      setMessage("Profile saved.");
+      setEditingProfile(false);
+      notifySuccess("Profile saved", "Your customer profile was updated.");
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const uploadProfilePhoto = async (file) => {
+    if (!file) return;
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("profile_photo", file);
+      const updated = await apiMultipart("/api/customer/profile/photo", token, body);
+      setProfile((current) => ({ ...(current || {}), ...updated }));
+      notifySuccess("Photo updated", "Your profile photo was uploaded.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const uploadAvatarDraft = async () => {
+    if (!avatarDraft) return;
+    setAvatarUploading(true);
+    try {
+      const croppedPhoto = await cropAvatarDraft(avatarDraft);
+      await uploadProfilePhoto(croppedPhoto || avatarDraft.file);
+      revokeAvatarDraft(avatarDraft);
+      setAvatarDraft(null);
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -4391,47 +5014,57 @@ function CustomerProfilePanel({ token, onNavigate }) {
                 if (!nextFile) return;
                 revokeAvatarDraft(avatarDraft);
                 setAvatarDraft(makeAvatarDraft(nextFile));
-                setAvatarEditorOpen(true);
+                e.target.value = "";
               }}
             />
           </label>
-          {avatarDraft && (
-            <div className="avatarDraftActions">
-              <span className="muted">{avatarDraft.file.name}</span>
-              <button className="secondaryButton" type="button" onClick={() => setAvatarEditorOpen(true)}>Edit crop</button>
-            </div>
-          )}
         </section>
+        {editingProfile ? (
         <form className="profileEditorCard customerProfileForm" onSubmit={submit}>
           <div className="profileFormHeader">
             <div>
               <h3>Booking preferences</h3>
               <p>Notes here help workers arrive prepared and avoid extra messages.</p>
             </div>
-            <button type="button" className="secondaryButton profileLocationButton" onClick={useCurrentLocation}>Use current location</button>
+            <button className="profileSaveButton">Save profile</button>
           </div>
           <Field label="About me" light>
-            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
+            <textarea maxLength={PROFILE_BIO_MAX_LENGTH} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Add notes for workers: entrance, preferred contact, timing..." />
+            <span className="fieldCounter">{form.bio.length}/{PROFILE_BIO_MAX_LENGTH}</span>
           </Field>
-          {avatarEditorOpen && (
-            <AvatarCropper
-              draft={avatarDraft}
-              onChange={setAvatarDraft}
-              onClose={() => setAvatarEditorOpen(false)}
-              onCancel={cancelAvatarUpload}
-            />
-          )}
           <div className="profileAddressRow">
             <Field label="Saved address" light>
-              <input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
+              <input maxLength={PROFILE_ADDRESS_MAX_LENGTH} value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} placeholder="Street, building, entrance" />
+              <span className="fieldCounter">{form.address.length}/{PROFILE_ADDRESS_MAX_LENGTH}</span>
             </Field>
             <div className="profileAddressPreview">
               <small>Current saved address</small>
               <strong title={savedAddressLabel}>{savedAddressLabel}</strong>
             </div>
           </div>
-          <button className="profileSaveButton">Save profile</button>
+          <button type="button" className="secondaryButton profileLocationButton" onClick={useCurrentLocation}>Use current location</button>
         </form>
+        ) : (
+        <section className="profileEditorCard profileReadCard customerProfileForm">
+          <div className="profileReadHeader">
+            <div>
+              <h3>Booking preferences</h3>
+              <p>Notes here help workers arrive prepared and avoid extra messages.</p>
+            </div>
+            <button className="profileEditButton" type="button" aria-label="Edit profile" title="Edit profile" onClick={() => setEditingProfile(true)}>✎</button>
+          </div>
+          <div className="profileReadGrid">
+            <div className="profileReadBlock">
+              <small>About me</small>
+              <p>{profile?.bio || "No notes yet."}</p>
+            </div>
+            <div className="profileReadBlock">
+              <small>Saved address</small>
+              <strong title={savedAddressLabel}>{savedAddressLabel}</strong>
+            </div>
+          </div>
+        </section>
+        )}
       </div>
       <div className="profileLinks profileShortcutGrid">
         <button className="profileLinkCard" type="button" onClick={() => onNavigate("bookings")}>
@@ -4458,6 +5091,15 @@ function CustomerProfilePanel({ token, onNavigate }) {
       </div>
       <PaymentMethodPanel token={token} />
       <Messages message={message} error={error} />
+      {avatarDraft && (
+        <AvatarCropper
+          draft={avatarDraft}
+          onChange={setAvatarDraft}
+          onApply={uploadAvatarDraft}
+          onCancel={cancelAvatarUpload}
+          applying={avatarUploading}
+        />
+      )}
     </section>
   );
 }
@@ -4467,7 +5109,8 @@ function WorkerProfilePanel({ token, onNavigate }) {
   const [bookings, setBookings] = useState([]);
   const [form, setForm] = useState({ bio: "" });
   const [avatarDraft, setAvatarDraft] = useState(null);
-  const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [editingProfile, setEditingProfile] = useState(false);
   const [identityFile, setIdentityFile] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -4496,7 +5139,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
   const cancelAvatarUpload = () => {
     revokeAvatarDraft(avatarDraft);
     setAvatarDraft(null);
-    setAvatarEditorOpen(false);
+    setAvatarUploading(false);
   };
 
   const stats = useMemo(() => buildIncomeStats(bookings), [bookings]);
@@ -4508,16 +5151,10 @@ function WorkerProfilePanel({ token, onNavigate }) {
     try {
       const body = new FormData();
       body.append("bio", form.bio);
-      if (avatarDraft) {
-        const croppedPhoto = await cropAvatarDraft(avatarDraft);
-        if (croppedPhoto) body.append("profile_photo", croppedPhoto);
-      }
       const updated = await apiMultipart("/api/worker/profile", token, body);
       setProfile((current) => ({ ...(current || {}), ...updated }));
-      revokeAvatarDraft(avatarDraft);
-      setAvatarDraft(null);
-      setAvatarEditorOpen(false);
-      setMessage("Profile saved.");
+      setEditingProfile(false);
+      notifySuccess("Profile saved", "Your worker profile was updated.");
     } catch (err) {
       setError(err.message);
     }
@@ -4525,7 +5162,7 @@ function WorkerProfilePanel({ token, onNavigate }) {
 
   const uploadIdentityDocument = async () => {
     if (!identityFile) {
-      setError("Choose an identity document first.");
+      notifyError("ID card required", "Choose an identity document first.");
       return;
     }
     setError("");
@@ -4536,9 +5173,37 @@ function WorkerProfilePanel({ token, onNavigate }) {
       const doc = await apiMultipart("/api/worker/identity-document", token, body);
       setProfile((current) => ({ ...(current || {}), identity_document: doc, verification_status: "pending" }));
       setIdentityFile(null);
-      setMessage("Identity document sent. Admin will verify it before you can go online.");
+      notifySuccess("ID card sent", "Admin will verify it before you can go online.");
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  const uploadProfilePhoto = async (file) => {
+    if (!file) return;
+    setError("");
+    setMessage("");
+    try {
+      const body = new FormData();
+      body.append("profile_photo", file);
+      const updated = await apiMultipart("/api/worker/profile/photo", token, body);
+      setProfile((current) => ({ ...(current || {}), ...updated }));
+      notifySuccess("Photo updated", "Your profile photo was uploaded.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const uploadAvatarDraft = async () => {
+    if (!avatarDraft) return;
+    setAvatarUploading(true);
+    try {
+      const croppedPhoto = await cropAvatarDraft(avatarDraft);
+      await uploadProfilePhoto(croppedPhoto || avatarDraft.file);
+      revokeAvatarDraft(avatarDraft);
+      setAvatarDraft(null);
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -4578,17 +5243,12 @@ function WorkerProfilePanel({ token, onNavigate }) {
                 if (!nextFile) return;
                 revokeAvatarDraft(avatarDraft);
                 setAvatarDraft(makeAvatarDraft(nextFile));
-                setAvatarEditorOpen(true);
+                e.target.value = "";
               }}
             />
           </label>
-          {avatarDraft && (
-            <div className="avatarDraftActions">
-              <span className="muted">{avatarDraft.file.name}</span>
-              <button className="secondaryButton" type="button" onClick={() => setAvatarEditorOpen(true)}>Edit crop</button>
-            </div>
-          )}
         </section>
+        {editingProfile ? (
         <form className="profileEditorCard workerBioCard" onSubmit={submit}>
           <div className="profileFormHeader">
             <div>
@@ -4598,17 +5258,25 @@ function WorkerProfilePanel({ token, onNavigate }) {
             <button className="profileSaveButton">Save profile</button>
           </div>
           <Field label="About me" light>
-            <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
+            <textarea maxLength={PROFILE_BIO_MAX_LENGTH} value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Tell customers about your experience, approach and city." />
+            <span className="fieldCounter">{form.bio.length}/{PROFILE_BIO_MAX_LENGTH}</span>
           </Field>
-          {avatarEditorOpen && (
-            <AvatarCropper
-              draft={avatarDraft}
-              onChange={setAvatarDraft}
-              onClose={() => setAvatarEditorOpen(false)}
-              onCancel={cancelAvatarUpload}
-            />
-          )}
         </form>
+        ) : (
+        <section className="profileEditorCard profileReadCard workerBioCard">
+          <div className="profileReadHeader">
+            <div>
+              <h3>Public bio</h3>
+              <p>Tell customers where you work, how you approach jobs and what you do best.</p>
+            </div>
+            <button className="profileEditButton" type="button" aria-label="Edit profile" title="Edit profile" onClick={() => setEditingProfile(true)}>✎</button>
+          </div>
+          <div className="profileReadBlock">
+            <small>About me</small>
+            <p>{profile?.bio || "No bio yet."}</p>
+          </div>
+        </section>
+        )}
       </div>
       <div className="profileStatsGrid workerKpiGrid">
         <StatCard title="This week" value={formatMoney(stats.weekTotal) + " KZT"} text={stats.weekCompleted + " completed jobs"} />
@@ -4698,6 +5366,15 @@ function WorkerProfilePanel({ token, onNavigate }) {
       </div>
       <PaymentMethodPanel token={token} />
       <Messages message={message} error={error} />
+      {avatarDraft && (
+        <AvatarCropper
+          draft={avatarDraft}
+          onChange={setAvatarDraft}
+          onApply={uploadAvatarDraft}
+          onCancel={cancelAvatarUpload}
+          applying={avatarUploading}
+        />
+      )}
     </section>
   );
 }
@@ -4707,14 +5384,24 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [selectedPaymentIndex, setSelectedPaymentIndex] = useState(0);
 
   const load = useCallback(() => {
     setError("");
     apiGet("/api/payment-method", token)
-      .then((nextMethod) => setMethod({
-        ...nextMethod,
-        last4: nextMethod?.last4 || nextMethod?.card_last4 || "",
-      }))
+      .then((nextMethod) => {
+        const cards = Array.isArray(nextMethod?.cards)
+          ? nextMethod.cards.map((card) => ({ ...card, last4: card?.last4 || card?.card_last4 || "" }))
+          : [];
+        const normalized = {
+          ...nextMethod,
+          last4: nextMethod?.last4 || nextMethod?.card_last4 || "",
+          cards,
+        };
+        const activeIndex = cards.findIndex((card) => card.is_active);
+        setSelectedPaymentIndex(activeIndex >= 0 ? activeIndex : 0);
+        setMethod(normalized);
+      })
       .catch((err) => setError(err.message));
   }, [token]);
 
@@ -4746,22 +5433,50 @@ function PaymentMethodPanel({ token, onLinked, compact = false }) {
     }
   };
 
+  const selectPaymentCard = async (card, index) => {
+    setSelectedPaymentIndex(index);
+    setError("");
+    if (!card?.payment_method_id) return;
+    try {
+      await apiPatch(`/api/payment-method/${card.payment_method_id}/select`, token, {});
+      load();
+      notifySuccess("Card selected", "This card will be used for marketplace payments.");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const paymentCards = method?.has_payment_method
+    ? (Array.isArray(method.cards) && method.cards.length > 0 ? method.cards : [method])
+    : [];
+
   return (
     <section className={compact ? "paymentGateSection" : "profilePaymentCard"}>
       <div className="sectionTitleRow">
-        <h3>Payment card</h3>
-        {method?.has_payment_method && <span>{method.provider || "Stripe"} {method.last4 ? `•••• ${method.last4}` : "linked"}</span>}
+        <h3>Credit and debit cards</h3>
       </div>
-      <p className="muted">
-        {method?.has_payment_method
-          ? "Payment method is linked and ready for bookings."
-          : "You will be redirected to Stripe to link a payment method securely."}
-      </p>
-      {!method?.has_payment_method && (
-        <button type="button" onClick={startSetup} disabled={busy}>
-          {busy ? "Opening Stripe..." : "Link with Stripe"}
+      <div className="paymentCardList">
+        {paymentCards.map((card, index) => (
+          <button
+            className={selectedPaymentIndex === index ? "paymentCardRow active" : "paymentCardRow"}
+            type="button"
+            key={`${card.provider || "card"}-${card.last4 || index}`}
+            onClick={() => selectPaymentCard(card, index)}
+          >
+            <span className="paymentCardBrand">{String(card.provider || "card").slice(0, 4).toUpperCase()}</span>
+            <span>
+              <strong>Card</strong>
+              <small>•••• •••• •••• {card.last4 || card.card_last4 || "linked"}</small>
+            </span>
+            {selectedPaymentIndex === index && <span className="paymentCardCheck" aria-label="Selected">✓</span>}
+            {selectedPaymentIndex !== index && <span className="paymentCardArrow" aria-hidden="true">›</span>}
+          </button>
+        ))}
+        <button className="paymentAddCardRow" type="button" onClick={startSetup} disabled={busy}>
+          <span aria-hidden="true">+</span>
+          <strong>{busy ? "Opening Stripe..." : method?.has_payment_method ? "Add new card" : "Link with Stripe"}</strong>
         </button>
-      )}
+      </div>
       <Messages message={message} error={error} />
     </section>
   );
@@ -4825,7 +5540,7 @@ function WorkerSkillsPanel({ token }) {
         // The service request was already created; profile refresh is only for the summary cards.
       }
       setFiles([]);
-      setMessage("Service request sent. Admin will review qualification evidence.");
+      notifySuccess("Service request sent", "Admin will review your qualification evidence.");
     } catch (err) {
       setError(err.message);
     }
@@ -4860,10 +5575,12 @@ function WorkerSkillsPanel({ token }) {
     setMessage("");
     try {
       if (!upgradeForm.worker_skill_id) {
-        throw new Error("Choose a verified service first.");
+        notifyError("Verified service required", "Choose a verified service first.");
+        return;
       }
       if (upgradeFiles.length === 0) {
-        throw new Error("Attach evidence for the upgrade.");
+        notifyError("Evidence required", "Attach evidence for the upgrade.");
+        return;
       }
       const body = new FormData();
       body.append("worker_skill_id", upgradeForm.worker_skill_id);
@@ -4872,7 +5589,7 @@ function WorkerSkillsPanel({ token }) {
       upgradeFiles.forEach((file) => body.append("evidence_files", file));
       await apiMultipart("/api/worker/skill-upgrades", token, body);
       closeUpgrade();
-      setMessage("Upgrade request sent. Admin will review new evidence.");
+      notifySuccess("Upgrade request sent", "Admin will review your new evidence.");
     } catch (err) {
       setError(err.message);
     }
@@ -5102,11 +5819,6 @@ function formatDistanceLabel(value) {
   return `${Math.round(distance)} m away`;
 }
 
-const navigationSpeechState = {
-  key: "",
-  spokenAt: 0,
-};
-
 function announceNewScheduledBookings(bookings, knownRef) {
   if (!knownRef.current) {
     knownRef.current = new Set(
@@ -5123,61 +5835,10 @@ function announceNewScheduledBookings(bookings, knownRef) {
     if (!id) {
       continue;
     }
-    if (status === "scheduled" && !knownRef.current.has(id)) {
-      knownRef.current.add(id);
-      speakText("Клиент принял цену. Начните поездку.");
-    } else if (status === "scheduled") {
+    if (status === "scheduled") {
       knownRef.current.add(id);
     }
   }
-}
-
-function announceNavigationHint(current, destination) {
-  const meters = haversineMeters(current, destination);
-  const bucket = meters < 35 ? "arrived" : String(Math.round(meters / 100) * 100);
-  const now = Date.now();
-  if (navigationSpeechState.key === bucket && now - navigationSpeechState.spokenAt < 45000) {
-    return;
-  }
-  navigationSpeechState.key = bucket;
-  navigationSpeechState.spokenAt = now;
-  const text = meters < 35
-    ? "Вы на месте."
-    : `Следуйте по маршруту примерно ${formatNavigationDistance(meters)}.`;
-  speakText(text);
-}
-
-function speakText(text) {
-  if (!("speechSynthesis" in window)) {
-    return;
-  }
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "ru-RU";
-  const voice = preferredRussianVoice();
-  if (voice) {
-    utterance.voice = voice;
-  }
-  utterance.rate = 0.9;
-  utterance.pitch = 1.05;
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(utterance);
-}
-
-function preferredRussianVoice() {
-  if (!("speechSynthesis" in window)) {
-    return null;
-  }
-  const voices = window.speechSynthesis.getVoices?.() || [];
-  const hint = TTS_VOICE_HINT.trim().toLowerCase();
-  if (hint) {
-    const hintedVoice = voices.find((voice) => voice.name.toLowerCase().includes(hint) || voice.lang.toLowerCase().includes(hint));
-    if (hintedVoice) {
-      return hintedVoice;
-    }
-  }
-  return voices.find((voice) => /ru/i.test(voice.lang) && /natural|online|google|microsoft|irina|milena|dariya|svetlana|female/i.test(voice.name)) ||
-    voices.find((voice) => /ru/i.test(voice.lang)) ||
-    null;
 }
 
 function formatNavigationDistance(meters) {
@@ -5217,6 +5878,61 @@ function shouldRefreshRoute(cache, key, start) {
   return haversineMeters(cache.start, start) >= ROUTE_REFRESH_DISTANCE_M;
 }
 
+function shouldRefreshNavigationRoute(cache, key, start, routePoints) {
+  if (!cache || cache.key !== key || !cache.start) {
+    return true;
+  }
+  const points = Array.isArray(routePoints) ? routePoints : [];
+  if (points.length >= 2) {
+    const offRouteMeters = distanceToRouteMeters(start, points);
+    if (offRouteMeters >= NAVIGATION_OFF_ROUTE_DISTANCE_M) {
+      return true;
+    }
+  }
+  const elapsed = Date.now() - Number(cache.at || 0);
+  if (elapsed < NAVIGATION_ROUTE_REFRESH_MS) {
+    return false;
+  }
+  return haversineMeters(cache.start, start) >= NAVIGATION_ROUTE_REFRESH_DISTANCE_M;
+}
+
+function distanceToRouteMeters(position, points) {
+  if (!position || !Array.isArray(points) || points.length < 2) {
+    return Number.POSITIVE_INFINITY;
+  }
+  let minDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const distance = distanceToSegmentMeters(position, points[index], points[index + 1]);
+    if (distance < minDistance) {
+      minDistance = distance;
+    }
+  }
+  return minDistance;
+}
+
+function distanceToSegmentMeters(point, start, end) {
+  if (!point || !start || !end) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const originLat = degreesToRadians(Number(point.latitude));
+  const metersPerDegreeLat = 111320;
+  const metersPerDegreeLon = 111320 * Math.max(0.01, Math.cos(originLat));
+  const px = 0;
+  const py = 0;
+  const ax = (Number(start.longitude) - Number(point.longitude)) * metersPerDegreeLon;
+  const ay = (Number(start.latitude) - Number(point.latitude)) * metersPerDegreeLat;
+  const bx = (Number(end.longitude) - Number(point.longitude)) * metersPerDegreeLon;
+  const by = (Number(end.latitude) - Number(point.latitude)) * metersPerDegreeLat;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) {
+    return Math.hypot(ax - px, ay - py);
+  }
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared));
+  return Math.hypot(ax + t * dx - px, ay + t * dy - py);
+}
+
 function formatChatTime(value) {
   if (!value) {
     return "";
@@ -5239,6 +5955,15 @@ function submitTextareaOnEnter(event) {
 function renderStars(value) {
   const rating = Math.round(Number(value) || 0);
   return "★★★★★".split("").map((star, index) => index < rating ? star : "☆").join("");
+}
+
+function reviewRatingLabel(value) {
+  const rating = Number(value) || 0;
+  if (rating >= 5) return "Excellent";
+  if (rating >= 4) return "Good";
+  if (rating >= 3) return "Okay";
+  if (rating >= 2) return "Needs work";
+  return "Poor";
 }
 
 function tokenUserID(token) {
@@ -5277,7 +6002,7 @@ function ProfileForm({ title, text, form, setForm, onSubmit, links = [], onNavig
     setError("");
     try {
       await onSubmit();
-      setMessage("Profile saved.");
+      notifySuccess("Profile saved", "Staff profile was updated.");
     } catch (err) {
       setError(err.message);
     }
@@ -5355,13 +6080,14 @@ function JobBoard({ bookings, onProgress, compact }) {
   );
 }
 
-function SectionHeader({ title, text }) {
+function SectionHeader({ title, text, action }) {
   return (
     <header className="resultsHeader">
       <div>
         <h2>{title}</h2>
         <p>{text}</p>
       </div>
+      {action}
     </header>
   );
 }

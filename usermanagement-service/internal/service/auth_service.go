@@ -226,6 +226,22 @@ func isEmailRequired() bool {
 		return true
 	}
 }
+
+func accessPenaltyMessage(penalty repository.Penalty) string {
+	reason := strings.TrimSpace(penalty.Reason)
+	if reason == "" {
+		reason = "No reason provided"
+	}
+	until := ""
+	if penalty.ExpiresAt != nil {
+		until = " until " + penalty.ExpiresAt.Format("2006-01-02 15:04")
+	}
+	if penalty.PenaltyType == "temporary_suspend" {
+		return "account temporarily suspended by support" + until + ": " + reason
+	}
+	return "account blocked by support" + until + ": " + reason
+}
+
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult, error) {
 	email := strings.ToLower(strings.TrimSpace(input.Email))
 	password := strings.TrimSpace(input.Password)
@@ -233,6 +249,18 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (LoginResult,
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil {
 		return LoginResult{}, errors.New("invalid credentials")
+	}
+	if err := s.reports.ExpireExpiredPenalties(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	}
+	user, err = s.users.GetByID(ctx, user.ID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if penalty, blocked, err := s.reports.ActiveAccessPenalty(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	} else if blocked {
+		return LoginResult{}, errors.New(accessPenaltyMessage(penalty))
 	}
 
 	if user.Status != model.StatusActive {
@@ -269,6 +297,21 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken string) (LoginRe
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return LoginResult{}, err
+	}
+	if err := s.reports.ExpireExpiredPenalties(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	}
+	user, err = s.users.GetByID(ctx, userID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	if penalty, blocked, err := s.reports.ActiveAccessPenalty(ctx, user.ID); err != nil {
+		return LoginResult{}, err
+	} else if blocked {
+		return LoginResult{}, errors.New(accessPenaltyMessage(penalty))
+	}
+	if user.Status != model.StatusActive {
+		return LoginResult{}, errors.New("user is not active")
 	}
 
 	token, expiresAt, err := s.tokens.GenerateAccessToken(user)
@@ -411,6 +454,20 @@ func (s *AuthService) UpsertCustomerProfile(
 	}
 	return s.customerProfiles.Upsert(ctx, userID, address, latitude, longitude, bio, profilePhotoURL)
 }
+func (s *AuthService) UpdateCustomerProfilePhoto(
+	ctx context.Context,
+	userID int,
+	profilePhotoURL string,
+) (*model.CustomerProfile, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.Role != model.RoleCustomer {
+		return nil, errors.New("not a customer")
+	}
+	return s.customerProfiles.UpdateProfilePhoto(ctx, userID, profilePhotoURL)
+}
 func (s *AuthService) CreateWorkerProfile(ctx context.Context, userID int) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
@@ -441,6 +498,25 @@ func (s *AuthService) UpsertWorkerProfile(
 	}
 
 	profile, err := s.workerProfiles.UpsertDetails(ctx, userID, bio, latitude, longitude, profilePhotoURL)
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+func (s *AuthService) UpdateWorkerProfilePhoto(
+	ctx context.Context,
+	userID int,
+	profilePhotoURL string,
+) (*model.WorkerProfile, error) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user.Role != model.RoleWorker {
+		return nil, errors.New("not a worker")
+	}
+
+	profile, err := s.workerProfiles.UpdateProfilePhoto(ctx, userID, profilePhotoURL)
 	if err != nil {
 		return nil, err
 	}
@@ -509,8 +585,16 @@ func (s *AuthService) VerifyWorkerSkill(ctx context.Context, skillID int) error 
 	return s.workerSkills.Verify(ctx, skillID)
 }
 
+func (s *AuthService) RejectWorkerSkill(ctx context.Context, skillID int) error {
+	return s.workerSkills.Reject(ctx, skillID)
+}
+
 func (s *AuthService) VerifyWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error {
 	return s.workerSkills.ApproveUpgradeRequest(ctx, requestID, reviewerUserID)
+}
+
+func (s *AuthService) RejectWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error {
+	return s.workerSkills.RejectUpgradeRequest(ctx, requestID, reviewerUserID)
 }
 
 func (s *AuthService) AddWorkerIdentityDocument(
@@ -634,6 +718,17 @@ func (s *AuthService) GetPaymentMethod(ctx context.Context, userID int) (reposit
 	return s.paymentMethods.Get(ctx, userID)
 }
 
+func (s *AuthService) ListPaymentMethods(ctx context.Context, userID int) ([]repository.PaymentMethod, error) {
+	return s.paymentMethods.List(ctx, userID)
+}
+
+func (s *AuthService) SelectPaymentMethod(ctx context.Context, userID int, paymentMethodID int) (repository.PaymentMethod, error) {
+	if paymentMethodID <= 0 {
+		return repository.PaymentMethod{}, errors.New("payment_method_id must be positive")
+	}
+	return s.paymentMethods.SetActive(ctx, userID, paymentMethodID)
+}
+
 func (s *AuthService) HasPaymentMethod(ctx context.Context, userID int) (bool, error) {
 	return s.paymentMethods.Exists(ctx, userID)
 }
@@ -737,7 +832,23 @@ func (s *AuthService) DeleteUser(ctx context.Context, userID int) error {
 }
 
 func (s *AuthService) ActivateUser(ctx context.Context, userID int) error {
-	return s.users.ActivateUser(ctx, userID)
+	if err := s.users.ActivateUser(ctx, userID); err != nil {
+		return err
+	}
+
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	switch user.Role {
+	case model.RoleCustomer:
+		return s.customerProfiles.Create(ctx, userID)
+	case model.RoleWorker:
+		return s.workerProfiles.Create(ctx, userID)
+	default:
+		return nil
+	}
 }
 
 func (s *AuthService) CreateAdmin(ctx context.Context, input RegisterInput) (model.User, error) {
@@ -818,6 +929,13 @@ func (s *AuthService) ApplyReportPenalty(ctx context.Context, reportID int, targ
 		reason = penaltyType
 	}
 	return s.reports.ApplyPenalty(ctx, reportID, targetUserID, issuedByUserID, penaltyType, reason, expiresAt)
+}
+
+func (s *AuthService) CancelPenalty(ctx context.Context, penaltyID int) error {
+	if penaltyID <= 0 {
+		return errors.New("invalid penalty_id")
+	}
+	return s.reports.CancelPenalty(ctx, penaltyID)
 }
 
 func (s *AuthService) CloseReport(ctx context.Context, reportID int, status string, resolution string) error {

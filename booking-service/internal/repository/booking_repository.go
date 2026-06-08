@@ -172,7 +172,7 @@ func (r *BookingRepository) ExpirePendingOffers(ctx context.Context) error {
 			UPDATE bookings
 			SET status = 'cancelled', end_time = NOW()
 			WHERE status = 'price_pending'
-			  AND COALESCE(created_at, scheduled_time, NOW()) <= NOW() - INTERVAL '5 minutes'
+			  AND COALESCE(created_at, scheduled_time, NOW()) <= NOW() - INTERVAL '15 minutes'
 			RETURNING request_id, worker_profile_id
 		),
 		requests AS (
@@ -408,6 +408,50 @@ func (r *BookingRepository) MarkAwaitingConfirmation(
 	return tx.Commit(ctx)
 }
 
+func (r *BookingRepository) MarkCompletionEvidenceRejected(
+	ctx context.Context,
+	bookingID int,
+	requestID int,
+	workerProfileID int,
+) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, `
+		UPDATE bookings
+		SET status = 'in_progress',
+		    completion_evidence = NULL,
+		    customer_confirmed = false
+		WHERE booking_id = $1
+	`, bookingID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE service_requests
+		SET status = 'in_progress'
+		WHERE request_id = $1
+	`, requestID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET is_available = false
+		WHERE worker_profile_id = $1
+	`, workerProfileID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (r *BookingRepository) MarkRejected(
 	ctx context.Context,
 	bookingID int,
@@ -432,6 +476,54 @@ func (r *BookingRepository) MarkRejected(
 	_, err = tx.Exec(ctx, `
 		UPDATE service_requests
 		SET status = 'pending'
+		WHERE request_id = $1
+	`, requestID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET is_available = false
+		WHERE worker_profile_id = $1
+	`, workerProfileID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *BookingRepository) MarkCancelledByStaff(
+	ctx context.Context,
+	bookingID int,
+	requestID int,
+	workerProfileID int,
+) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
+		UPDATE bookings
+		SET status = 'cancelled',
+		    end_time = NOW(),
+		    customer_confirmed = false
+		WHERE booking_id = $1
+		  AND status NOT IN ('completed', 'cancelled')
+	`, bookingID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrBookingNotFound
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE service_requests
+		SET status = 'cancelled'
 		WHERE request_id = $1
 	`, requestID)
 	if err != nil {

@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	UserManagementService_GetCustomerProfile_FullMethodName = "/usermanagement.v1.UserManagementService/GetCustomerProfile"
 	UserManagementService_GetWorkerProfile_FullMethodName   = "/usermanagement.v1.UserManagementService/GetWorkerProfile"
+	UserManagementService_HasPaymentMethod_FullMethodName   = "/usermanagement.v1.UserManagementService/HasPaymentMethod"
 )
 
 // UserManagementServiceClient is the client API for UserManagementService service.
@@ -29,6 +30,7 @@ const (
 type UserManagementServiceClient interface {
 	GetCustomerProfile(ctx context.Context, in *GetProfileRequest, opts ...grpc.CallOption) (*CustomerProfileResponse, error)
 	GetWorkerProfile(ctx context.Context, in *GetProfileRequest, opts ...grpc.CallOption) (*WorkerProfileResponse, error)
+	HasPaymentMethod(ctx context.Context, in *GetProfileRequest, opts ...grpc.CallOption) (*HasPaymentMethodResponse, error)
 }
 
 type userManagementServiceClient struct {
@@ -59,12 +61,23 @@ func (c *userManagementServiceClient) GetWorkerProfile(ctx context.Context, in *
 	return out, nil
 }
 
+func (c *userManagementServiceClient) HasPaymentMethod(ctx context.Context, in *GetProfileRequest, opts ...grpc.CallOption) (*HasPaymentMethodResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(HasPaymentMethodResponse)
+	err := c.cc.Invoke(ctx, UserManagementService_HasPaymentMethod_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // UserManagementServiceServer is the server API for UserManagementService service.
 // All implementations must embed UnimplementedUserManagementServiceServer
 // for forward compatibility.
 type UserManagementServiceServer interface {
 	GetCustomerProfile(context.Context, *GetProfileRequest) (*CustomerProfileResponse, error)
 	GetWorkerProfile(context.Context, *GetProfileRequest) (*WorkerProfileResponse, error)
+	HasPaymentMethod(context.Context, *GetProfileRequest) (*HasPaymentMethodResponse, error)
 	mustEmbedUnimplementedUserManagementServiceServer()
 }
 
@@ -80,6 +93,9 @@ func (UnimplementedUserManagementServiceServer) GetCustomerProfile(context.Conte
 }
 func (UnimplementedUserManagementServiceServer) GetWorkerProfile(context.Context, *GetProfileRequest) (*WorkerProfileResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetWorkerProfile not implemented")
+}
+func (UnimplementedUserManagementServiceServer) HasPaymentMethod(context.Context, *GetProfileRequest) (*HasPaymentMethodResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method HasPaymentMethod not implemented")
 }
 func (UnimplementedUserManagementServiceServer) mustEmbedUnimplementedUserManagementServiceServer() {}
 func (UnimplementedUserManagementServiceServer) testEmbeddedByValue()                               {}
@@ -138,6 +154,24 @@ func _UserManagementService_GetWorkerProfile_Handler(srv interface{}, ctx contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _UserManagementService_HasPaymentMethod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProfileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UserManagementServiceServer).HasPaymentMethod(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: UserManagementService_HasPaymentMethod_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UserManagementServiceServer).HasPaymentMethod(ctx, req.(*GetProfileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // UserManagementService_ServiceDesc is the grpc.ServiceDesc for UserManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -152,6 +186,10 @@ var UserManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetWorkerProfile",
 			Handler:    _UserManagementService_GetWorkerProfile_Handler,
+		},
+		{
+			MethodName: "HasPaymentMethod",
+			Handler:    _UserManagementService_HasPaymentMethod_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

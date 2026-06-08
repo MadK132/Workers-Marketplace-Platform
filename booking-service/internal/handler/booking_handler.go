@@ -238,6 +238,53 @@ func (h *Handler) RejectBooking(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "booking rejected"})
 }
 
+func (h *Handler) CancelBookingByStaff(c *gin.Context) {
+	bookingID, err := strconv.Atoi(c.Param("booking_id"))
+	if err != nil || bookingID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking_id"})
+		return
+	}
+
+	role := c.GetString("role")
+	if role != "admin" && role != "manager" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	var req struct {
+		ReportID int    `json:"report_id"`
+		Reason   string `json:"reason"`
+	}
+	if c.Request.ContentLength > 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+			return
+		}
+	}
+
+	err = h.bookingService.CancelBookingByStaff(c.Request.Context(), bookingID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBookingNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrInvalidTransition):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	detail := "Support cancelled this booking."
+	if strings.TrimSpace(req.Reason) != "" {
+		detail = "Support cancelled this booking: " + strings.TrimSpace(req.Reason)
+	}
+	h.notifyCustomer(c.Request.Context(), bookingID, "booking_cancelled", "Booking cancelled", detail)
+	h.notifyWorker(c.Request.Context(), bookingID, "booking_cancelled", "Booking cancelled", detail)
+
+	c.JSON(http.StatusOK, gin.H{"message": "booking cancelled"})
+}
+
 func (h *Handler) ConfirmCompletion(c *gin.Context) {
 	bookingID, err := strconv.Atoi(c.Param("booking_id"))
 	if err != nil || bookingID <= 0 {
@@ -294,6 +341,46 @@ func (h *Handler) ConfirmCompletion(c *gin.Context) {
 		"payment_status": payment.Status,
 		"payment_url":    payment.URL,
 	})
+}
+
+func (h *Handler) RejectCompletionEvidence(c *gin.Context) {
+	bookingID, err := strconv.Atoi(c.Param("booking_id"))
+	if err != nil || bookingID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid booking_id"})
+		return
+	}
+
+	role := c.GetString("role")
+	if role != "customer" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only customers allowed"})
+		return
+	}
+
+	token := c.GetHeader("Authorization")
+	customerProfileID, err := h.userClient.GetCustomerProfile(c.Request.Context(), token)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	err = h.bookingService.RejectCompletionEvidence(c.Request.Context(), bookingID, customerProfileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrBookingNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrBookingNotCustomer):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case errors.Is(err, service.ErrInvalidTransition):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
+		return
+	}
+
+	h.notifyWorker(c.Request.Context(), bookingID, "completion_evidence_rejected", "Completion evidence rejected", "The customer rejected your completion proof. Please send a new proof after fixing the issue.")
+
+	c.JSON(http.StatusOK, gin.H{"message": "completion evidence rejected; booking returned to in progress"})
 }
 
 func (h *Handler) SetBookingPrice(c *gin.Context) {

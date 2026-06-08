@@ -33,13 +33,17 @@ type AuthService interface {
 	SelectRole(ctx context.Context, userID int, role model.Role) error
 	CreateCustomerProfile(ctx context.Context, userID int) error
 	UpsertCustomerProfile(ctx context.Context, userID int, address string, latitude *float64, longitude *float64, bio string, profilePhotoURL *string) (*model.CustomerProfile, error)
+	UpdateCustomerProfilePhoto(ctx context.Context, userID int, profilePhotoURL string) (*model.CustomerProfile, error)
 	CreateWorkerProfile(ctx context.Context, userID int) error
 	UpsertWorkerProfile(ctx context.Context, userID int, bio string, latitude *float64, longitude *float64, profilePhotoURL *string) (*model.WorkerProfile, error)
+	UpdateWorkerProfilePhoto(ctx context.Context, userID int, profilePhotoURL string) (*model.WorkerProfile, error)
 	AddWorkerSkill(ctx context.Context, userID int, categoryID int, experience string, price int) (int, error)
 	AddWorkerSkillEvidence(ctx context.Context, workerSkillID int, fileName string, filePath string, contentType string, note string) error
 	RequestWorkerSkillUpgrade(ctx context.Context, userID int, workerSkillID int, requestedLevel string, evidenceFiles string, note string) (int, error)
 	VerifyWorkerSkill(ctx context.Context, skillID int) error
+	RejectWorkerSkill(ctx context.Context, skillID int) error
 	VerifyWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error
+	RejectWorkerSkillUpgrade(ctx context.Context, requestID int, reviewerUserID int) error
 	AddWorkerIdentityDocument(ctx context.Context, userID int, fileName string, filePath string, contentType string) (repository.WorkerIdentityDocument, error)
 	VerifyWorkerIdentityDocument(ctx context.Context, documentID int, reviewerUserID int) error
 	RejectWorkerIdentityDocument(ctx context.Context, documentID int, reviewerUserID int, reason string) error
@@ -60,6 +64,8 @@ type AuthService interface {
 	CreateManager(ctx context.Context, input service.RegisterInput) (model.User, error)
 	UpsertPaymentMethod(ctx context.Context, userID int, provider string, last4 string) (repository.PaymentMethod, error)
 	GetPaymentMethod(ctx context.Context, userID int) (repository.PaymentMethod, error)
+	ListPaymentMethods(ctx context.Context, userID int) ([]repository.PaymentMethod, error)
+	SelectPaymentMethod(ctx context.Context, userID int, paymentMethodID int) (repository.PaymentMethod, error)
 	HasPaymentMethod(ctx context.Context, userID int) (bool, error)
 	CreateReport(ctx context.Context, reporterUserID int, role string, bookingID *int, reportedUserID int, reason string, description string) (repository.Report, error)
 	AddReportFile(ctx context.Context, reportID int, userID int, fileName string, filePath string, contentType string) error
@@ -67,6 +73,7 @@ type AuthService interface {
 	AddReportMessage(ctx context.Context, reportID int, userID int, staff bool, conversationSide string, text string, attachmentURL string, attachmentName string, attachmentType string) (repository.ReportMessage, error)
 	ListReportMessages(ctx context.Context, reportID int, userID int, staff bool, conversationSide string) ([]repository.ReportMessage, error)
 	ApplyReportPenalty(ctx context.Context, reportID int, targetUserID int, issuedByUserID int, penaltyType string, reason string, expiresAt *time.Time) (repository.Penalty, error)
+	CancelPenalty(ctx context.Context, penaltyID int) error
 	CloseReport(ctx context.Context, reportID int, status string, resolution string) error
 	AssignReport(ctx context.Context, reportID int, managerUserID int) (repository.Report, error)
 }
@@ -373,6 +380,38 @@ func (h *AuthHandler) parseCustomerProfileRequest(c *gin.Context) (string, *floa
 	}
 	return req.Address, req.Latitude, req.Longitude, req.Bio, req.ProfilePhotoURL, true
 }
+
+func (h *AuthHandler) UpdateCustomerProfilePhoto(c *gin.Context) {
+	userID := c.GetInt("user_id")
+
+	file, err := c.FormFile("profile_photo")
+	if err != nil || file == nil {
+		c.JSON(400, gin.H{"error": "profile_photo is required"})
+		return
+	}
+
+	storedPath, err := saveProfilePhoto(c.Request.Context(), file)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	profile, err := h.auth.UpdateCustomerProfilePhoto(c.Request.Context(), userID, storedPath)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"customer_profile_id": profile.ID,
+		"user_id":             profile.UserID,
+		"address":             profile.Address,
+		"latitude":            profile.Latitude,
+		"longitude":           profile.Longitude,
+		"bio":                 profile.Bio,
+		"profile_photo_url":   profile.ProfilePhotoURL,
+	})
+}
 func (h *AuthHandler) CreateWorkerProfile(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
@@ -438,6 +477,40 @@ func (h *AuthHandler) parseWorkerProfileRequest(c *gin.Context) (string, *float6
 		return "", nil, nil, nil, false
 	}
 	return req.Bio, req.CurrentLatitude, req.CurrentLongitude, req.ProfilePhotoURL, true
+}
+
+func (h *AuthHandler) UpdateWorkerProfilePhoto(c *gin.Context) {
+	userID := c.GetInt("user_id")
+
+	file, err := c.FormFile("profile_photo")
+	if err != nil || file == nil {
+		c.JSON(400, gin.H{"error": "profile_photo is required"})
+		return
+	}
+
+	storedPath, err := saveProfilePhoto(c.Request.Context(), file)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	profile, err := h.auth.UpdateWorkerProfilePhoto(c.Request.Context(), userID, storedPath)
+	if err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"worker_profile_id":   profile.ID,
+		"user_id":             profile.UserID,
+		"bio":                 profile.Bio,
+		"rating":              profile.Rating,
+		"verification_status": profile.VerificationStatus,
+		"is_available":        profile.IsAvailable,
+		"current_latitude":    profile.CurrentLatitude,
+		"current_longitude":   profile.CurrentLongitude,
+		"profile_photo_url":   profile.ProfilePhotoURL,
+	})
 }
 func (h *AuthHandler) AddWorkerSkill(c *gin.Context) {
 	categoryID, experience, price, note, files, ok := h.parseWorkerSkillRequest(c)
@@ -657,6 +730,30 @@ func (h *AuthHandler) VerifyWorkerSkill(c *gin.Context) {
 	c.JSON(200, gin.H{"message": "skill and worker verified"})
 }
 
+func (h *AuthHandler) RejectWorkerSkill(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	var req struct {
+		SkillID int `json:"worker_skill_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	if req.SkillID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "worker_skill_id must be positive"})
+		return
+	}
+	if err := h.auth.RejectWorkerSkill(c.Request.Context(), req.SkillID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "skill rejected"})
+}
+
 func (h *AuthHandler) VerifyWorkerSkillUpgrade(c *gin.Context) {
 	if !isStaffRole(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
@@ -684,6 +781,30 @@ func (h *AuthHandler) VerifyWorkerSkillUpgrade(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "skill upgrade approved"})
+}
+
+func (h *AuthHandler) RejectWorkerSkillUpgrade(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+
+	var req struct {
+		RequestID int `json:"upgrade_request_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+		return
+	}
+	if req.RequestID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "upgrade_request_id must be positive"})
+		return
+	}
+	if err := h.auth.RejectWorkerSkillUpgrade(c.Request.Context(), req.RequestID, c.GetInt("user_id")); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "skill upgrade rejected"})
 }
 
 func (h *AuthHandler) UploadWorkerIdentityDocument(c *gin.Context) {
@@ -966,7 +1087,11 @@ func (h *AuthHandler) ApplyReportPenalty(c *gin.Context) {
 		}
 	}
 	var expiresAt *time.Time
-	if req.PenaltyType == "temporary_suspend" && req.Days > 0 {
+	if req.PenaltyType == "temporary_suspend" || req.PenaltyType == "block_user" {
+		if req.Days <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "days must be positive for this penalty"})
+			return
+		}
 		value := time.Now().Add(time.Duration(req.Days) * 24 * time.Hour)
 		expiresAt = &value
 	}
@@ -976,6 +1101,27 @@ func (h *AuthHandler) ApplyReportPenalty(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, penalty)
+}
+
+func (h *AuthHandler) CancelPenalty(c *gin.Context) {
+	if !isStaffRole(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "only staff allowed"})
+		return
+	}
+	penaltyID, err := strconv.Atoi(c.Param("penalty_id"))
+	if err != nil || penaltyID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid penalty_id"})
+		return
+	}
+	if err := h.auth.CancelPenalty(c.Request.Context(), penaltyID); err != nil {
+		if errors.Is(err, repository.ErrReportNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "active penalty not found"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
 
 func (h *AuthHandler) CloseReport(c *gin.Context) {
@@ -1061,20 +1207,43 @@ func (h *AuthHandler) UpsertPaymentMethod(c *gin.Context) {
 }
 
 func (h *AuthHandler) GetPaymentMethod(c *gin.Context) {
-	method, err := h.auth.GetPaymentMethod(c.Request.Context(), c.GetInt("user_id"))
+	methods, err := h.auth.ListPaymentMethods(c.Request.Context(), c.GetInt("user_id"))
 	if err != nil {
-		if errors.Is(err, repository.ErrPaymentMethodNotFound) {
-			c.JSON(http.StatusOK, gin.H{"has_payment_method": false})
-			return
-		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if len(methods) == 0 {
+		c.JSON(http.StatusOK, gin.H{"has_payment_method": false, "cards": []repository.PaymentMethod{}})
+		return
+	}
+	method := methods[0]
 	c.JSON(http.StatusOK, gin.H{
 		"has_payment_method": true,
+		"payment_method_id":  method.ID,
 		"provider":           method.Provider,
 		"last4":              method.Last4,
+		"is_active":          method.IsActive,
+		"cards":              methods,
 	})
+}
+
+func (h *AuthHandler) SelectPaymentMethod(c *gin.Context) {
+	paymentMethodID, err := strconv.Atoi(c.Param("id"))
+	if err != nil || paymentMethodID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payment_method_id"})
+		return
+	}
+
+	method, err := h.auth.SelectPaymentMethod(c.Request.Context(), c.GetInt("user_id"), paymentMethodID)
+	if err != nil {
+		if errors.Is(err, repository.ErrPaymentMethodNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "payment method not found"})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, method)
 }
 
 func (h *AuthHandler) CreatePaymentSetupSession(c *gin.Context) {
@@ -1178,8 +1347,10 @@ func (h *AuthHandler) ConfirmPaymentSetupSession(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"has_payment_method": true,
+		"payment_method_id":  method.ID,
 		"provider":           method.Provider,
 		"last4":              method.Last4,
+		"is_active":          method.IsActive,
 	})
 }
 

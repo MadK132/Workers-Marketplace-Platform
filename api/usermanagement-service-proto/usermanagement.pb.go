@@ -153,6 +153,50 @@ func (x *WorkerProfileResponse) GetWorkerProfileId() int64 {
 	return 0
 }
 
+type HasPaymentMethodResponse struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	HasPaymentMethod bool                   `protobuf:"varint,1,opt,name=has_payment_method,json=hasPaymentMethod,proto3" json:"has_payment_method,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *HasPaymentMethodResponse) Reset() {
+	*x = HasPaymentMethodResponse{}
+	mi := &file_api_usermanagement_service_proto_usermanagement_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HasPaymentMethodResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HasPaymentMethodResponse) ProtoMessage() {}
+
+func (x *HasPaymentMethodResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_api_usermanagement_service_proto_usermanagement_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HasPaymentMethodResponse.ProtoReflect.Descriptor instead.
+func (*HasPaymentMethodResponse) Descriptor() ([]byte, []int) {
+	return file_api_usermanagement_service_proto_usermanagement_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *HasPaymentMethodResponse) GetHasPaymentMethod() bool {
+	if x != nil {
+		return x.HasPaymentMethod
+	}
+	return false
+}
+
 var File_api_usermanagement_service_proto_usermanagement_proto protoreflect.FileDescriptor
 
 const file_api_usermanagement_service_proto_usermanagement_proto_rawDesc = "" +
@@ -163,10 +207,13 @@ const file_api_usermanagement_service_proto_usermanagement_proto_rawDesc = "" +
 	"\x17CustomerProfileResponse\x12.\n" +
 	"\x13customer_profile_id\x18\x01 \x01(\x03R\x11customerProfileId\"C\n" +
 	"\x15WorkerProfileResponse\x12*\n" +
-	"\x11worker_profile_id\x18\x01 \x01(\x03R\x0fworkerProfileId2\xe3\x01\n" +
+	"\x11worker_profile_id\x18\x01 \x01(\x03R\x0fworkerProfileId\"H\n" +
+	"\x18HasPaymentMethodResponse\x12,\n" +
+	"\x12has_payment_method\x18\x01 \x01(\bR\x10hasPaymentMethod2\xca\x02\n" +
 	"\x15UserManagementService\x12f\n" +
 	"\x12GetCustomerProfile\x12$.usermanagement.v1.GetProfileRequest\x1a*.usermanagement.v1.CustomerProfileResponse\x12b\n" +
-	"\x10GetWorkerProfile\x12$.usermanagement.v1.GetProfileRequest\x1a(.usermanagement.v1.WorkerProfileResponseB;Z9diploma/api/usermanagement-service-proto;usermanagementpbb\x06proto3"
+	"\x10GetWorkerProfile\x12$.usermanagement.v1.GetProfileRequest\x1a(.usermanagement.v1.WorkerProfileResponse\x12e\n" +
+	"\x10HasPaymentMethod\x12$.usermanagement.v1.GetProfileRequest\x1a+.usermanagement.v1.HasPaymentMethodResponseB;Z9diploma/api/usermanagement-service-proto;usermanagementpbb\x06proto3"
 
 var (
 	file_api_usermanagement_service_proto_usermanagement_proto_rawDescOnce sync.Once
@@ -180,19 +227,22 @@ func file_api_usermanagement_service_proto_usermanagement_proto_rawDescGZIP() []
 	return file_api_usermanagement_service_proto_usermanagement_proto_rawDescData
 }
 
-var file_api_usermanagement_service_proto_usermanagement_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_api_usermanagement_service_proto_usermanagement_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_api_usermanagement_service_proto_usermanagement_proto_goTypes = []any{
-	(*GetProfileRequest)(nil),       // 0: usermanagement.v1.GetProfileRequest
-	(*CustomerProfileResponse)(nil), // 1: usermanagement.v1.CustomerProfileResponse
-	(*WorkerProfileResponse)(nil),   // 2: usermanagement.v1.WorkerProfileResponse
+	(*GetProfileRequest)(nil),        // 0: usermanagement.v1.GetProfileRequest
+	(*CustomerProfileResponse)(nil),  // 1: usermanagement.v1.CustomerProfileResponse
+	(*WorkerProfileResponse)(nil),    // 2: usermanagement.v1.WorkerProfileResponse
+	(*HasPaymentMethodResponse)(nil), // 3: usermanagement.v1.HasPaymentMethodResponse
 }
 var file_api_usermanagement_service_proto_usermanagement_proto_depIdxs = []int32{
 	0, // 0: usermanagement.v1.UserManagementService.GetCustomerProfile:input_type -> usermanagement.v1.GetProfileRequest
 	0, // 1: usermanagement.v1.UserManagementService.GetWorkerProfile:input_type -> usermanagement.v1.GetProfileRequest
-	1, // 2: usermanagement.v1.UserManagementService.GetCustomerProfile:output_type -> usermanagement.v1.CustomerProfileResponse
-	2, // 3: usermanagement.v1.UserManagementService.GetWorkerProfile:output_type -> usermanagement.v1.WorkerProfileResponse
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	0, // 2: usermanagement.v1.UserManagementService.HasPaymentMethod:input_type -> usermanagement.v1.GetProfileRequest
+	1, // 3: usermanagement.v1.UserManagementService.GetCustomerProfile:output_type -> usermanagement.v1.CustomerProfileResponse
+	2, // 4: usermanagement.v1.UserManagementService.GetWorkerProfile:output_type -> usermanagement.v1.WorkerProfileResponse
+	3, // 5: usermanagement.v1.UserManagementService.HasPaymentMethod:output_type -> usermanagement.v1.HasPaymentMethodResponse
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -209,7 +259,7 @@ func file_api_usermanagement_service_proto_usermanagement_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_usermanagement_service_proto_usermanagement_proto_rawDesc), len(file_api_usermanagement_service_proto_usermanagement_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
