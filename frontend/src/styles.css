@@ -2500,6 +2500,7 @@ textarea {
 .skillLevelField,
 .skillEvidenceField {
   align-content: start;
+  min-width: 0;
 }
 
 .segmentedControl {
@@ -2528,14 +2529,23 @@ textarea {
 
 .skillEvidenceButton {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto minmax(0, auto);
   justify-content: center;
   width: 100%;
+  min-width: 0;
   min-height: 52px;
   gap: 8px;
   border-radius: 8px;
   background: #111111;
   color: #ffffff;
+  overflow: hidden;
+}
+
+.skillEvidenceButton strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .skillEvidenceButton span[aria-hidden="true"] {
@@ -3664,6 +3674,14 @@ textarea {
   font-size: 13px;
   font-weight: 750;
   cursor: pointer;
+}
+
+.selectedFiles span {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .evidenceLinks button {

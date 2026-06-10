@@ -3980,10 +3980,13 @@ function AttachmentPreview({ msg }) {
 }
 
 function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavigate, onOpenProfile }) {
+  const currentUserID = tokenUserID(token);
+  const activeReportStorageKey = `workers_marketplace_active_report_${currentUserID || "guest"}`;
+  const activeReportSideStorageKey = `workers_marketplace_active_report_side_${currentUserID || "guest"}`;
   const [reports, setReports] = useState([]);
   const [reportBookings, setReportBookings] = useState([]);
-  const [activeID, setActiveID] = useState(() => initialReportID || localStorage.getItem("workers_marketplace_active_report") || "");
-  const [activeSide, setActiveSide] = useState(() => localStorage.getItem("workers_marketplace_active_report_side") || "reporter");
+  const [activeID, setActiveID] = useState(() => initialReportID || localStorage.getItem(activeReportStorageKey) || "");
+  const [activeSide, setActiveSide] = useState(() => localStorage.getItem(activeReportSideStorageKey) || "reporter");
   const [reportPerspective, setReportPerspective] = useState("created");
   const [showCreateForm, setShowCreateForm] = useState(() => Boolean(localStorage.getItem("workers_marketplace_report_booking")));
   const [supportChatOpen, setSupportChatOpen] = useState(false);
@@ -4038,8 +4041,18 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
     }
     apiGet(`/api/reports/${reportID}/messages?side=${encodeURIComponent(side || "reporter")}`, token)
       .then((data) => setMessages(Array.isArray(data) ? data : data.messages || []))
-      .catch((err) => setError(err.message));
-  }, [token]);
+      .catch((err) => {
+        if (String(err.message || "").toLowerCase().includes("report access denied")) {
+          setMessages([]);
+          setActiveID("");
+          localStorage.removeItem(activeReportStorageKey);
+          localStorage.removeItem(activeReportSideStorageKey);
+          onNavigate?.("reports", { replace: true });
+          return;
+        }
+        setError(err.message);
+      });
+  }, [activeReportSideStorageKey, activeReportStorageKey, onNavigate, token]);
 
   const selectReport = useCallback((reportID, side, options = {}) => {
     const nextID = String(reportID || "");
@@ -4075,13 +4088,12 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
   useEffect(() => {
     loadMessages(activeID, activeSide);
     if (!activeID) return undefined;
-    localStorage.setItem("workers_marketplace_active_report", String(activeID));
-    localStorage.setItem("workers_marketplace_active_report_side", String(activeSide));
+    localStorage.setItem(activeReportStorageKey, String(activeID));
+    localStorage.setItem(activeReportSideStorageKey, String(activeSide));
     const intervalID = window.setInterval(() => loadMessages(activeID, activeSide), 4000);
     return () => window.clearInterval(intervalID);
-  }, [activeID, activeSide, loadMessages]);
+  }, [activeID, activeReportSideStorageKey, activeReportStorageKey, activeSide, loadMessages]);
 
-  const currentUserID = tokenUserID(token);
   const createdReports = reports.filter((item) => Number(item.reporter_user_id) === Number(currentUserID));
   const againstReports = reports.filter((item) => Number(item.reported_user_id) === Number(currentUserID));
   const staffVisibleReports = staff && role === "manager"
@@ -4115,7 +4127,12 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
 
   useEffect(() => {
     if (visibleReports.length === 0) {
-      if (!staff) setActiveID("");
+      if (!staff) {
+        setActiveID("");
+        localStorage.removeItem(activeReportStorageKey);
+        localStorage.removeItem(activeReportSideStorageKey);
+        onNavigate?.("reports", { replace: true });
+      }
       return;
     }
     if (activeID && reports.some((report) => String(report.report_id) === String(activeID))) {
@@ -4124,7 +4141,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
     if (!visibleReports.some((report) => String(report.report_id) === String(activeID))) {
       selectReport(visibleReports[0].report_id, undefined, { replace: true });
     }
-  }, [activeID, reports, selectReport, staff, visibleReports]);
+  }, [activeID, activeReportSideStorageKey, activeReportStorageKey, onNavigate, reports, selectReport, staff, visibleReports]);
 
   const createReport = async (event) => {
     event.preventDefault();
@@ -5641,7 +5658,7 @@ function WorkerSkillsPanel({ token }) {
             <span>Qualification evidence</span>
             <label className="fileButton skillEvidenceButton">
               <span aria-hidden="true">+</span>
-              Attach evidence
+              <strong>Attach evidence</strong>
               <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setFiles(Array.from(e.target.files || []))} />
             </label>
             <div className="selectedFiles">
@@ -5716,7 +5733,7 @@ function WorkerSkillsPanel({ token }) {
                       <span>Upgrade evidence</span>
                       <label className="fileButton skillEvidenceButton">
                         <span aria-hidden="true">+</span>
-                        Attach files
+                        <strong>Attach files</strong>
                         <input type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf" onChange={(e) => setUpgradeFiles(Array.from(e.target.files || []))} />
                       </label>
                       <div className="selectedFiles">
