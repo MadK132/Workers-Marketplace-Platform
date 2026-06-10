@@ -726,14 +726,14 @@ paths:
     delete:
       tags:
         - Admin
-      summary: Delete user
+      summary: Deactivate user
       security:
         - bearerAuth: []
       parameters:
         - $ref: "#/components/parameters/UserID"
       responses:
         "200":
-          description: User deleted.
+          description: User deactivated.
           content:
             application/json:
               schema:

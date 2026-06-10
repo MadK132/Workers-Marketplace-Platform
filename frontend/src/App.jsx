@@ -2543,7 +2543,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       await apiDelete(`/api/admin/users/${id}`, token);
-      notifySuccess("User deleted", "The user account was removed.");
+      notifySuccess("User deactivated", "The user account was disabled.");
       setDeleteUserTarget(null);
       loadUsers();
       loadOverview();
@@ -2654,9 +2654,9 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
       )}
       {deleteUserTarget && (
         <ConfirmDialog
-          title="Delete user?"
-          text={`Delete ${deleteUserTarget.full_name || deleteUserTarget.email || "this user"}? This action removes the account and related profile data.`}
-          confirmLabel="Delete user"
+          title="Deactivate user?"
+          text={`Deactivate ${deleteUserTarget.full_name || deleteUserTarget.email || "this user"}? The account will be disabled, but booking and report history will stay available.`}
+          confirmLabel="Deactivate user"
           cancelLabel="Cancel"
           onConfirm={() => deleteUser(deleteUserTarget.user_id)}
           onCancel={() => setDeleteUserTarget(null)}
@@ -2994,7 +2994,7 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete, onOpenProfile
             <span className={`statusPill ${String(user.status || "").toLowerCase()}`}>{user.status}</span>
             <div className="adminUserActions">
               {user.status !== "active" && <button type="button" onClick={() => onActivate(user.user_id)}>Activate</button>}
-              {canDelete && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user)}>Delete</button>}
+              {canDelete && user.status === "active" && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user)}>Deactivate</button>}
             </div>
           </article>
         ))}
@@ -3044,7 +3044,7 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
               </div>
               <span className={`rolePill ${staff.role}`}>{staff.role}</span>
               <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff)}>
-                Delete
+                Deactivate
               </button>
             </article>
           ))}

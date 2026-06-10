@@ -205,11 +205,21 @@ func (r *UserRepository) GetByID(ctx context.Context, id int) (model.User, error
 	return user, nil
 }
 func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
-	_, err := r.pool.Exec(ctx,
-		`DELETE FROM users WHERE user_id=$1`,
-		userID,
-	)
-	return err
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	if _, err := tx.Exec(ctx, `UPDATE users SET status = 'inactive' WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE worker_profiles SET is_available = false WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepository) ListUsers(ctx context.Context) ([]UserSummary, error) {
