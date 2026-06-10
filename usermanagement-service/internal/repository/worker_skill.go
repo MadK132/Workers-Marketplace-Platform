@@ -333,6 +333,7 @@ func (r *WorkerSkillRepository) FindWorkersByCategory(
 		JOIN service_categories sc ON sc.category_id = ws.category_id
 		WHERE ws.category_id = $1
 		  AND ws.is_verified = true
+		  AND u.status = 'active'
 		  AND wp.is_available = true
 	`, categoryID)
 	if err != nil {

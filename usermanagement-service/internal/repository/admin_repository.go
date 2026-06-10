@@ -86,13 +86,16 @@ func NewAdminRepository(db *pgxpool.Pool) *AdminRepository {
 }
 
 func (r *AdminRepository) GetOverview(ctx context.Context, userID int, role string) (AdminOverview, error) {
+	if _, err := r.db.Exec(ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`); err != nil {
+		return AdminOverview{}, err
+	}
 	var stats AdminStats
 	err := r.db.QueryRow(ctx, `
 		SELECT
-			(SELECT COUNT(*) FROM users) AS users_total,
-			(SELECT COUNT(*) FROM users WHERE role = 'customer') AS customers_total,
-			(SELECT COUNT(*) FROM users WHERE role = 'worker') AS workers_total,
-			(SELECT COUNT(*) FROM users WHERE role = 'admin') AS admins_total,
+			(SELECT COUNT(*) FROM users WHERE deleted_at IS NULL) AS users_total,
+			(SELECT COUNT(*) FROM users WHERE role = 'customer' AND deleted_at IS NULL) AS customers_total,
+			(SELECT COUNT(*) FROM users WHERE role = 'worker' AND deleted_at IS NULL) AS workers_total,
+			(SELECT COUNT(*) FROM users WHERE role = 'admin' AND deleted_at IS NULL) AS admins_total,
 			(SELECT COUNT(*) FROM worker_profiles WHERE verification_status = 'pending') AS pending_worker_profiles,
 			(SELECT COUNT(*) FROM worker_profiles WHERE verification_status = 'verified') AS verified_worker_profiles,
 			(SELECT COUNT(*) FROM worker_skills WHERE is_verified = false) AS pending_worker_skills,

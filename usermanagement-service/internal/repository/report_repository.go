@@ -156,6 +156,7 @@ func (r *ReportRepository) EnsureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports(reporter_user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC)`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`,
 		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS assigned_manager_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL`,
 		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_name_snapshot TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_email_snapshot TEXT NOT NULL DEFAULT ''`,
@@ -352,10 +353,10 @@ func (r *ReportRepository) List(ctx context.Context, userID int, staff bool, rol
 		SELECT r.report_id, r.booking_id, r.reporter_user_id, r.reported_user_id,
 			r.assigned_manager_id, r.reason, r.description, r.status, r.resolution,
 			r.penalty_type,
-			COALESCE(reporter.full_name, NULLIF(r.reporter_name_snapshot, ''), 'Deleted user'),
-			COALESCE(reporter.email, NULLIF(r.reporter_email_snapshot, ''), ''),
-			COALESCE(reported.full_name, NULLIF(r.reported_name_snapshot, ''), 'Deleted user'),
-			COALESCE(reported.email, NULLIF(r.reported_email_snapshot, ''), ''),
+			COALESCE(CASE WHEN reporter.deleted_at IS NULL THEN reporter.full_name END, NULLIF(r.reporter_name_snapshot, ''), 'Deleted user'),
+			COALESCE(CASE WHEN reporter.deleted_at IS NULL THEN reporter.email END, NULLIF(r.reporter_email_snapshot, ''), ''),
+			COALESCE(CASE WHEN reported.deleted_at IS NULL THEN reported.full_name END, NULLIF(r.reported_name_snapshot, ''), 'Deleted user'),
+			COALESCE(CASE WHEN reported.deleted_at IS NULL THEN reported.email END, NULLIF(r.reported_email_snapshot, ''), ''),
 			r.created_at, r.updated_at
 		FROM reports r
 		LEFT JOIN users reporter ON reporter.user_id = r.reporter_user_id

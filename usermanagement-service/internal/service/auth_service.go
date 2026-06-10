@@ -162,7 +162,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 
 	err = s.verifications.Create(ctx, user.ID, verifyToken, expiresAt)
 	if err != nil {
-		_ = s.users.DeleteUser(ctx, user.ID)
+		_ = s.users.HardDeleteUser(ctx, user.ID)
 		return RegisterResult{}, err
 	}
 
@@ -170,7 +170,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (Regist
 	if err != nil {
 		log.Printf("warning: failed to send verification email to %s: %v", user.Email, err)
 		if isEmailRequired() {
-			_ = s.users.DeleteUser(ctx, user.ID)
+			_ = s.users.HardDeleteUser(ctx, user.ID)
 			return RegisterResult{}, err
 		}
 	}

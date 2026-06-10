@@ -226,6 +226,9 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 	if err := r.prepareDeletePreserveHistorySchema(ctx, tx); err != nil {
 		return err
 	}
+	if err := r.prepareSoftDeleteSchema(ctx, tx); err != nil {
+		return err
+	}
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE reports r
@@ -253,69 +256,6 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 	}
 
 	if _, err := tx.Exec(ctx, `
-		WITH target_bookings AS (
-			SELECT b.booking_id
-			FROM bookings b
-			LEFT JOIN service_requests sr ON sr.request_id = b.request_id
-			LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
-			LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
-			WHERE cp.user_id = $1 OR wp.user_id = $1
-		)
-		UPDATE payments
-		SET booking_id = NULL
-		WHERE booking_id IN (SELECT booking_id FROM target_bookings)
-	`, userID); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(ctx, `
-		UPDATE reports
-		SET booking_id = CASE
-				WHEN booking_id IN (
-					SELECT b.booking_id
-					FROM bookings b
-					LEFT JOIN service_requests sr ON sr.request_id = b.request_id
-					LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
-					LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
-					WHERE cp.user_id = $1 OR wp.user_id = $1
-				)
-				THEN NULL
-				ELSE booking_id
-			END,
-			reporter_user_id = CASE WHEN reporter_user_id = $1 THEN NULL ELSE reporter_user_id END,
-			reported_user_id = CASE WHEN reported_user_id = $1 THEN NULL ELSE reported_user_id END,
-			assigned_manager_id = CASE WHEN assigned_manager_id = $1 THEN NULL ELSE assigned_manager_id END
-		WHERE reporter_user_id = $1
-		   OR reported_user_id = $1
-		   OR assigned_manager_id = $1
-		   OR booking_id IN (
-				SELECT b.booking_id
-				FROM bookings b
-				LEFT JOIN service_requests sr ON sr.request_id = b.request_id
-				LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
-				LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
-				WHERE cp.user_id = $1 OR wp.user_id = $1
-		   )
-	`, userID); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(ctx, `UPDATE report_messages SET sender_user_id = NULL WHERE sender_user_id = $1`, userID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE report_files SET uploaded_by_user_id = NULL WHERE uploaded_by_user_id = $1`, userID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE penalties
-		SET user_id = CASE WHEN user_id = $1 THEN NULL ELSE user_id END,
-			issued_by_user_id = CASE WHEN issued_by_user_id = $1 THEN NULL ELSE issued_by_user_id END
-		WHERE user_id = $1 OR issued_by_user_id = $1
-	`, userID); err != nil {
-		return err
-	}
-
-	if _, err := tx.Exec(ctx, `
 		DELETE FROM chat_messages
 		WHERE chat_id IN (
 			SELECT chat_id FROM chats WHERE customer_user_id = $1 OR worker_user_id = $1
@@ -328,48 +268,95 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, `
-		WITH target_bookings AS (
-			SELECT b.booking_id
-			FROM bookings b
-			LEFT JOIN service_requests sr ON sr.request_id = b.request_id
-			LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
-			LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
-			WHERE cp.user_id = $1 OR wp.user_id = $1
-		)
-		DELETE FROM reviews
-		WHERE booking_id IN (SELECT booking_id FROM target_bookings)
-	`, userID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM notifications WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM email_verifications WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM password_resets WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM user_payment_methods WHERE user_id = $1`, userID); err != nil {
 		return err
 	}
 
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM bookings
-		WHERE booking_id IN (
-			SELECT b.booking_id
-			FROM bookings b
-			LEFT JOIN service_requests sr ON sr.request_id = b.request_id
-			LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
-			LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
-			WHERE cp.user_id = $1 OR wp.user_id = $1
-		)
+		UPDATE customer_profiles
+		SET bio = '',
+			profile_photo_url = NULL,
+			latitude = NULL,
+			longitude = NULL,
+			location = NULL
+		WHERE user_id = $1
 	`, userID); err != nil {
 		return err
 	}
-
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM service_requests
-		WHERE customer_profile_id IN (
-			SELECT customer_profile_id FROM customer_profiles WHERE user_id = $1
+		WITH target_worker AS (
+			SELECT worker_profile_id FROM worker_profiles WHERE user_id = $1
 		)
+		DELETE FROM worker_identity_documents
+		WHERE worker_profile_id IN (SELECT worker_profile_id FROM target_worker)
+	`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH target_worker AS (
+			SELECT worker_profile_id FROM worker_profiles WHERE user_id = $1
+		)
+		DELETE FROM worker_skill_upgrade_requests
+		WHERE worker_profile_id IN (SELECT worker_profile_id FROM target_worker)
+	`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH target_worker AS (
+			SELECT worker_profile_id FROM worker_profiles WHERE user_id = $1
+		)
+		DELETE FROM worker_skills
+		WHERE worker_profile_id IN (SELECT worker_profile_id FROM target_worker)
+	`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE worker_profiles
+		SET bio = '',
+			current_latitude = NULL,
+			current_longitude = NULL,
+			current_location = NULL,
+			profile_photo_url = NULL,
+			verification_status = 'unverified',
+			is_available = false
+		WHERE user_id = $1
 	`, userID); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE user_id = $1`, userID); err != nil {
+	deletedEmail := fmt.Sprintf("deleted-user-%d@deleted.local", userID)
+	if _, err := tx.Exec(ctx, `
+		UPDATE users
+		SET full_name = 'Deleted user',
+			email = $2,
+			phone = NULL,
+			password_hash = '',
+			status = 'inactive',
+			deleted_at = COALESCE(deleted_at, NOW())
+		WHERE user_id = $1
+	`, userID, deletedEmail); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) HardDeleteUser(ctx context.Context, userID int) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM users WHERE user_id = $1`, userID)
+	return err
+}
+
+func (r *UserRepository) prepareSoftDeleteSchema(ctx context.Context, tx pgx.Tx) error {
+	_, err := tx.Exec(ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`)
+	return err
 }
 
 func (r *UserRepository) prepareDeletePreserveHistorySchema(ctx context.Context, tx pgx.Tx) error {
@@ -409,9 +396,13 @@ func (r *UserRepository) prepareDeletePreserveHistorySchema(ctx context.Context,
 }
 
 func (r *UserRepository) ListUsers(ctx context.Context) ([]UserSummary, error) {
+	if _, err := r.pool.Exec(ctx, `ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ`); err != nil {
+		return nil, err
+	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT user_id, full_name, email, phone, role, status, created_at::text
 		FROM users
+		WHERE deleted_at IS NULL
 		ORDER BY user_id DESC
 		LIMIT 300
 	`)

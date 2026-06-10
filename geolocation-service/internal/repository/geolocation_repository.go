@@ -61,6 +61,7 @@ func (r *GeolocationRepository) FindNearbyWorkers(
 		CROSS JOIN origin
 		WHERE ws.category_id = $1
 		  AND ws.is_verified = true
+		  AND u.status = 'active'
 		  AND wp.verification_status = 'verified'
 		  AND wp.is_available = true
 		  AND wp.current_location IS NOT NULL
