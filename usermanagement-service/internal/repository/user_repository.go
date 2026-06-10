@@ -16,6 +16,9 @@ import (
 var (
 	ErrEmailAlreadyExists = errors.New("email already exists")
 	ErrPhoneAlreadyExists = errors.New("phone already exists")
+	ErrDeleteAdmin        = errors.New("admin accounts cannot be deleted")
+	ErrDeleteHasReports   = errors.New("user has report history and cannot be deleted")
+	ErrDeleteHasPayments  = errors.New("user has payment transaction history and cannot be deleted")
 )
 
 type CreateUserParams struct {
@@ -213,10 +216,106 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 		_ = tx.Rollback(ctx)
 	}()
 
-	if _, err := tx.Exec(ctx, `UPDATE users SET status = 'inactive' WHERE user_id = $1`, userID); err != nil {
+	var role string
+	if err := tx.QueryRow(ctx, `SELECT role::text FROM users WHERE user_id = $1 FOR UPDATE`, userID).Scan(&role); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE worker_profiles SET is_available = false WHERE user_id = $1`, userID); err != nil {
+	if role == string(model.RoleAdmin) {
+		return ErrDeleteAdmin
+	}
+
+	var hasReports bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM reports WHERE reporter_user_id = $1 OR reported_user_id = $1 OR assigned_manager_id = $1
+			UNION ALL
+			SELECT 1 FROM report_messages WHERE sender_user_id = $1
+			UNION ALL
+			SELECT 1 FROM report_files WHERE uploaded_by_user_id = $1
+			UNION ALL
+			SELECT 1 FROM penalties WHERE user_id = $1 OR issued_by_user_id = $1
+		)
+	`, userID).Scan(&hasReports); err != nil {
+		return err
+	}
+	if hasReports {
+		return ErrDeleteHasReports
+	}
+
+	var hasPayments bool
+	if err := tx.QueryRow(ctx, `
+		WITH target_bookings AS (
+			SELECT b.booking_id
+			FROM bookings b
+			LEFT JOIN service_requests sr ON sr.request_id = b.request_id
+			LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+			LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+			WHERE cp.user_id = $1 OR wp.user_id = $1
+		)
+		SELECT EXISTS (
+			SELECT 1
+			FROM payments p
+			JOIN target_bookings tb ON tb.booking_id = p.booking_id
+		)
+	`, userID).Scan(&hasPayments); err != nil {
+		return err
+	}
+	if hasPayments {
+		return ErrDeleteHasPayments
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM chat_messages
+		WHERE chat_id IN (
+			SELECT chat_id FROM chats WHERE customer_user_id = $1 OR worker_user_id = $1
+		)
+	`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM chats WHERE customer_user_id = $1 OR worker_user_id = $1`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		WITH target_bookings AS (
+			SELECT b.booking_id
+			FROM bookings b
+			LEFT JOIN service_requests sr ON sr.request_id = b.request_id
+			LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+			LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+			WHERE cp.user_id = $1 OR wp.user_id = $1
+		)
+		DELETE FROM reviews
+		WHERE booking_id IN (SELECT booking_id FROM target_bookings)
+	`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM bookings
+		WHERE booking_id IN (
+			SELECT b.booking_id
+			FROM bookings b
+			LEFT JOIN service_requests sr ON sr.request_id = b.request_id
+			LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+			LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+			WHERE cp.user_id = $1 OR wp.user_id = $1
+		)
+	`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM service_requests
+		WHERE customer_profile_id IN (
+			SELECT customer_profile_id FROM customer_profiles WHERE user_id = $1
+		)
+	`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE user_id = $1`, userID); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

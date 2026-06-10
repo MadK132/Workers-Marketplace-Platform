@@ -1593,15 +1593,21 @@ func (h *AuthHandler) AdminDeleteUser(c *gin.Context) {
 		return
 	}
 	if userID == c.GetInt("user_id") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "admin cannot deactivate own account"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "admin cannot delete own account"})
 		return
 	}
 
 	if err := h.auth.DeleteUser(c.Request.Context(), userID); err != nil {
+		if errors.Is(err, repository.ErrDeleteAdmin) ||
+			errors.Is(err, repository.ErrDeleteHasReports) ||
+			errors.Is(err, repository.ErrDeleteHasPayments) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "user deactivated"})
+	c.JSON(http.StatusOK, gin.H{"message": "user deleted"})
 }
 
 func (h *AuthHandler) AdminActivateUser(c *gin.Context) {
