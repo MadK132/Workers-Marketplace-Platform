@@ -2385,7 +2385,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
   const [users, setUsers] = useState([]);
   const [reports, setReports] = useState([]);
   const [staffProfileUserID, setStaffProfileUserID] = useState("");
-  const [staffForm, setStaffForm] = useState({ full_name: "", email: "", phone: "", password: "", role: "manager" });
+  const [staffForm, setStaffForm] = useState({ full_name: "", email: "", phone: "+", password: "", role: "manager" });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [rejectIdentityTarget, setRejectIdentityTarget] = useState(null);
@@ -2573,9 +2573,9 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
     setMessage("");
     try {
       const endpoint = staffForm.role === "admin" ? "/api/admin/admins" : "/api/admin/managers";
-      await apiPost(endpoint, token, staffForm);
+      await apiPost(endpoint, token, { ...staffForm, phone: staffForm.phone === "+" ? "" : staffForm.phone });
       notifySuccess("Staff account created", `${staffForm.role === "admin" ? "Admin" : "Manager"} account created.`);
-      setStaffForm({ full_name: "", email: "", phone: "", password: "", role: "manager" });
+      setStaffForm({ full_name: "", email: "", phone: "+", password: "", role: "manager" });
       loadUsers();
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
@@ -3006,6 +3006,11 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete, onOpenProfile
 
 function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete }) {
   const staffMembers = [...admins, ...managers].sort((a, b) => String(a.role).localeCompare(String(b.role)) || String(a.full_name).localeCompare(String(b.full_name)));
+  const updatePhone = (value) => {
+    const trimmed = value.trim();
+    const phone = trimmed === "" ? "+" : (trimmed.startsWith("+") ? trimmed : `+${trimmed.replace(/^\++/, "")}`);
+    setForm({ ...form, phone });
+  };
 
   return (
     <div className="adminStaffLayout">
@@ -3023,7 +3028,7 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
         </Field>
         <Field label="Full name" light><input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required /></Field>
         <Field label="Email" light><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></Field>
-        <Field label="Phone" light><input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
+        <Field label="Phone" light><input value={form.phone} onChange={(e) => updatePhone(e.target.value)} type="tel" inputMode="tel" placeholder="+77001234567" /></Field>
         <Field label="Temporary password" light><input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></Field>
         <button>Create account</button>
       </form>
