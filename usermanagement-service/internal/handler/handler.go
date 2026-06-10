@@ -1598,9 +1598,7 @@ func (h *AuthHandler) AdminDeleteUser(c *gin.Context) {
 	}
 
 	if err := h.auth.DeleteUser(c.Request.Context(), userID); err != nil {
-		if errors.Is(err, repository.ErrDeleteAdmin) ||
-			errors.Is(err, repository.ErrDeleteHasReports) ||
-			errors.Is(err, repository.ErrDeleteHasPayments) {
+		if errors.Is(err, repository.ErrDeleteAdmin) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}

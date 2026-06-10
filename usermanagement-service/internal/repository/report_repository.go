@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -87,8 +88,8 @@ func (r *ReportRepository) EnsureSchema(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS reports (
 			report_id SERIAL PRIMARY KEY,
 			booking_id INTEGER REFERENCES bookings(booking_id) ON DELETE SET NULL,
-			reporter_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-			reported_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+			reporter_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+			reported_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
 			assigned_manager_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
 			reason TEXT NOT NULL,
 			description TEXT NOT NULL DEFAULT '',
@@ -106,14 +107,14 @@ func (r *ReportRepository) EnsureSchema(ctx context.Context) error {
 			file_path TEXT NOT NULL,
 			file_name TEXT NOT NULL,
 			content_type TEXT NOT NULL DEFAULT '',
-			uploaded_by_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+			uploaded_by_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS report_messages (
 			message_id SERIAL PRIMARY KEY,
 			report_id INTEGER NOT NULL REFERENCES reports(report_id) ON DELETE CASCADE,
 			conversation_side TEXT NOT NULL DEFAULT 'reporter',
-			sender_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+			sender_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
 			message_text TEXT NOT NULL DEFAULT '',
 			attachment_url TEXT NOT NULL DEFAULT '',
 			attachment_name TEXT NOT NULL DEFAULT '',
@@ -123,9 +124,9 @@ func (r *ReportRepository) EnsureSchema(ctx context.Context) error {
 		)`,
 		`CREATE TABLE IF NOT EXISTS penalties (
 			penalty_id SERIAL PRIMARY KEY,
-			user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+			user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
 			report_id INTEGER REFERENCES reports(report_id) ON DELETE SET NULL,
-			issued_by_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+			issued_by_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
 			penalty_type TEXT NOT NULL
 				CHECK (penalty_type IN ('warning', 'temporary_suspend', 'block_user', 'unverify_skills')),
 			reason TEXT NOT NULL DEFAULT '',
@@ -257,7 +258,7 @@ func (r *ReportRepository) NotifyReportMessage(ctx context.Context, reportID int
 				'There is a new message in report #' || $1::integer::text || '.',
 				'report', $1::integer::text, 'Open report'
 			FROM reports
-			JOIN users ON users.user_id = CASE WHEN $3 = 'reported' THEN reports.reported_user_id ELSE reports.reporter_user_id END
+			LEFT JOIN users ON users.user_id = CASE WHEN $3 = 'reported' THEN reports.reported_user_id ELSE reports.reporter_user_id END
 			WHERE reports.report_id = $1
 			  AND users.user_id <> $2
 		`, reportID, senderUserID, conversationSide)
@@ -335,11 +336,13 @@ func (r *ReportRepository) List(ctx context.Context, userID int, staff bool, rol
 	query := `
 		SELECT r.report_id, r.booking_id, r.reporter_user_id, r.reported_user_id,
 			r.assigned_manager_id, r.reason, r.description, r.status, r.resolution,
-			r.penalty_type, reporter.full_name, reporter.email, reported.full_name, reported.email,
+			r.penalty_type,
+			COALESCE(reporter.full_name, 'Deleted user'), COALESCE(reporter.email, ''),
+			COALESCE(reported.full_name, 'Deleted user'), COALESCE(reported.email, ''),
 			r.created_at, r.updated_at
 		FROM reports r
-		JOIN users reporter ON reporter.user_id = r.reporter_user_id
-		JOIN users reported ON reported.user_id = r.reported_user_id
+		LEFT JOIN users reporter ON reporter.user_id = r.reporter_user_id
+		LEFT JOIN users reported ON reported.user_id = r.reported_user_id
 	`
 	args := []any{}
 	if staff && role == "manager" {
@@ -358,11 +361,13 @@ func (r *ReportRepository) List(ctx context.Context, userID int, staff bool, rol
 	reports := make([]Report, 0)
 	for rows.Next() {
 		var report Report
+		var reporterUserID sql.NullInt64
+		var reportedUserID sql.NullInt64
 		if err := rows.Scan(
 			&report.ReportID,
 			&report.BookingID,
-			&report.ReporterUserID,
-			&report.ReportedUserID,
+			&reporterUserID,
+			&reportedUserID,
 			&report.AssignedManagerID,
 			&report.Reason,
 			&report.Description,
@@ -378,6 +383,8 @@ func (r *ReportRepository) List(ctx context.Context, userID int, staff bool, rol
 		); err != nil {
 			return nil, err
 		}
+		report.ReporterUserID = intFromNullable(reporterUserID)
+		report.ReportedUserID = intFromNullable(reportedUserID)
 		reports = append(reports, report)
 	}
 	return reports, rows.Err()
@@ -411,12 +418,19 @@ func normalizeReportConversationSide(side string) string {
 	return side
 }
 
+func intFromNullable(value sql.NullInt64) int {
+	if !value.Valid {
+		return 0
+	}
+	return int(value.Int64)
+}
+
 func (r *ReportRepository) CanAccessConversation(ctx context.Context, reportID int, userID int, staff bool, side string) (string, error) {
 	side = normalizeReportConversationSide(side)
 	if staff {
 		return side, nil
 	}
-	var reporterUserID, reportedUserID int
+	var reporterUserID, reportedUserID sql.NullInt64
 	err := r.db.QueryRow(ctx, `
 		SELECT reporter_user_id, reported_user_id
 		FROM reports
@@ -429,9 +443,9 @@ func (r *ReportRepository) CanAccessConversation(ctx context.Context, reportID i
 		return "", err
 	}
 	switch {
-	case userID == reporterUserID:
+	case reporterUserID.Valid && userID == int(reporterUserID.Int64):
 		return "reporter", nil
-	case userID == reportedUserID:
+	case reportedUserID.Valid && userID == int(reportedUserID.Int64):
 		return "reported", nil
 	default:
 		return "", ErrReportAccess
@@ -445,11 +459,11 @@ func (r *ReportRepository) ListMessages(ctx context.Context, reportID int, userI
 	}
 	rows, err := r.db.Query(ctx, `
 		SELECT rm.message_id, rm.report_id, rm.conversation_side, rm.sender_user_id,
-			u.full_name, u.email, u.role::text,
+			COALESCE(u.full_name, 'Deleted user'), COALESCE(u.email, ''), COALESCE(u.role::text, ''),
 			COALESCE(cp.profile_photo_url, wp.profile_photo_url, '') AS sender_avatar_url,
 			rm.message_text, rm.attachment_url, rm.attachment_name, rm.attachment_type, rm.read_at, rm.created_at
 		FROM report_messages rm
-		JOIN users u ON u.user_id = rm.sender_user_id
+		LEFT JOIN users u ON u.user_id = rm.sender_user_id
 		LEFT JOIN customer_profiles cp ON cp.user_id = rm.sender_user_id
 		LEFT JOIN worker_profiles wp ON wp.user_id = rm.sender_user_id
 		WHERE rm.report_id = $1
@@ -463,11 +477,12 @@ func (r *ReportRepository) ListMessages(ctx context.Context, reportID int, userI
 	messages := make([]ReportMessage, 0)
 	for rows.Next() {
 		var msg ReportMessage
+		var senderUserID sql.NullInt64
 		if err := rows.Scan(
 			&msg.MessageID,
 			&msg.ReportID,
 			&msg.ConversationSide,
-			&msg.SenderUserID,
+			&senderUserID,
 			&msg.SenderName,
 			&msg.SenderEmail,
 			&msg.SenderRole,
@@ -481,6 +496,7 @@ func (r *ReportRepository) ListMessages(ctx context.Context, reportID int, userI
 		); err != nil {
 			return nil, err
 		}
+		msg.SenderUserID = intFromNullable(senderUserID)
 		messages = append(messages, msg)
 	}
 	return messages, rows.Err()
@@ -808,6 +824,7 @@ func (r *ReportRepository) ActiveAccessPenalty(ctx context.Context, userID int) 
 		return Penalty{}, false, err
 	}
 	var penalty Penalty
+	var issuedByUserID sql.NullInt64
 	err := r.db.QueryRow(ctx, `
 		SELECT penalty_id, user_id, report_id, issued_by_user_id, penalty_type,
 			reason, status, expires_at, created_at
@@ -822,7 +839,7 @@ func (r *ReportRepository) ActiveAccessPenalty(ctx context.Context, userID int) 
 		&penalty.PenaltyID,
 		&penalty.UserID,
 		&penalty.ReportID,
-		&penalty.IssuedByUserID,
+		&issuedByUserID,
 		&penalty.PenaltyType,
 		&penalty.Reason,
 		&penalty.Status,
@@ -835,5 +852,6 @@ func (r *ReportRepository) ActiveAccessPenalty(ctx context.Context, userID int) 
 	if err != nil {
 		return Penalty{}, false, err
 	}
+	penalty.IssuedByUserID = intFromNullable(issuedByUserID)
 	return penalty, true, nil
 }

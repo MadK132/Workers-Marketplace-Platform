@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -17,8 +18,6 @@ var (
 	ErrEmailAlreadyExists = errors.New("email already exists")
 	ErrPhoneAlreadyExists = errors.New("phone already exists")
 	ErrDeleteAdmin        = errors.New("admin accounts cannot be deleted")
-	ErrDeleteHasReports   = errors.New("user has report history and cannot be deleted")
-	ErrDeleteHasPayments  = errors.New("user has payment transaction history and cannot be deleted")
 )
 
 type CreateUserParams struct {
@@ -224,26 +223,11 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 		return ErrDeleteAdmin
 	}
 
-	var hasReports bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM reports WHERE reporter_user_id = $1 OR reported_user_id = $1 OR assigned_manager_id = $1
-			UNION ALL
-			SELECT 1 FROM report_messages WHERE sender_user_id = $1
-			UNION ALL
-			SELECT 1 FROM report_files WHERE uploaded_by_user_id = $1
-			UNION ALL
-			SELECT 1 FROM penalties WHERE user_id = $1 OR issued_by_user_id = $1
-		)
-	`, userID).Scan(&hasReports); err != nil {
+	if err := r.prepareDeletePreserveHistorySchema(ctx, tx); err != nil {
 		return err
 	}
-	if hasReports {
-		return ErrDeleteHasReports
-	}
 
-	var hasPayments bool
-	if err := tx.QueryRow(ctx, `
+	if _, err := tx.Exec(ctx, `
 		WITH target_bookings AS (
 			SELECT b.booking_id
 			FROM bookings b
@@ -252,16 +236,58 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 			LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
 			WHERE cp.user_id = $1 OR wp.user_id = $1
 		)
-		SELECT EXISTS (
-			SELECT 1
-			FROM payments p
-			JOIN target_bookings tb ON tb.booking_id = p.booking_id
-		)
-	`, userID).Scan(&hasPayments); err != nil {
+		UPDATE payments
+		SET booking_id = NULL
+		WHERE booking_id IN (SELECT booking_id FROM target_bookings)
+	`, userID); err != nil {
 		return err
 	}
-	if hasPayments {
-		return ErrDeleteHasPayments
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE reports
+		SET booking_id = CASE
+				WHEN booking_id IN (
+					SELECT b.booking_id
+					FROM bookings b
+					LEFT JOIN service_requests sr ON sr.request_id = b.request_id
+					LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+					LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+					WHERE cp.user_id = $1 OR wp.user_id = $1
+				)
+				THEN NULL
+				ELSE booking_id
+			END,
+			reporter_user_id = CASE WHEN reporter_user_id = $1 THEN NULL ELSE reporter_user_id END,
+			reported_user_id = CASE WHEN reported_user_id = $1 THEN NULL ELSE reported_user_id END,
+			assigned_manager_id = CASE WHEN assigned_manager_id = $1 THEN NULL ELSE assigned_manager_id END
+		WHERE reporter_user_id = $1
+		   OR reported_user_id = $1
+		   OR assigned_manager_id = $1
+		   OR booking_id IN (
+				SELECT b.booking_id
+				FROM bookings b
+				LEFT JOIN service_requests sr ON sr.request_id = b.request_id
+				LEFT JOIN customer_profiles cp ON cp.customer_profile_id = sr.customer_profile_id
+				LEFT JOIN worker_profiles wp ON wp.worker_profile_id = b.worker_profile_id
+				WHERE cp.user_id = $1 OR wp.user_id = $1
+		   )
+	`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE report_messages SET sender_user_id = NULL WHERE sender_user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE report_files SET uploaded_by_user_id = NULL WHERE uploaded_by_user_id = $1`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE penalties
+		SET user_id = CASE WHEN user_id = $1 THEN NULL ELSE user_id END,
+			issued_by_user_id = CASE WHEN issued_by_user_id = $1 THEN NULL ELSE issued_by_user_id END
+		WHERE user_id = $1 OR issued_by_user_id = $1
+	`, userID); err != nil {
+		return err
 	}
 
 	if _, err := tx.Exec(ctx, `
@@ -319,6 +345,37 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (r *UserRepository) prepareDeletePreserveHistorySchema(ctx context.Context, tx pgx.Tx) error {
+	statements := []string{
+		`ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_reporter_user_id_fkey`,
+		`ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_reported_user_id_fkey`,
+		`ALTER TABLE reports ALTER COLUMN reporter_user_id DROP NOT NULL`,
+		`ALTER TABLE reports ALTER COLUMN reported_user_id DROP NOT NULL`,
+		`ALTER TABLE reports ADD CONSTRAINT reports_reporter_user_id_fkey FOREIGN KEY (reporter_user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
+		`ALTER TABLE reports ADD CONSTRAINT reports_reported_user_id_fkey FOREIGN KEY (reported_user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
+		`ALTER TABLE report_messages DROP CONSTRAINT IF EXISTS report_messages_sender_user_id_fkey`,
+		`ALTER TABLE report_messages ALTER COLUMN sender_user_id DROP NOT NULL`,
+		`ALTER TABLE report_messages ADD CONSTRAINT report_messages_sender_user_id_fkey FOREIGN KEY (sender_user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
+		`ALTER TABLE report_files DROP CONSTRAINT IF EXISTS report_files_uploaded_by_user_id_fkey`,
+		`ALTER TABLE report_files ALTER COLUMN uploaded_by_user_id DROP NOT NULL`,
+		`ALTER TABLE report_files ADD CONSTRAINT report_files_uploaded_by_user_id_fkey FOREIGN KEY (uploaded_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
+		`ALTER TABLE penalties DROP CONSTRAINT IF EXISTS penalties_user_id_fkey`,
+		`ALTER TABLE penalties DROP CONSTRAINT IF EXISTS penalties_issued_by_user_id_fkey`,
+		`ALTER TABLE penalties ALTER COLUMN user_id DROP NOT NULL`,
+		`ALTER TABLE penalties ALTER COLUMN issued_by_user_id DROP NOT NULL`,
+		`ALTER TABLE penalties ADD CONSTRAINT penalties_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
+		`ALTER TABLE penalties ADD CONSTRAINT penalties_issued_by_user_id_fkey FOREIGN KEY (issued_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
+		`ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_booking_id_fkey`,
+		`ALTER TABLE payments ADD CONSTRAINT payments_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(booking_id) ON DELETE SET NULL`,
+	}
+	for _, stmt := range statements {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *UserRepository) ListUsers(ctx context.Context) ([]UserSummary, error) {
@@ -519,11 +576,12 @@ func (r *UserRepository) listUserPenalties(ctx context.Context, userID int) ([]P
 	now := time.Now()
 	for rows.Next() {
 		var item Penalty
+		var issuedByUserID sql.NullInt64
 		if err := rows.Scan(
 			&item.PenaltyID,
 			&item.UserID,
 			&item.ReportID,
-			&item.IssuedByUserID,
+			&issuedByUserID,
 			&item.PenaltyType,
 			&item.Reason,
 			&item.Status,
@@ -532,6 +590,7 @@ func (r *UserRepository) listUserPenalties(ctx context.Context, userID int) ([]P
 		); err != nil {
 			return nil, 0, err
 		}
+		item.IssuedByUserID = intFromNullable(issuedByUserID)
 		if item.PenaltyType == "warning" && item.Status == "active" && (item.ExpiresAt == nil || item.ExpiresAt.After(now)) {
 			warnings++
 		}

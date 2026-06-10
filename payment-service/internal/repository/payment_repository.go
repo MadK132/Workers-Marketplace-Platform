@@ -41,7 +41,7 @@ func (r *PaymentRepository) EnsureTable(ctx context.Context) error {
 
 		CREATE TABLE IF NOT EXISTS payments (
 			payment_id serial PRIMARY KEY,
-			booking_id integer UNIQUE REFERENCES bookings(booking_id) ON DELETE RESTRICT,
+			booking_id integer UNIQUE REFERENCES bookings(booking_id) ON DELETE SET NULL,
 			amount numeric(10, 2),
 			currency character(3) DEFAULT 'KZT',
 			payment_status payment_status DEFAULT 'pending',
@@ -76,7 +76,7 @@ func (r *PaymentRepository) Create(
 		VALUES ($1, $2, $3, 'pending', $4, $5)
 		RETURNING
 			payment_id,
-			booking_id,
+			COALESCE(booking_id, 0),
 			amount::float8,
 			TRIM(currency),
 			payment_status::text,
@@ -108,7 +108,7 @@ func (r *PaymentRepository) GetByBookingID(ctx context.Context, bookingID int) (
 	err := r.db.QueryRow(ctx, `
 		SELECT
 			payment_id,
-			booking_id,
+			COALESCE(booking_id, 0),
 			amount::float8,
 			TRIM(currency),
 			payment_status::text,
@@ -145,7 +145,7 @@ func (r *PaymentRepository) GetByID(ctx context.Context, paymentID int) (Payment
 	err := r.db.QueryRow(ctx, `
 		SELECT
 			payment_id,
-			booking_id,
+			COALESCE(booking_id, 0),
 			amount::float8,
 			TRIM(currency),
 			payment_status::text,
@@ -193,7 +193,7 @@ func (r *PaymentRepository) UpdateStatus(
 		WHERE payment_id = $1
 		RETURNING
 			payment_id,
-			booking_id,
+			COALESCE(booking_id, 0),
 			amount::float8,
 			TRIM(currency),
 			payment_status::text,
@@ -237,7 +237,7 @@ func (r *PaymentRepository) UpdateStatusByTransactionReference(
 		WHERE transaction_reference = $1
 		RETURNING
 			payment_id,
-			booking_id,
+			COALESCE(booking_id, 0),
 			amount::float8,
 			TRIM(currency),
 			payment_status::text,
