@@ -2491,7 +2491,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
-      notifyError("User cannot be deleted", err.message);
+      setError(err.message);
     }
   };
 
@@ -2549,7 +2549,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
       loadOverview();
       window.dispatchEvent(new CustomEvent("wm-admin-data-updated"));
     } catch (err) {
-      setError(err.message);
+      notifyError("User cannot be deleted", err.message);
     }
   };
 
@@ -2950,6 +2950,7 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete, onOpenProfile
       (roleFilter === "staff" && (user.role === "admin" || user.role === "manager"));
     return matchesQuery && matchesRole;
   });
+  const canDeleteRole = (user) => ["customer", "worker", "manager"].includes(String(user.role || ""));
 
   return (
     <div className="adminUsersPanel">
@@ -2994,7 +2995,7 @@ function AdminUsersPanel({ users, onActivate, onDelete, canDelete, onOpenProfile
             <span className={`statusPill ${String(user.status || "").toLowerCase()}`}>{user.status}</span>
             <div className="adminUserActions">
               {user.status !== "active" && <button type="button" onClick={() => onActivate(user.user_id)}>Activate</button>}
-              {canDelete && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user)}>Delete</button>}
+              {canDelete && canDeleteRole(user) && <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(user)}>Delete</button>}
             </div>
           </article>
         ))}
@@ -3043,9 +3044,11 @@ function AdminCreatePanel({ admins, managers, form, setForm, onSubmit, onDelete 
                 </div>
               </div>
               <span className={`rolePill ${staff.role}`}>{staff.role}</span>
-              <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff)}>
-                Delete
-              </button>
+              {staff.role === "manager" && (
+                <button type="button" className="dangerButton subtleDangerButton" onClick={() => onDelete(staff)}>
+                  Delete
+                </button>
+              )}
             </article>
           ))}
         </div>
