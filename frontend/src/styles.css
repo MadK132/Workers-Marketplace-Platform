@@ -1874,6 +1874,15 @@ textarea {
   display: none;
 }
 
+.fileNameText {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .profileUploadButton {
   width: fit-content;
   min-height: 38px;
@@ -3502,6 +3511,7 @@ textarea {
   grid-template-columns: minmax(220px, auto) minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
+  min-width: 0;
 }
 
 .reportParticipantLinks {
@@ -3662,6 +3672,7 @@ textarea {
 .selectedFiles {
   margin-top: 8px;
   min-height: 31px;
+  min-width: 0;
 }
 
 .selectedFiles span,
@@ -4407,11 +4418,16 @@ textarea {
 
   .reviewFooter {
     grid-template-columns: 1fr;
+    min-width: 0;
   }
 
   .reviewAttachButton,
   .reviewSubmitButton {
     width: 100%;
+  }
+
+  .identityUploadRow {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -4736,12 +4752,16 @@ textarea {
 
 .chatAttachment.file {
   width: fit-content;
+  max-width: 100%;
   border: 1px solid #d5e2dc;
   border-radius: 8px;
   padding: 8px 10px;
   background: #f5f8f7;
   color: #1d5f55;
   font-weight: 850;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Chat page frame: controls the height of the whole chat screen. */
@@ -5355,6 +5375,7 @@ textarea {
   grid-template-columns: 1fr;
   gap: 8px;
   align-items: center;
+  min-width: 0;
   border: 1px dashed #cbd7d1;
   border-radius: 8px;
   padding: 10px;
@@ -6393,6 +6414,7 @@ textarea {
   .selectedReportBooking,
   .reportUploadRow {
     grid-template-columns: 1fr;
+    min-width: 0;
   }
 
   .adminVerifyGrid,

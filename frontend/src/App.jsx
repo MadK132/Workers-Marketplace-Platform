@@ -3491,7 +3491,7 @@ function BookingReviewBlock({ item, token, onSaved }) {
           Attach photo
           <input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => setReviewPhoto(event.target.files?.[0] || null)} />
         </label>
-        <span className="reviewPhotoName">{reviewPhoto ? reviewPhoto.name : "Optional photo evidence"}</span>
+        <span className="reviewPhotoName fileNameText" title={reviewPhoto ? reviewPhoto.name : ""}>{reviewPhoto ? reviewPhoto.name : "Optional photo evidence"}</span>
         <button className="reviewSubmitButton" type="button" onClick={saveReview}>
           Send review
         </button>
@@ -3902,7 +3902,7 @@ function ChatPanel({ token, role, initialChatID = "", onNavigate }) {
                 <span aria-hidden="true" />
                 <span className="visuallyHidden">Send</span>
               </button>
-              {attachment && <span className="muted">{attachment.name}</span>}
+              {attachment && <span className="muted fileNameText" title={attachment.name}>{attachment.name}</span>}
             </form>
           )}
         </div>
@@ -4358,7 +4358,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
                   <strong>Attach proof</strong>
                   <input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files || []))} />
                 </label>
-                <span title={fileSummary}>{fileSummary}</span>
+                <span className="fileNameText" title={fileSummary}>{fileSummary}</span>
               </div>
               <button className="reportCreateButton" disabled={!form.booking_id}>Create report</button>
             </form>
@@ -4542,7 +4542,7 @@ function ReportsPanel({ token, role, staff = false, initialReportID = "", onNavi
                 <span aria-hidden="true" />
                 <span className="visuallyHidden">Send</span>
               </button>
-              {attachment && <span className="muted">{attachment.name}</span>}
+              {attachment && <span className="muted fileNameText" title={attachment.name}>{attachment.name}</span>}
             </form>
           )}
         </div>
@@ -5350,19 +5350,19 @@ function WorkerProfilePanel({ token, onNavigate }) {
         </div>
         <p className="muted">Upload an ID card or passport. Only admin and manager accounts can view this file.</p>
         {identityDocument?.file_name && (
-          <span className="muted">Last uploaded: {identityDocument.file_name}</span>
+          <span className="muted fileNameText" title={identityDocument.file_name}>Last uploaded: {identityDocument.file_name}</span>
         )}
         <div className="identityUploadRow">
           <label className="fileButton skillEvidenceButton">
             <span aria-hidden="true">+</span>
-            Attach ID document
+            <strong>Attach ID document</strong>
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp,application/pdf"
               onChange={(event) => setIdentityFile(event.target.files?.[0] || null)}
             />
           </label>
-          <span className="muted">{identityFile ? identityFile.name : "No file selected"}</span>
+          <span className="muted fileNameText" title={identityFile ? identityFile.name : ""}>{identityFile ? identityFile.name : "No file selected"}</span>
           <button className="secondaryButton" type="button" onClick={uploadIdentityDocument} disabled={!identityFile}>Send for review</button>
         </div>
       </section>
