@@ -228,6 +228,31 @@ func (r *UserRepository) DeleteUser(ctx context.Context, userID int) error {
 	}
 
 	if _, err := tx.Exec(ctx, `
+		UPDATE reports r
+		SET reporter_name_snapshot = CASE
+				WHEN r.reporter_user_id = $1 THEN COALESCE(NULLIF(r.reporter_name_snapshot, ''), u.full_name)
+				ELSE r.reporter_name_snapshot
+			END,
+			reporter_email_snapshot = CASE
+				WHEN r.reporter_user_id = $1 THEN COALESCE(NULLIF(r.reporter_email_snapshot, ''), u.email)
+				ELSE r.reporter_email_snapshot
+			END,
+			reported_name_snapshot = CASE
+				WHEN r.reported_user_id = $1 THEN COALESCE(NULLIF(r.reported_name_snapshot, ''), u.full_name)
+				ELSE r.reported_name_snapshot
+			END,
+			reported_email_snapshot = CASE
+				WHEN r.reported_user_id = $1 THEN COALESCE(NULLIF(r.reported_email_snapshot, ''), u.email)
+				ELSE r.reported_email_snapshot
+			END
+		FROM users u
+		WHERE u.user_id = $1
+		  AND (r.reporter_user_id = $1 OR r.reported_user_id = $1)
+	`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
 		WITH target_bookings AS (
 			SELECT b.booking_id
 			FROM bookings b
@@ -351,6 +376,10 @@ func (r *UserRepository) prepareDeletePreserveHistorySchema(ctx context.Context,
 	statements := []string{
 		`ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_reporter_user_id_fkey`,
 		`ALTER TABLE reports DROP CONSTRAINT IF EXISTS reports_reported_user_id_fkey`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_name_snapshot TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_email_snapshot TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reported_name_snapshot TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reported_email_snapshot TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE reports ALTER COLUMN reporter_user_id DROP NOT NULL`,
 		`ALTER TABLE reports ALTER COLUMN reported_user_id DROP NOT NULL`,
 		`ALTER TABLE reports ADD CONSTRAINT reports_reporter_user_id_fkey FOREIGN KEY (reporter_user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
@@ -368,6 +397,7 @@ func (r *UserRepository) prepareDeletePreserveHistorySchema(ctx context.Context,
 		`ALTER TABLE penalties ADD CONSTRAINT penalties_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
 		`ALTER TABLE penalties ADD CONSTRAINT penalties_issued_by_user_id_fkey FOREIGN KEY (issued_by_user_id) REFERENCES users(user_id) ON DELETE SET NULL`,
 		`ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_booking_id_fkey`,
+		`ALTER TABLE payments ALTER COLUMN booking_id DROP NOT NULL`,
 		`ALTER TABLE payments ADD CONSTRAINT payments_booking_id_fkey FOREIGN KEY (booking_id) REFERENCES bookings(booking_id) ON DELETE SET NULL`,
 	}
 	for _, stmt := range statements {

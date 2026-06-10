@@ -2655,7 +2655,7 @@ function AdminApp({ token, role, activeTab, routeDetail, onNavigate }) {
       {deleteUserTarget && (
         <ConfirmDialog
           title="Delete user?"
-          text={`Delete ${deleteUserTarget.full_name || deleteUserTarget.email || "this user"}? Users with report or payment history cannot be deleted.`}
+          text={`Delete ${deleteUserTarget.full_name || deleteUserTarget.email || "this user"}? Reports and payment transactions will stay in history.`}
           confirmLabel="Delete user"
           cancelLabel="Cancel"
           onConfirm={() => deleteUser(deleteUserTarget.user_id)}

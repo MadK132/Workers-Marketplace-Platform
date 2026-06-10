@@ -97,6 +97,10 @@ func (r *ReportRepository) EnsureSchema(ctx context.Context) error {
 				CHECK (status IN ('open', 'in_review', 'waiting_customer', 'waiting_worker', 'resolved', 'rejected')),
 			resolution TEXT NOT NULL DEFAULT '',
 			penalty_type TEXT NOT NULL DEFAULT '',
+			reporter_name_snapshot TEXT NOT NULL DEFAULT '',
+			reporter_email_snapshot TEXT NOT NULL DEFAULT '',
+			reported_name_snapshot TEXT NOT NULL DEFAULT '',
+			reported_email_snapshot TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			CHECK (reporter_user_id <> reported_user_id)
@@ -153,6 +157,10 @@ func (r *ReportRepository) EnsureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_reports_reported ON reports(reported_user_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status, created_at DESC)`,
 		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS assigned_manager_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_name_snapshot TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reporter_email_snapshot TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reported_name_snapshot TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE reports ADD COLUMN IF NOT EXISTS reported_email_snapshot TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS idx_reports_assigned_manager ON reports(assigned_manager_id, status, updated_at DESC)`,
 		`ALTER TABLE report_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ`,
 		`ALTER TABLE report_messages ADD COLUMN IF NOT EXISTS conversation_side TEXT NOT NULL DEFAULT 'reporter'`,
@@ -199,8 +207,15 @@ func (r *ReportRepository) BookingCounterparty(ctx context.Context, bookingID in
 func (r *ReportRepository) Create(ctx context.Context, bookingID *int, reporterUserID int, reportedUserID int, reason string, description string) (Report, error) {
 	var report Report
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO reports (booking_id, reporter_user_id, reported_user_id, reason, description)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO reports (
+			booking_id, reporter_user_id, reported_user_id, reason, description,
+			reporter_name_snapshot, reporter_email_snapshot, reported_name_snapshot, reported_email_snapshot
+		)
+		SELECT $1, reporter.user_id, reported.user_id, $4, $5,
+			reporter.full_name, reporter.email, reported.full_name, reported.email
+		FROM users reporter
+		JOIN users reported ON reported.user_id = $3
+		WHERE reporter.user_id = $2
 		RETURNING report_id, booking_id, reporter_user_id, reported_user_id, assigned_manager_id,
 			reason, description, status, resolution, penalty_type, created_at, updated_at
 	`, bookingID, reporterUserID, reportedUserID, reason, description).Scan(
@@ -337,8 +352,10 @@ func (r *ReportRepository) List(ctx context.Context, userID int, staff bool, rol
 		SELECT r.report_id, r.booking_id, r.reporter_user_id, r.reported_user_id,
 			r.assigned_manager_id, r.reason, r.description, r.status, r.resolution,
 			r.penalty_type,
-			COALESCE(reporter.full_name, 'Deleted user'), COALESCE(reporter.email, ''),
-			COALESCE(reported.full_name, 'Deleted user'), COALESCE(reported.email, ''),
+			COALESCE(reporter.full_name, NULLIF(r.reporter_name_snapshot, ''), 'Deleted user'),
+			COALESCE(reporter.email, NULLIF(r.reporter_email_snapshot, ''), ''),
+			COALESCE(reported.full_name, NULLIF(r.reported_name_snapshot, ''), 'Deleted user'),
+			COALESCE(reported.email, NULLIF(r.reported_email_snapshot, ''), ''),
 			r.created_at, r.updated_at
 		FROM reports r
 		LEFT JOIN users reporter ON reporter.user_id = r.reporter_user_id
